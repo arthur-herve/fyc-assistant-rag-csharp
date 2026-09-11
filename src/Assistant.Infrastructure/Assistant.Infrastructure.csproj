@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Les adaptateurs implémentent les ports de l'application. Aucun paquet tiers. -->
+  <ItemGroup>
+    <ProjectReference Include="../Assistant.Application/Assistant.Application.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,9 @@
+bin/
+obj/
+*.user
+.vs/
+__pycache__/
+*.pyc
+data/
+eval/instantanes/
+*.tmp

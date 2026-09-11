@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Racine de composition + ligne de commande : le seul projet qui connaît tout. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>assistant</AssemblyName>
+    <RootNamespace>Assistant.Cli</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Assistant.Infrastructure/Assistant.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>
