@@ -5,6 +5,7 @@
 //     dotnet run --project src/Assistant.Cli -- status
 //     dotnet run --project src/Assistant.Cli -- snapshot record reference --questions eval/questions.json
 //     dotnet run --project src/Assistant.Cli -- snapshot compare reference candidat
+//     dotnet run --project src/Assistant.Cli -- serve            (API HTTP de l'application, port 8000)
 //
 // Le service IA (python -m ai_service) doit tourner : c'est un autre programme, dans un autre langage.
 
@@ -28,6 +29,7 @@ public static class Program
           snapshot record <nom>          enregistrer un instantané   (--questions eval/questions.json, --limit N)
           snapshot compare <a> <b>       comparer deux instantanés
           snapshot list                  lister les instantanés
+          serve                          API HTTP de l'application   (--host 127.0.0.1, --port 8000, --quiet) : /health, /v1/status, /v1/index, /v1/ask
           benchmark                      mesurer recherche et génération   (--embedding a b, --generation x y, --questions, --validate-with, --runs, --limit, --min-score config|auto|<n>, --max-chars, --overlap-chars, --seed, --out)
           experience <nom>               une expérience reproductible : cace-decoupage, changement-embeddings, changement-generateur, prompt-v2, stabilite   (--questions, --limit, --out, --other, --max-chars, --overlap-chars, --runs, --seed)
 
@@ -132,6 +134,19 @@ public static class Program
                 return Snapshot(args, config, container);
             case "benchmark":
                 return RunBenchmark(args, config, log);
+            case "serve":
+            {
+                var host = args.Value("--host") ?? "127.0.0.1";
+                var port = int.Parse(args.Value("--port") ?? "8000", System.Globalization.CultureInfo.InvariantCulture);
+                using var api = new HttpApi(container, host, port, quiet: args.Has("--quiet"));
+                using var stop = new ManualResetEventSlim(false);
+                Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Set(); };
+                api.Start();
+                Console.Error.WriteLine($"[application] à l'écoute sur {api.Url} (service IA : {config.AiBaseUrl}) — Ctrl+C pour arrêter");
+                stop.Wait();
+                api.Stop();
+                return 0;
+            }
             case "experience":
             {
                 if (args.Positional.Count < 2)
@@ -239,7 +254,7 @@ public static class Program
 /// <summary>Analyse minimale des arguments : positionnels, drapeaux, options à une ou plusieurs valeurs.</summary>
 public sealed class Args
 {
-    private static readonly HashSet<string> Flags = new() { "-v", "--verbose", "--json", "--help", "-h", "--if-stale" };
+    private static readonly HashSet<string> Flags = new() { "-v", "--verbose", "--json", "--help", "-h", "--if-stale", "--quiet" };
     private static readonly HashSet<string> MultiValued = new() { "--embedding", "--generation" };
     private readonly Dictionary<string, List<string>> _values = new();
     private readonly HashSet<string> _flags = new();

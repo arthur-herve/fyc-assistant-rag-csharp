@@ -48,7 +48,7 @@ dotnet test --nologo                                   # l'application
 python -m unittest discover -s tests_python -t .       # le service IA
 ```
 
-Attendu : `Réussi! … total : 87` (le premier `dotnet test` compile tout : 30 à 60 secondes,
+Attendu : `Réussi! … total : 90` (le premier `dotnet test` compile tout : 30 à 60 secondes,
 ensuite quelques secondes) et `Ran 22 tests … OK`. Si les deux sont verts, votre poste est prêt
 pour les séquences 1 à 2.2.
 
@@ -124,6 +124,20 @@ Attendu : l'indexation du corpus réduit (50 fiches, 740 morceaux) prend **10 à
 arrive ensuite en 1 à 3 secondes et cite une fiche sur le congé de paternité (`F3156`). Le corpus
 complet (322 fiches, `config/app-ollama-complet.json`) prend 1 à 3 minutes. Sur processeur seul,
 comptez un ordre de grandeur de plus (non mesuré : à relever sur vos machines et à nous signaler).
+
+## Déploiement sur deux machines
+
+L'application et le service IA sont deux programmes : rien n'oblige à les faire tourner sur le même
+poste. Sur la machine de calcul : `python -m ai_service --host 0.0.0.0` (et `[server] host` dans
+`config/ai_service.toml`). Sur le serveur applicatif :
+
+```bash
+AI_SERVICE_URL=http://machine-gpu:8100 dotnet run --project src/Assistant.Cli -- serve --host 0.0.0.0
+```
+
+L'application répond alors sur `http://<serveur>:8000` (`/health`, `/v1/ask`, `/v1/status`, `/v1/index`).
+Sous Windows, `HttpListener` peut demander un droit d'écoute pour `--host 0.0.0.0` : `netsh http add
+urlacl url=http://+:8000/ user=%USERNAME%` (une fois, en administrateur) ; `127.0.0.1` n'en a pas besoin.
 
 ## Ce qui peut coincer
 

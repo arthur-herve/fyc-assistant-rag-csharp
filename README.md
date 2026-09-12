@@ -46,10 +46,10 @@ src/Assistant.Application/      ports (IEmbedder, IGenerator, IVectorIndex…), 
                                 CheckStatus, RecordSnapshot + SnapshotComparer, OutputValidatingGenerator
 src/Assistant.Infrastructure/   HttpEmbedder/HttpGenerator, MarkdownCorpus, ParagraphSplitter, JsonVectorIndex,
                                 FilePromptRepository, JsonSnapshotStore, SystemClock, décorateurs (cache, journal, tentatives)
-src/Assistant.Cli/              Program (index, ask, status, snapshot, benchmark, experience), Composition (le seul endroit
-                                qui connaît tout), AppConfig, Benchmark, Experiments, EvalQuestions
-tests/Assistant.Tests/          87 tests xUnit : domaine, cas d'usage avec doubles, adaptateurs, contrat HTTP contre un faux
-                                service, règle de dépendance, test statistique (S3.1), calculs du banc d'essai
+src/Assistant.Cli/              Program (index, ask, status, snapshot, benchmark, experience, serve), HttpApi (API HTTP de
+                                l'application), Composition (le seul endroit qui connaît tout), AppConfig, Benchmark, Experiments
+tests/Assistant.Tests/          90 tests xUnit : domaine, cas d'usage avec doubles, adaptateurs, contrat HTTP contre un faux
+                                service, API HTTP contre des doubles, règle de dépendance, test statistique (S3.1), calculs du banc
 exemples/s1.3-transfert-naif/   le transfert naïf en 200 lignes : port dans le domaine, substitution, puis panne silencieuse
 ai_service/                     service IA en Python, copié de la version Python (registre, backends Ollama / hors-ligne)
 tests_python/                   ses tests (bibliothèque standard)
@@ -121,6 +121,18 @@ dotnet run --project src/Assistant.Cli -- experience stabilite --runs 3
 
 Chaque expérience change une seule chose, enregistre deux instantanés et écrit `eval/resultats/exp-<nom>-<date>/rapport.md`.
 
+L'application peut aussi être servie en HTTP (mêmes routes et mêmes codes que la version Python) :
+
+```bash
+dotnet run --project src/Assistant.Cli -- serve                      # port 8000
+curl http://127.0.0.1:8000/health
+curl -X POST http://127.0.0.1:8000/v1/ask -H "Content-Type: application/json" -d '{"user": "alice", "question": "Combien de jours de teletravail ?"}'
+curl http://127.0.0.1:8000/v1/status                                 # 200 à jour · 409 à refaire · 503 non vérifié
+curl -X POST http://127.0.0.1:8000/v1/index -d '{}'                  # reconstruit l'index
+```
+
+Erreurs : `400 invalid_json` / `invalid_question`, `403 unknown_user`, `409 index_unusable`, `502 ai_service_error`, `404 not_found`.
+
 ## Avec de vrais modèles
 
 Ollama et les modèles : [`docs/installation.md`](docs/installation.md), étapes 5 et 6. Puis, le service IA relancé :
@@ -138,7 +150,7 @@ le langage de celle-ci ne change rien aux ordres de grandeur.
 ## Tests
 
 ```bash
-dotnet test                                              # 87 tests C#, sans IA ni réseau (dont un test statistique, S3.1)
+dotnet test                                              # 90 tests C#, sans IA ni réseau (dont un test statistique, S3.1)
 python -m unittest discover -s tests_python -t .         # 22 tests du service IA
 ```
 
@@ -180,9 +192,7 @@ réentraînement (un RAG n'entraîne rien : il se réindexe, `docs/artefacts.md`
 
 ## Limites connues
 
-- Pas d'API HTTP de l'application (`serve`) dans cette version : la ligne de commande suffit au cours.
-- Les exercices (kit S2.2, décorateur S4.1) et le cas pratique (S5.1) n'ont pas encore été portés en C# :
-  ils existent dans la version Python.
+- Le dépôt de départ de l'exercice S4.1 (branche sans le décorateur) attend le découpage du cours en étiquettes Git.
 - Les temps sans carte graphique ne sont pas mesurés (voir `docs/installation.md`).
 - Vérifié le 12/09/2026 : pour le corpus Solvéo et le moteur `hashing`, les deux versions produisent le
   **même identifiant d'index** (`37d63c9a6986`) et la **même `prompt_version`** (`v1+085b70e7`) ; un
