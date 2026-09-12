@@ -17,8 +17,17 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
-      - name: Tests (sans IA, sans réseau)
-        run: dotnet test --nologo
+      - name: Tests (sans IA, sans réseau) — fil rouge et exemple S1.3
+        run: dotnet test FycAssistantRag.sln --nologo
+      - name: Kit S2.2 — rouge au départ, vert avec la solution
+        shell: bash
+        run: |
+          cd exercices/s2.2-coeur-metier/depart
+          if dotnet test --nologo > /dev/null 2>&1; then echo "le kit de départ ne doit pas être vert" && exit 1; fi
+          cp ../solution/*.cs Coeur/
+          dotnet test --nologo
+      - name: Cas pratique S5.1 — la version de départ compile
+        run: dotnet build cas-pratique/depart --nologo
   python:
     name: service IA Python
     runs-on: ubuntu-latest

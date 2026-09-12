@@ -22,15 +22,17 @@ public static class Program
         Usage : assistant <commande> [options]
 
         Commandes :
-          index                          indexer le corpus
+          index                          indexer le corpus   (--if-stale : seulement si status dit « à refaire »)
           ask "<question>"               poser une question   (--user alice, --json, -v)
           status                         l'index est-il cohérent avec le corpus, le découpage et le modèle servi ?   (--json)
           snapshot record <nom>          enregistrer un instantané   (--questions eval/questions.json, --limit N)
           snapshot compare <a> <b>       comparer deux instantanés
           snapshot list                  lister les instantanés
+          benchmark                      mesurer recherche et génération   (--embedding a b, --generation x y, --questions, --validate-with, --runs, --limit, --min-score config|auto|<n>, --max-chars, --overlap-chars, --seed, --out)
+          experience <nom>               une expérience reproductible : cace-decoupage, changement-embeddings, changement-generateur, prompt-v2, stabilite   (--questions, --limit, --out, --other, --max-chars, --overlap-chars, --runs, --seed)
 
         Options communes : --config <fichier>   --embedding-model <alias>   --generation-model <alias>   --prompt <nom>
-        Codes de retour : 0 ok · 1 erreur · status : 2 à refaire, 3 non vérifié
+        Codes de retour : 0 ok · 1 erreur · status : 2 à refaire, 3 non vérifié · index --if-stale : 3 non vérifié
         """;
 
     public static int Main(string[] args)
@@ -81,6 +83,28 @@ public static class Program
         {
             case "index":
             {
+                if (args.Has("--if-stale"))
+                {
+                    // Le cycle « réentraînement » d'un RAG : détecter que l'index ne
+                    // correspond plus au corpus, au découpage ou au modèle servi (status),
+                    // puis le reconstruire. Rien n'est réappris : on recalcule un dérivé.
+                    var report = container.CheckStatus.Execute();
+                    if (report.UpToDate)
+                    {
+                        Console.WriteLine("Index à jour : rien à refaire.");
+                        return 0;
+                    }
+                    if (report.Unverified)
+                    {
+                        Console.Error.WriteLine("Index non vérifié : le service IA est injoignable, impossible de réindexer.");
+                        return 3;
+                    }
+                    Console.WriteLine("Index à refaire :");
+                    foreach (var issue in report.Issues)
+                    {
+                        Console.WriteLine($"  - {issue}");
+                    }
+                }
                 var manifest = container.IndexCorpus.Execute();
                 Console.WriteLine(Presenter.ToJson(Presenter.ManifestToJson(manifest)));
                 return 0;
@@ -106,11 +130,48 @@ public static class Program
             }
             case "snapshot":
                 return Snapshot(args, config, container);
+            case "benchmark":
+                return RunBenchmark(args, config, log);
+            case "experience":
+            {
+                if (args.Positional.Count < 2)
+                {
+                    throw new ArgumentException($"experience attend un nom : {string.Join(", ", Experiments.Names)}");
+                }
+                return Experiments.Run(args.Positional[1], args, config, args.Value("--config") ?? "config/app.json", log);
+            }
             default:
                 Console.Error.WriteLine($"Commande inconnue : {args.Positional[0]}");
                 Console.WriteLine(Usage);
                 return 1;
         }
+    }
+
+    private static int RunBenchmark(Args args, AppConfig config, Action<string> log)
+    {
+        var embeddings = args.Values("--embedding");
+        var generations = args.Values("--generation");
+        if (embeddings.Count == 0 || generations.Count == 0)
+        {
+            throw new ArgumentException("benchmark attend --embedding <alias…> et --generation <alias…>");
+        }
+        var questions = EvalQuestions.Load(EvalQuestions.Resolve(args.Value("--questions") ?? "eval/questions.json"));
+        if (args.Value("--limit") is { } limit && int.Parse(limit, System.Globalization.CultureInfo.InvariantCulture) is var n && n > 0)
+        {
+            questions = questions.Take(n).ToList();
+        }
+        var validation = args.Value("--validate-with") is { } path ? EvalQuestions.Load(EvalQuestions.Resolve(path)) : null;
+        static int? Int(string? value) => value is null ? null : int.Parse(value, System.Globalization.CultureInfo.InvariantCulture);
+        var options = new BenchmarkOptions(
+            embeddings, generations, questions, validation,
+            Runs: Int(args.Value("--runs")) ?? 3,
+            OutDir: args.Value("--out") ?? Path.Combine(AppConfig.ProjectRoot, "eval", "resultats", DateTime.Now.ToString("yyyy-MM-dd-HHmmss")),
+            MinScoreMode: args.Value("--min-score") ?? "config",
+            SplitterMaxChars: Int(args.Value("--max-chars")),
+            SplitterOverlapChars: Int(args.Value("--overlap-chars")),
+            Seed: Int(args.Value("--seed")));
+        Benchmark.Run(config, options, Console.WriteLine);
+        return 0;
     }
 
     private static int Snapshot(Args args, AppConfig config, Container container)
@@ -175,11 +236,12 @@ public static class Program
             : path;
 }
 
-/// <summary>Analyse minimale des arguments : positionnels, drapeaux, options à valeur.</summary>
+/// <summary>Analyse minimale des arguments : positionnels, drapeaux, options à une ou plusieurs valeurs.</summary>
 public sealed class Args
 {
-    private static readonly HashSet<string> Flags = new() { "-v", "--verbose", "--json", "--help", "-h" };
-    private readonly Dictionary<string, string> _values = new();
+    private static readonly HashSet<string> Flags = new() { "-v", "--verbose", "--json", "--help", "-h", "--if-stale" };
+    private static readonly HashSet<string> MultiValued = new() { "--embedding", "--generation" };
+    private readonly Dictionary<string, List<string>> _values = new();
     private readonly HashSet<string> _flags = new();
 
     public List<string> Positional { get; } = new();
@@ -198,11 +260,16 @@ public sealed class Args
                 var equals = arg.IndexOf('=');
                 if (equals > 0)
                 {
-                    _values[arg[..equals]] = arg[(equals + 1)..];
+                    Add(arg[..equals], arg[(equals + 1)..]);
                 }
-                else if (i + 1 < argv.Length)
+                else if (i + 1 < argv.Length && (MultiValued.Contains(arg) || !argv[i + 1].StartsWith("--", StringComparison.Ordinal)))
                 {
-                    _values[arg] = argv[++i];
+                    Add(arg, argv[++i]);
+                    // Option à plusieurs valeurs (--embedding a b) : on avale jusqu'à la prochaine option.
+                    while (MultiValued.Contains(arg) && i + 1 < argv.Length && !argv[i + 1].StartsWith("-", StringComparison.Ordinal))
+                    {
+                        Add(arg, argv[++i]);
+                    }
                 }
                 else
                 {
@@ -216,7 +283,18 @@ public sealed class Args
         }
     }
 
+    private void Add(string option, string value)
+    {
+        if (!_values.TryGetValue(option, out var list))
+        {
+            _values[option] = list = new List<string>();
+        }
+        list.Add(value);
+    }
+
     public bool Has(string flag) => _flags.Contains(flag);
 
-    public string? Value(string option) => _values.GetValueOrDefault(option);
+    public string? Value(string option) => _values.TryGetValue(option, out var list) ? list[^1] : null;
+
+    public IReadOnlyList<string> Values(string option) => _values.GetValueOrDefault(option) ?? new List<string>();
 }

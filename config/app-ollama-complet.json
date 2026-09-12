@@ -1,0 +1,66 @@
+{
+  "_commentaire": "Configuration des expériences à l'échelle, sur le corpus COMPLET (322 fiches Service-Public). Aucun détail de modèle ici : seulement l'adresse du service IA et des alias. Les seuils sont PAR modèle d'embeddings ET par corpus (`nomic` et `bge-m3` calibrés le 11/09/2026 par le banc d'essai de la version Python ; les autres sont des valeurs de départ).",
+  "ai_service": {
+    "base_url": "http://127.0.0.1:8100",
+    "embedding_model": "bge-m3",
+    "generation_model": "llama3-2-3b",
+    "timeout_seconds": 300
+  },
+  "corpus": {
+    "directory": "corpus/service-public"
+  },
+  "index": {
+    "path": "data/index-service-public.json"
+  },
+  "snapshots": {
+    "directory": "eval/instantanes"
+  },
+  "splitter": {
+    "max_chars": 800,
+    "overlap_chars": 120,
+    "include_title": true
+  },
+  "retrieval": {
+    "top_k": 4,
+    "min_score": {
+      "default": 0.4,
+      "hashing": 0.45,
+      "nomic": 0.73,
+      "bge-m3": 0.65,
+      "all-minilm": 0.35,
+      "mxbai": 0.55
+    }
+  },
+  "decorators": {
+    "validate_output": true,
+    "max_output_chars": 1500,
+    "cache_embeddings": true,
+    "log": true,
+    "retries": 1
+  },
+  "generation": {
+    "prompt": "answer",
+    "temperature": 0.2,
+    "max_tokens": 400,
+    "max_attempts": 2
+  },
+  "users": {
+    "alice": {
+      "groups": [
+        "tous"
+      ]
+    },
+    "bruno": {
+      "groups": [
+        "tous",
+        "rh"
+      ]
+    },
+    "claire": {
+      "groups": [
+        "tous",
+        "direction"
+      ]
+    }
+  }
+}

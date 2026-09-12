@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Exemple jouet de la séquence 1.3 : le transfert naïf des principes au modèle d'IA.
+       Volontairement indépendant du fil rouge (aucune référence de projet). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>transfert-naif</AssemblyName>
+    <RootNamespace>TransfertNaif</RootNamespace>
+  </PropertyGroup>
+</Project>

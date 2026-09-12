@@ -25,22 +25,18 @@ public sealed record AskSettings(
 
 public sealed class AskQuestion
 {
-    private readonly IEmbedder _embedder;
-    private readonly IVectorIndex _index;
+    private readonly SearchPassages _search;
     private readonly IGenerator _generator;
     private readonly IPromptRepository _prompts;
     private readonly AskSettings _settings;
-    private readonly AccessPolicy _access;
 
     public AskQuestion(IEmbedder embedder, IVectorIndex index, IGenerator generator,
                        IPromptRepository prompts, AskSettings? settings = null, AccessPolicy? accessPolicy = null)
     {
-        _embedder = embedder;
-        _index = index;
+        _search = new SearchPassages(embedder, index, accessPolicy);
         _generator = generator;
         _prompts = prompts;
         _settings = settings ?? new AskSettings();
-        _access = accessPolicy ?? new AccessPolicy();
     }
 
     public AskSettings Settings => _settings;
@@ -68,15 +64,9 @@ public sealed class AskQuestion
             throw new EmptyQuestionException();
         }
 
-        var manifest = _index.Manifest() ?? throw new IndexNotBuiltException();
-
-        var query = _embedder.EmbedQuery(question);
-        if (query.Model != manifest.EmbeddingModel || query.Dimension != manifest.Dimension)
-        {
-            throw new IndexModelMismatchException(manifest.EmbeddingModel, manifest.Dimension, query.Model, query.Dimension);
-        }
-
-        var passages = _index.Search(query.Vectors[0], _settings.TopK, chunk => _access.CanRead(user, chunk));
+        // Recherche filtrée par les droits (cas d'usage SearchPassages) : sans index,
+        // ou avec un index construit par un autre modèle, on s'arrête ici.
+        var (manifest, passages) = _search.Execute(user, question, _settings.TopK);
         var relevant = passages.Where(p => p.Score >= _settings.MinScore).ToList();
         var retrieved = passages.Select(p => new Retrieved(p.Chunk.Id, Math.Round(p.Score, 4))).ToList();
 

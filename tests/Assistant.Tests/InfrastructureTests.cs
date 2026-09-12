@@ -103,7 +103,7 @@ public class JsonVectorIndexTests
     [Fact]
     public void Reads_and_searches_an_index_written_by_the_python_version()
     {
-        // Même format JSON : la fixture a été produite par fyc-assistant-rag (Python, moteur hashing 64 dim.)
+        // Même format JSON : la fixture a été produite par fyc-assistant-rag-python-full (Python, moteur hashing 64 dim.)
         // sur le corpus Solvéo. Le modèle d'embeddings doit correspondre, pas le langage de l'application.
         var index = new JsonVectorIndex(Path.Combine(AppConfig.ProjectRoot, "tests", "Assistant.Tests", "fixtures", "index-python-hashing.json"));
         var manifest = index.Manifest();
@@ -134,12 +134,45 @@ public class JsonVectorIndexTests
 public class PromptAndSnapshotFilesTests
 {
     [Fact]
-    public void Prompt_version_carries_a_fingerprint_of_the_file()
+    public void Prompt_version_carries_a_fingerprint_of_the_content()
     {
         var template = new FilePromptRepository(Composition.PromptsDir).Get("answer");
         Assert.StartsWith("v1+", template.Version);
         Assert.Contains("{passages}", template.User);
         Assert.Contains("[1]", template.Render("Q ?", "[1] Titre\ntexte"));
+    }
+
+    [Fact]
+    public void Prompt_version_is_the_same_as_in_the_python_version()
+    {
+        // Valeurs calculées par prompt_files.py sur assistant/prompts/answer*.toml (même contenu) :
+        // l'empreinte porte sur le contenu canonique, pas sur le format du fichier.
+        var prompts = new FilePromptRepository(Composition.PromptsDir);
+        Assert.Equal("v1+085b70e7", prompts.Get("answer").Version);
+        Assert.Equal("v2+1708960b", prompts.Get("answer-v2").Version);
+        Assert.Equal("v1+085b70e7"[3..], FilePromptRepository.Fingerprint("v1", prompts.Get("answer").System, prompts.Get("answer").User));
+    }
+
+    [Fact]
+    public void Prompt_modified_without_changing_its_declared_version_is_detected()
+    {
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(dir.FullName, "answer.json");
+            File.WriteAllText(path, """{"version": "v1", "system": "a", "user": "{question}"}""");
+            var first = new FilePromptRepository(dir.FullName).Get("answer").Version;
+            File.WriteAllText(path, """{"version": "v1", "system": "b", "user": "{question}"}""");
+            var second = new FilePromptRepository(dir.FullName).Get("answer").Version;
+            File.WriteAllText(path, """{"version": "v1", "_commentaire": "sans effet", "system": "a", "user": "{question}"}""");
+            var third = new FilePromptRepository(dir.FullName).Get("answer").Version;
+            Assert.NotEqual(first, second);   // contenu modifié : détecté
+            Assert.Equal(first, third);       // commentaire ou mise en forme : sans effet
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
     }
 
     [Fact]

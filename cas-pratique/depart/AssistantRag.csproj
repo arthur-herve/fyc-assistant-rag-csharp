@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Version de départ du cas pratique : un programme qui marche, écrit en un après-midi. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>assistant_rag</AssemblyName>
+    <RootNamespace>AssistantRag</RootNamespace>
+    <Nullable>disable</Nullable>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>

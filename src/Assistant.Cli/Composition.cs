@@ -12,13 +12,31 @@ public sealed record Container(
     AppConfig Config,
     IndexCorpus IndexCorpus,
     AskQuestion AskQuestion,
+    SearchPassages SearchPassages,
     CheckStatus CheckStatus,
     RecordSnapshot RecordSnapshot,
     ISnapshotStore Snapshots,
     IVectorIndex Index,
     IEmbedder Embedder,
     IPromptRepository Prompts,
-    AskSettings Settings);
+    AskSettings Settings,
+    string EmbeddingModel,
+    string GenerationModel);
+
+/// <summary>
+/// Ce que la ligne de commande, le banc d'essai et les expériences peuvent changer sans
+/// toucher au fichier de configuration : chaque champ nul garde la valeur configurée.
+/// </summary>
+public sealed record Overrides(
+    string? EmbeddingModel = null,
+    string? GenerationModel = null,
+    string? IndexPath = null,
+    double? MinScore = null,
+    string? PromptName = null,
+    int? SplitterMaxChars = null,
+    int? SplitterOverlapChars = null,
+    int? Seed = null,
+    string? SnapshotsDir = null);
 
 public static class Composition
 {
@@ -26,33 +44,39 @@ public static class Composition
 
     public static Container Build(AppConfig config, string? embeddingModel = null, string? generationModel = null,
                                   string? indexPath = null, double? minScore = null, string? promptName = null,
-                                  Action<string>? log = null)
+                                  Action<string>? log = null) =>
+        Build(config, new Overrides(embeddingModel, generationModel, indexPath, minScore, promptName), log);
+
+    public static Container Build(AppConfig config, Overrides overrides, Action<string>? log = null)
     {
-        embeddingModel ??= config.EmbeddingModel;
-        generationModel ??= config.GenerationModel;
+        var embeddingModel = overrides.EmbeddingModel ?? config.EmbeddingModel;
+        var generationModel = overrides.GenerationModel ?? config.GenerationModel;
         log ??= _ => { };
 
         // L'adaptateur nu sert à `status` : un cache d'embeddings masquerait un changement de modèle servi.
         var rawEmbedder = new HttpEmbedder(config.AiBaseUrl, embeddingModel, config.Timeout);
         var (embedder, generator) = Decorate(rawEmbedder, new HttpGenerator(config.AiBaseUrl, generationModel, config.Timeout), config, log);
-        var index = new JsonVectorIndex(indexPath ?? config.IndexPath);
+        var index = new JsonVectorIndex(overrides.IndexPath ?? config.IndexPath);
         var source = new MarkdownCorpus(config.CorpusDir);
-        var splitter = new ParagraphSplitter(config.SplitterMaxChars, config.SplitterOverlapChars, config.SplitterIncludeTitle);
+        var splitter = new ParagraphSplitter(overrides.SplitterMaxChars ?? config.SplitterMaxChars,
+                                             overrides.SplitterOverlapChars ?? config.SplitterOverlapChars,
+                                             config.SplitterIncludeTitle);
         var prompts = new FilePromptRepository(PromptsDir);
         var clock = new SystemClock();
 
         var indexCorpus = new IndexCorpus(source, splitter, embedder, index, clock);
         var settings = new AskSettings(
             TopK: config.TopK,
-            MinScore: minScore ?? config.MinScoreFor(embeddingModel),
+            MinScore: overrides.MinScore ?? config.MinScoreFor(embeddingModel),
             MaxAttempts: config.MaxAttempts,
             Temperature: config.Temperature,
             MaxTokens: config.MaxTokens,
-            Seed: config.Seed,
-            PromptName: promptName ?? config.PromptName);
+            Seed: overrides.Seed ?? config.Seed,
+            PromptName: overrides.PromptName ?? config.PromptName);
         var askQuestion = new AskQuestion(embedder, index, generator, prompts, settings);
+        var searchPassages = new SearchPassages(embedder, index);
         var checkStatus = new CheckStatus(source, splitter, rawEmbedder, index, prompts, settings.PromptName);
-        var snapshots = new JsonSnapshotStore(config.SnapshotsDir);
+        var snapshots = new JsonSnapshotStore(overrides.SnapshotsDir ?? config.SnapshotsDir);
         // Empreinte de configuration d'un instantané : tout ce qui change les réponses.
         // Valeurs typées, comme dans la version Python : un instantané C# se compare à un instantané Python.
         var configuration = new Dictionary<string, object?>
@@ -69,7 +93,8 @@ public static class Composition
             ["prompt"] = settings.PromptName,
         };
         var recordSnapshot = new RecordSnapshot(askQuestion, snapshots, clock, configuration);
-        return new Container(config, indexCorpus, askQuestion, checkStatus, recordSnapshot, snapshots, index, embedder, prompts, settings);
+        return new Container(config, indexCorpus, askQuestion, searchPassages, checkStatus, recordSnapshot, snapshots,
+                             index, embedder, prompts, settings, embeddingModel, generationModel);
     }
 
     /// <summary>

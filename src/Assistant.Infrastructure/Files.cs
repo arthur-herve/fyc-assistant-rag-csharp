@@ -11,6 +11,9 @@ namespace Assistant.Infrastructure;
 /// (<c>prompts/&lt;nom&gt;.json</c> : version, system, user). La version tracée combine la
 /// version déclarée et une empreinte du contenu : modifier un prompt sans changer
 /// sa version reste détectable dans les traces.
+/// L'empreinte porte sur le contenu canonique (version, system, user), pas sur le
+/// fichier : un même prompt en JSON ici et en TOML dans la version Python porte la
+/// même version, et les instantanés des deux versions se comparent sans écart.
 /// </summary>
 public sealed class FilePromptRepository : IPromptRepository
 {
@@ -24,16 +27,20 @@ public sealed class FilePromptRepository : IPromptRepository
     public PromptTemplate Get(string name)
     {
         var path = Path.Combine(_directory, name + ".json");
-        // Fins de ligne normalisées : l'empreinte est la même sous Windows et Linux.
-        var text = File.ReadAllText(path).Replace("\r\n", "\n");
-        var data = JsonNode.Parse(text)!.AsObject();
-        var fingerprint = Fingerprints.Sha256Hex(text)[..8];
-        return new PromptTemplate(
-            name,
-            $"{data["version"]!.GetValue<string>()}+{fingerprint}",
-            data["system"]!.GetValue<string>().Trim(),
-            data["user"]!.GetValue<string>().Trim());
+        var data = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+        var version = data["version"]!.GetValue<string>();
+        var system = data["system"]!.GetValue<string>().Trim();
+        var user = data["user"]!.GetValue<string>().Trim();
+        return new PromptTemplate(name, $"{version}+{Fingerprint(version, system, user)}", system, user);
     }
+
+    /// <summary>
+    /// Empreinte canonique d'un prompt : SHA-256 de « version, system, user » séparés par
+    /// des sauts de ligne (fins de ligne normalisées), 8 premiers caractères hexadécimaux.
+    /// Même formule que <c>prompt_files.py</c> dans la version Python.
+    /// </summary>
+    public static string Fingerprint(string version, string system, string user) =>
+        Fingerprints.Sha256Hex($"{version}\n{system}\n{user}".Replace("\r\n", "\n"))[..8];
 }
 
 public sealed class SnapshotNotFoundException : AssistantApplicationException

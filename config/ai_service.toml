@@ -30,6 +30,12 @@ backend = "hashing"
 description = "Même principe, autre dimension : sert à montrer qu'un index ne survit pas au changement."
 dimension = 512
 
+[embedding.hashing-stem4]
+backend = "hashing"
+description = "Même dimension que `hashing` mais autres vecteurs (radicaux de 4 lettres) : la panne SILENCIEUSE de l'exemple S1.3."
+dimension = 256
+stem = 4
+
 [embedding.all-minilm]
 backend = "ollama"
 description = "384 dim., ~46 Mo, entraîné surtout en anglais : attendu faible sur un corpus français."

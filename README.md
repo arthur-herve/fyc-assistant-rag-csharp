@@ -2,7 +2,7 @@
 
 **Concevoir une application IA maintenable avec la Clean Architecture : jusqu'où peut-on isoler le modèle ?**
 
-La même application que [`fyc-assistant-rag`](https://github.com/arthur-herve/fyc-assistant-rag) (Python), avec **l'application en C#**
+La même application que [`fyc-assistant-rag-python-full`](https://github.com/arthur-herve/fyc-assistant-rag-python-full) (Python), avec **l'application en C#**
 et **les modèles d'IA en Python**. Les deux programmes ne partagent que le contrat HTTP
 (`docs/contrat-http.md`) : ni code, ni langage, ni bibliothèque. C'est l'argument de la séquence 2.3
 poussé jusqu'au bout — en entreprise, les machines de calcul hébergent les modèles, les serveurs
@@ -12,6 +12,10 @@ applicatifs hébergent l'application, et les deux équipes n'écrivent pas forc�
 - Service IA : **Python 3.11+**, bibliothèque standard, identique à celui de la version Python (copié tel quel).
 - Mode hors-ligne intégré (embeddings hachés, générateur extractif) : tout fonctionne sans modèle ni GPU.
 - Vrais modèles via [Ollama](https://ollama.com) : `bge-m3` + `llama3.2:3b` dans la configuration `config/app-ollama.json`, comme la version Python.
+- Banc d'essai, cinq expériences reproductibles, test statistique, exemple jouet de la séquence 1.3, neuf ADR : tout ce que le cours promet est dans ce dépôt (voir « Où la problématique apparaît dans le code »).
+
+**Par où commencer** : [`docs/installation.md`](docs/installation.md) (20 minutes hors-ligne), puis le démarrage rapide ci-dessous, puis
+[`exemples/s1.3-transfert-naif/`](exemples/s1.3-transfert-naif/README.md) pour voir le transfert naïf marcher… et casser.
 
 ## Architecture
 
@@ -38,20 +42,25 @@ assemblies compilés).
 
 ```
 src/Assistant.Domain/           entités, AccessPolicy, Citations, OutputRules — ne référence rien
-src/Assistant.Application/      ports (IEmbedder, IGenerator, IVectorIndex…), IndexCorpus, AskQuestion,
+src/Assistant.Application/      ports (IEmbedder, IGenerator, IVectorIndex…), IndexCorpus, SearchPassages, AskQuestion,
                                 CheckStatus, RecordSnapshot + SnapshotComparer, OutputValidatingGenerator
 src/Assistant.Infrastructure/   HttpEmbedder/HttpGenerator, MarkdownCorpus, ParagraphSplitter, JsonVectorIndex,
                                 FilePromptRepository, JsonSnapshotStore, SystemClock, décorateurs (cache, journal, tentatives)
-src/Assistant.Cli/              Program (index, ask, status, snapshot), Composition (le seul endroit qui connaît tout), AppConfig
-tests/Assistant.Tests/          73 tests xUnit : domaine, cas d'usage avec doubles, adaptateurs, contrat HTTP contre un faux
-                                service, règle de dépendance
+src/Assistant.Cli/              Program (index, ask, status, snapshot, benchmark, experience), Composition (le seul endroit
+                                qui connaît tout), AppConfig, Benchmark, Experiments, EvalQuestions
+tests/Assistant.Tests/          87 tests xUnit : domaine, cas d'usage avec doubles, adaptateurs, contrat HTTP contre un faux
+                                service, règle de dépendance, test statistique (S3.1), calculs du banc d'essai
+exemples/s1.3-transfert-naif/   le transfert naïf en 200 lignes : port dans le domaine, substitution, puis panne silencieuse
 ai_service/                     service IA en Python, copié de la version Python (registre, backends Ollama / hors-ligne)
 tests_python/                   ses tests (bibliothèque standard)
-config/app.json                 hors-ligne, corpus Solvéo · app-ollama.json : vrais modèles, corpus réel · ai_service.toml : modèles servis
+config/app.json                 hors-ligne, corpus Solvéo · app-ollama.json : vrais modèles, corpus réduit (50 fiches) ·
+                                app-ollama-complet.json : corpus complet (322 fiches) · ai_service.toml : modèles servis
 prompts/answer.json             prompt versionné (answer-v2.json : la variante de la séquence 3.3)
-corpus/                         solveo/ (9 documents fictifs) · service-public/ (322 fiches réelles, Licence Ouverte 2.0)
-eval/questions*.json            jeux de questions partagés avec la version Python
+corpus/                         solveo/ (9 documents fictifs) · service-public-reduit/ (50 fiches réelles, le corpus du cours) ·
+                                service-public/ (322 fiches, Licence Ouverte 2.0, pour les expériences à l'échelle)
+eval/questions*.json            jeux de questions partagés avec la version Python · eval/resultats/ : rapports du banc et des expériences
 docs/contrat-http.md            le contrat entre les deux programmes — la seule chose qu'ils partagent
+docs/adr/                       neuf décisions d'architecture · docs/artefacts.md : les sept artefacts à versionner ensemble
 ```
 
 ## Démarrage rapide (hors-ligne)
@@ -73,6 +82,7 @@ dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail
 dotnet run --project src/Assistant.Cli -- ask "Quelle est la fourchette de salaire d'un consultant senior ?" --user alice   # refus : document RH
 dotnet run --project src/Assistant.Cli -- ask "Quelle est la fourchette de salaire d'un consultant senior ?" --user bruno   # autorisé
 dotnet run --project src/Assistant.Cli -- status
+dotnet run --project src/Assistant.Cli -- index --if-stale     # réindexe seulement si status dit « à refaire »
 ```
 
 Toutes les commandes se lancent depuis la racine du dépôt. Options utiles : `--json` (sortie JSON de `ask` et
@@ -98,25 +108,37 @@ dotnet run --project src/Assistant.Cli -- snapshot record bruite --limit 8 --gen
 dotnet run --project src/Assistant.Cli -- snapshot compare reference bruite
 ```
 
+Banc d'essai et expériences (mesurer, pas asserter — tout fonctionne hors-ligne, et avec de vrais modèles) :
+
+```bash
+dotnet run --project src/Assistant.Cli -- benchmark --embedding hashing hashing-512 --generation extractive extractive-bruite --runs 3
+dotnet run --project src/Assistant.Cli -- experience cace-decoupage                        # 800 → 300 caractères : la dérive
+dotnet run --project src/Assistant.Cli -- experience changement-embeddings --other hashing-512
+dotnet run --project src/Assistant.Cli -- experience changement-generateur --other extractive-bruite
+dotnet run --project src/Assistant.Cli -- experience prompt-v2
+dotnet run --project src/Assistant.Cli -- experience stabilite --runs 3
+```
+
+Chaque expérience change une seule chose, enregistre deux instantanés et écrit `eval/resultats/exp-<nom>-<date>/rapport.md`.
+
 ## Avec de vrais modèles
 
-Ollama et les modèles s'installent comme pour la version Python ([guide d'installation](https://github.com/arthur-herve/fyc-assistant-rag/blob/main/docs/installation.md)).
-Puis, le service IA relancé :
+Ollama et les modèles : [`docs/installation.md`](docs/installation.md), étapes 5 et 6. Puis, le service IA relancé :
 
 ```bash
 dotnet run --project src/Assistant.Cli -- index --config config/app-ollama.json
 dotnet run --project src/Assistant.Cli -- ask "Combien de jours dure le congé de paternité ?" --config config/app-ollama.json -v
+dotnet run --project src/Assistant.Cli -- benchmark --config config/app-ollama.json --embedding bge-m3 nomic --generation llama3-2-3b --questions eval/questions-service-public.json --validate-with eval/questions-service-public-validation.json --runs 1
 ```
 
-Relevé le 11/09/2026 (RTX 3070 8 Go, une seule exécution, relevé non conservé) : indexation des 3 505 morceaux en
-68 s avec `bge-m3`, réponse citée en 3,6 s avec `llama3.2:3b` sur une question posée à froid (la version Python
-mesure 1,7 s de médiane sur 42 questions, modèle déjà chargé). Le temps est passé dans le service IA, pas dans
-l'application : le langage de celle-ci ne change rien aux ordres de grandeur.
+Les mesures de référence (corpus réduit et corpus complet, `bge-m3` + `llama3.2:3b`, RTX 3070 8 Go) sont dans
+[`eval/resultats/`](eval/resultats/README.md). Le temps est passé dans le service IA, pas dans l'application :
+le langage de celle-ci ne change rien aux ordres de grandeur.
 
 ## Tests
 
 ```bash
-dotnet test                                              # 73 tests C#, sans IA ni réseau
+dotnet test                                              # 87 tests C#, sans IA ni réseau (dont un test statistique, S3.1)
 python -m unittest discover -s tests_python -t .         # 22 tests du service IA
 ```
 
@@ -130,32 +152,38 @@ python -m unittest discover -s tests_python -t .         # 22 tests du service I
 | Les ports | `Protocol` (typage structurel) | `interface` (typage nominal) : un adaptateur *déclare* qu'il implémente le port |
 | Les décorateurs | classes qui imitent le port | classes qui implémentent l'interface : le compilateur garantit la substituabilité |
 
-Ce que les deux versions partagent : les corpus, les jeux de questions, les prompts (même texte, même
-version déclarée — mais l'empreinte tracée diffère, JSON contre TOML : deux instantanés C# / Python
-afficheront une différence de `prompt_version`), la configuration (mêmes clés, JSON d'un côté, TOML de
-l'autre), le format des index et des instantanés, le service IA, et surtout **les mêmes frontières aux
-mêmes endroits**.
+Ce que les deux versions partagent : les corpus, les jeux de questions, les prompts (même texte, même version
+déclarée, même empreinte : elle porte sur le contenu, pas sur le format du fichier), la configuration (mêmes
+clés, JSON d'un côté, TOML de l'autre), le format des index et des instantanés, le format des rapports du banc
+et des expériences, le service IA, et surtout **les mêmes frontières aux mêmes endroits**. Détail : ADR 0009.
+
+Et ce que ce dépôt ne fait pas, par choix : pas de service IA en C# (il effacerait l'argument), pas de base
+vectorielle (l'index JSON *est* la base vectorielle locale du cours, en un fichier — ADR 0007), pas de
+réentraînement (un RAG n'entraîne rien : il se réindexe, `docs/artefacts.md`).
 
 ## Où la problématique apparaît dans le code
 
 | Séquence | Dans le code |
 |---|---|
-| 1.3 / 2.3 — le modèle derrière un port | `src/Assistant.Application/Ports.cs` (`IEmbedder`, `IGenerator`) · `src/Assistant.Infrastructure/HttpAiClient.cs` |
+| 1.3 — le transfert naïf | `exemples/s1.3-transfert-naif/` : port **dans le domaine**, substitution du générateur (marche), substitution des embeddings (casse en silence) |
+| 1.3 / 2.3 — le modèle derrière un port | `src/Assistant.Application/Ports.cs` (`IEmbedder`, `IGenerator`, dans la couche application) · `src/Assistant.Infrastructure/HttpAiClient.cs` · ADR 0001, 0009 |
+| 2.1 — le cahier des charges | règles métier dans `src/Assistant.Domain/Rules.cs` (droits, citations, forme) · corpus du cours `corpus/service-public-reduit/` (50 fiches) |
 | 2.2 — un cœur testable sans IA | `tests/Assistant.Tests/UseCaseTests.cs` avec les doubles de `tests/Assistant.Tests/Fakes.cs` · `ArchitectureTests` |
-| 2.3 — substituer le générateur | `--generation-model` : même index, rien d'autre à changer |
-| 3.1 — non-déterminisme | vérification déterministe des citations (`src/Assistant.Domain/Rules.cs`) · tentatives · instantanés |
-| 3.2 — les données sont du code | `IndexModelMismatchException` · découpage dans le manifeste · seuil par modèle et par corpus (`config/*.json`) |
-| 3.3 — le prompt | `prompts/answer.json`, version + empreinte dans chaque trace · `--prompt answer-v2` |
-| 4.1 — isoler l'incertitude | droits filtrés **avant** le prompt · `Composition.Decorate()` : cache, journal, tentatives, validation de forme (`src/Assistant.Application/Guards.cs`) |
-| 4.2 — versionner ensemble | `IndexManifest` · `AnswerTrace` · `status` (`CheckStatus`) · `snapshot record/compare` · port `IClock` |
-| 4.3 — les limites | index JSON à recherche exhaustive, aucune base vectorielle |
+| 2.3 — substituer le générateur | `--generation-model` : même index, rien d'autre à changer · `experience changement-generateur` |
+| 3.1 — non-déterminisme | vérification déterministe des citations (`src/Assistant.Domain/Rules.cs`) · tentatives · `tests/Assistant.Tests/StatisticalTests.cs` (tolérance et faux échec calculés) · `benchmark` (stabilité, `--validate-with`) · `experience stabilite` |
+| 3.2 — les données sont du code | `IndexModelMismatchException` (`SearchPassages`) · découpage dans le manifeste · seuil par modèle **et par corpus** (`config/app-ollama*.json`) · `experience cace-decoupage`, `experience changement-embeddings` |
+| 3.3 — le prompt | `prompts/answer.json`, version + empreinte du contenu dans chaque trace · `--prompt answer-v2` · `experience prompt-v2` · ADR 0005 |
+| 4.1 — isoler l'incertitude | droits filtrés **avant** le prompt · `Composition.Decorate()` : cache, journal, tentatives, validation de forme (`src/Assistant.Application/Guards.cs`) · ADR 0006, 0008 |
+| 4.2 — versionner ensemble | `IndexManifest` · `AnswerTrace` · `status` (`CheckStatus`) · `index --if-stale` · `snapshot record/compare` · port `IClock` · `docs/artefacts.md` (sept artefacts) |
+| 4.3 — les limites | index JSON à recherche exhaustive, aucune base vectorielle, aucun paquet tiers (ADR 0007) ; quatre projets .NET et un service Python pour une ligne de commande : est-ce trop ? |
+| 5.3 — la réponse | la frontière est le contrat, pas le langage : même `index_id` et instantanés comparables entre C# et Python (ADR 0009) |
 
 ## Limites connues
 
-- Le banc d'essai et les scripts d'expériences n'ont pas été portés : cette version ne fournit que
-  `snapshot record/compare` ; les rapports de référence sont ceux de la version Python.
-- Pas d'API HTTP de l'application (`serve`) dans cette version.
+- Pas d'API HTTP de l'application (`serve`) dans cette version : la ligne de commande suffit au cours.
+- Les exercices (kit S2.2, décorateur S4.1) et le cas pratique (S5.1) n'ont pas encore été portés en C# :
+  ils existent dans la version Python.
+- Les temps sans carte graphique ne sont pas mesurés (voir `docs/installation.md`).
 - Vérifié le 12/09/2026 : pour le corpus Solvéo et le moteur `hashing`, les deux versions produisent le
-  **même identifiant d'index** (`37d63c9a6986`), et un instantané C# comparé à un instantané Python par le
-  comparateur Python donne 0 % de dérive et une seule différence de configuration, `prompt_version`
-  (empreinte du fichier JSON contre celle du fichier TOML).
+  **même identifiant d'index** (`37d63c9a6986`) et la **même `prompt_version`** (`v1+085b70e7`) ; un
+  instantané C# comparé à un instantané Python donne 0 % de dérive et aucune différence de configuration.

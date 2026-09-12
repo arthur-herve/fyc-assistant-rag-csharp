@@ -7,3 +7,6 @@ __pycache__/
 data/
 eval/instantanes/
 *.tmp
+# Rapports du banc et des expériences conservés, sans les index reconstruits
+eval/resultats/*/index-*.json
+exemples/**/index-naif.json

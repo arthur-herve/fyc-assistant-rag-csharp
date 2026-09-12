@@ -3,7 +3,7 @@
 Le service IA ne connaît rien au métier. Il reçoit des textes, renvoie des vecteurs ou du texte, et **dit toujours quel modèle a réellement servi**. C'est ce champ qui permet à l'application de détecter qu'un index n'est plus compatible.
 
 Version 1, figée le 11/09/2026 ; ce contrat est la seule chose que partagent l'application C# et le service IA Python. Deux routes seulement : le service produit des vecteurs et du texte,
-l'index reste côté application ([ADR 0002 de la version Python](https://github.com/arthur-herve/fyc-assistant-rag/blob/main/docs/adr/0002-index-cote-application.md)).
+l'index reste côté application ([ADR 0002 de la version Python](https://github.com/arthur-herve/fyc-assistant-rag-python-full/blob/main/docs/adr/0002-index-cote-application.md)).
 Une exploration antérieure de l'équipe hébergeait l'index dans le service (`/index/reset`,
 `/index/upsert`, `/index/search` avec filtre d'accès) ; ce contrat-ci ne reprend pas ces routes,
 volontairement : la règle d'accès reste dans le domaine et l'index reste une donnée que l'application
