@@ -1,6 +1,7 @@
 // Règles métier : qui peut lire quoi, toute réponse cite ses sources, à quoi
 // ressemble une réponse acceptable. Trois fonctions pures, testables en microsecondes.
 
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace Assistant.Domain;
@@ -47,7 +48,7 @@ public sealed record CitationCheck(IReadOnlyList<int> Cited, IReadOnlyList<int> 
 /// </summary>
 public static class Citations
 {
-    private static readonly Regex Citation = new(@"\[(\d+(?:\s*,\s*\d+)*)\]", RegexOptions.Compiled);
+    private static readonly Regex Citation = new(@"\[([0-9]+(?:\s*,\s*[0-9]+)*)\]", RegexOptions.Compiled);
 
     public static CitationCheck Check(string text, int passageCount)
     {
@@ -56,7 +57,8 @@ public static class Citations
         {
             foreach (var part in match.Groups[1].Value.Split(','))
             {
-                var number = int.Parse(part.Trim());
+                // Un nombre trop grand pour un int ([33612345678]) est une citation invalide, pas un plantage.
+                var number = int.TryParse(part.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) ? parsed : int.MaxValue;
                 if (!numbers.Contains(number))
                 {
                     numbers.Add(number);

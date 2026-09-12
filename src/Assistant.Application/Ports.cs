@@ -2,6 +2,7 @@
 // Les adaptateurs de l'infrastructure implémentent ces interfaces ;
 // les cas d'usage ne connaissent que ces signatures.
 
+using System.Text.RegularExpressions;
 using Assistant.Domain;
 
 namespace Assistant.Application;
@@ -69,8 +70,9 @@ public interface ITextSplitter
 /// <summary>Prompt versionné. Sa version fait partie de la trace de chaque réponse.</summary>
 public sealed record PromptTemplate(string Name, string Version, string System, string User)
 {
+    /// <summary>Substitution en une seule passe : un passage qui contient « {question} » n'est pas re-substitué.</summary>
     public string Render(string question, string passages) =>
-        User.Replace("{passages}", passages).Replace("{question}", question);
+        Regex.Replace(User, @"\{(passages|question)\}", m => m.Groups[1].Value == "passages" ? passages : question);
 }
 
 public interface IPromptRepository
@@ -105,7 +107,7 @@ public sealed record SnapshotEntry(
 public sealed record Snapshot(
     string Name,
     string CreatedAt,
-    IReadOnlyDictionary<string, string> Configuration,
+    IReadOnlyDictionary<string, object?> Configuration,
     IReadOnlyList<SnapshotEntry> Entries);
 
 public interface ISnapshotStore

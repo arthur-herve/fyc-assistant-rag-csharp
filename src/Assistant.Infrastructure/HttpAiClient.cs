@@ -23,6 +23,7 @@ public static class HttpTransport
         return (url, payload) =>
         {
             HttpResponseMessage response;
+            string body;
             try
             {
                 // Corps sérialisé d'un bloc, avec Content-Length : le service (bibliothèque standard
@@ -30,12 +31,17 @@ public static class HttpTransport
                 var json = JsonSerializer.Serialize(payload, payload.GetType(), Options);
                 using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
                 response = client.PostAsync(url, content).GetAwaiter().GetResult();
+                body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
             }
-            catch (Exception error) when (error is HttpRequestException or TaskCanceledException)
+            catch (Exception error) when (error is HttpRequestException or TaskCanceledException or IOException)
             {
                 throw new AiServiceException($"Service IA injoignable ({url}) : {error.Message}");
             }
-            var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            catch (Exception error) when (error is NotSupportedException or UriFormatException or InvalidOperationException)
+            {
+                throw new AiServiceException($"Adresse du service IA invalide ({url}) : {error.Message}", transient: false);
+            }
+            using var _ = response;
             if (!response.IsSuccessStatusCode)
             {
                 var detail = body;
@@ -126,23 +132,5 @@ public sealed class HttpGenerator : IGenerator
         });
         HttpTransport.Require(payload, "model", "text");
         return new Generation(payload.GetProperty("model").GetString()!, payload.GetProperty("text").GetString() ?? "");
-    }
-}
-
-/// <summary>Sonde de disponibilité du service IA (GET /health), pour les messages d'erreur du terminal.</summary>
-public static class AiServiceHealth
-{
-    public static bool IsUp(string baseUrl)
-    {
-        try
-        {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            var response = client.GetAsync(baseUrl.TrimEnd('/') + "/health").GetAwaiter().GetResult();
-            return response.StatusCode == HttpStatusCode.OK;
-        }
-        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
-        {
-            return false;
-        }
     }
 }

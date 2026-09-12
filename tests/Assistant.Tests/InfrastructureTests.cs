@@ -101,17 +101,33 @@ public class JsonVectorIndexTests
     }
 
     [Fact]
-    public void Reads_an_index_written_by_the_python_version_if_present()
+    public void Reads_and_searches_an_index_written_by_the_python_version()
     {
-        // Même format JSON : un index produit par fyc-assistant-rag (Python) se lit ici.
-        var path = Path.Combine(AppConfig.ProjectRoot, "..", "fyc-assistant-rag", "data", "index.json");
-        if (!File.Exists(path))
-        {
-            return;
-        }
-        var index = new JsonVectorIndex(path);
-        Assert.NotNull(index.Manifest());
-        Assert.True(index.Manifest()!.ChunkCount > 0);
+        // Même format JSON : la fixture a été produite par fyc-assistant-rag (Python, moteur hashing 64 dim.)
+        // sur le corpus Solvéo. Le modèle d'embeddings doit correspondre, pas le langage de l'application.
+        var index = new JsonVectorIndex(Path.Combine(AppConfig.ProjectRoot, "tests", "Assistant.Tests", "fixtures", "index-python-hashing.json"));
+        var manifest = index.Manifest();
+        Assert.NotNull(manifest);
+        Assert.Equal("hashing-64-stem6", manifest!.EmbeddingModel);
+        Assert.Equal(15, manifest.ChunkCount);
+        Assert.Equal(800, manifest.Splitter["max_chars"]);
+        // Le vecteur du morceau « télétravail » retrouve ce morceau en tête : les vecteurs sont lus et normalisés.
+        var teletravail = index.Search(new double[64], 1, _ => true);   // vecteur nul : aucun score, mais aucune erreur
+        Assert.Single(teletravail);
+        var root = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(AppConfig.ProjectRoot, "tests", "Assistant.Tests", "fixtures", "index-python-hashing.json")))!;
+        var vector = root["vectors"]![0]!.AsArray().Select(x => x!.GetValue<double>()).ToArray();
+        var hits = index.Search(vector, 1, _ => true);
+        Assert.Equal(root["chunks"]![0]!["id"]!.GetValue<string>(), hits[0].Chunk.Id);
+        Assert.InRange(hits[0].Score, 0.999, 1.001);
+    }
+
+    [Fact]
+    public void Index_id_matches_the_python_formula()
+    {
+        // Même corpus, même modèle, même découpage → même identifiant que json.dumps(sort_keys=True) en Python.
+        var splitter = new Dictionary<string, object> { ["type"] = "paragraph", ["max_chars"] = 800, ["overlap_chars"] = 120, ["include_title"] = true };
+        var identity = $"[{Fingerprints.PythonJson("fp")}, {Fingerprints.PythonJson("m")}, {64}, {Fingerprints.PythonJson(splitter)}]";
+        Assert.Equal("[\"fp\", \"m\", 64, {\"include_title\": true, \"max_chars\": 800, \"overlap_chars\": 120, \"type\": \"paragraph\"}]", identity);
     }
 }
 
@@ -134,13 +150,17 @@ public class PromptAndSnapshotFilesTests
         {
             var store = new JsonSnapshotStore(Path.Combine(dir.FullName, "instantanes"));
             Assert.Empty(store.Names());
-            var snapshot = new Snapshot("ref", "2026-09-11T12:00:00+00:00", new Dictionary<string, string> { ["generation_model"] = "extractive" },
+            var snapshot = new Snapshot("ref", "2026-09-11T12:00:00+00:00",
+                new Dictionary<string, object?> { ["generation_model"] = "extractive", ["top_k"] = 4, ["seed"] = null, ["splitter"] = new Dictionary<string, object> { ["max_chars"] = 800 } },
                 new[] { new SnapshotEntry("q1", "alice", "Q ?", "answered", new[] { "a", "b" }, "Texte [1]", 1) });
             store.Save(snapshot);
             var loaded = store.Load("ref");
             Assert.Equal(snapshot.Entries[0] with { CitedDocuments = Array.Empty<string>() }, loaded.Entries[0] with { CitedDocuments = Array.Empty<string>() });
             Assert.Equal(new[] { "a", "b" }, loaded.Entries[0].CitedDocuments);
             Assert.Equal("extractive", loaded.Configuration["generation_model"]);
+            Assert.Equal(4, loaded.Configuration["top_k"]);
+            Assert.Null(loaded.Configuration["seed"]);
+            Assert.Empty(SnapshotComparer.Compare(snapshot, loaded).ConfigurationDifferences);   // relu du disque = construit en mémoire
             Assert.Equal(new[] { "ref" }, store.Names());
             Assert.Throws<SnapshotNotFoundException>(() => store.Load("absent"));
             Assert.Throws<InvalidSnapshotNameException>(() => store.Load("../autre"));
@@ -182,6 +202,17 @@ public class DecoratorTests
         Assert.Same(first, cached.EmbedQuery("télétravail"));
         Assert.Single(inner.Calls);
         Assert.Equal((1, 1), (cached.Hits, cached.Misses));
+    }
+
+    [Fact]
+    public void Cache_does_not_confuse_two_batches_with_the_same_joined_text()
+    {
+        var inner = new KeywordEmbedder();
+        var cached = new CachedEmbedder(inner);
+        cached.EmbedDocuments(new[] { "a b", "c" });
+        cached.EmbedDocuments(new[] { "a", "b c" });
+        Assert.Equal(2, inner.Calls.Count);
+        Assert.Equal((0, 2), (cached.Hits, cached.Misses));
     }
 
     [Fact]
@@ -239,12 +270,18 @@ public class HttpContractTests : IDisposable
 
     public HttpContractTests()
     {
-        var port = new Random().Next(20000, 40000);
+        // Un port réellement libre, plutôt qu'un tirage au hasard.
+        var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+        probe.Start();
+        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
+        probe.Stop();
         _url = $"http://127.0.0.1:{port}/";
         _listener.Prefixes.Add(_url);
         _listener.Start();
         _ = Task.Run(Serve);
     }
+
+    private static readonly TimeSpan Short = TimeSpan.FromSeconds(5);
 
     private async Task Serve()
     {
@@ -291,12 +328,16 @@ public class HttpContractTests : IDisposable
         }
     }
 
-    public void Dispose() => _listener.Stop();
+    public void Dispose()
+    {
+        _listener.Stop();
+        _listener.Close();
+    }
 
     [Fact]
     public void Embeddings_request_declares_an_intent_and_returns_the_concrete_model()
     {
-        var batch = new HttpEmbedder(_url, "nomic").EmbedQuery("Combien de jours ?");
+        var batch = new HttpEmbedder(_url, "nomic", Short).EmbedQuery("Combien de jours ?");
         Assert.Equal("ollama:nomic-embed-text@0a109f422b47", batch.Model);
         Assert.Equal(3, batch.Dimension);
         var (path, body) = _requests.Single();
@@ -308,10 +349,15 @@ public class HttpContractTests : IDisposable
     [Fact]
     public void Generation_request_sends_the_prompt_built_by_the_application()
     {
-        var generation = new HttpGenerator(_url, "llama3-2-3b").Generate(new GenerationRequest("sys", "prompt", 0.2, 150, 42));
+        var generation = new HttpGenerator(_url, "llama3-2-3b", Short).Generate(new GenerationRequest("sys", "prompt", 0.2, 150, 42));
         Assert.Equal("Deux jours [1].", generation.Text);
-        var (_, body) = _requests.Single();
+        Assert.Equal("ollama:llama3.2:3b@a80c", generation.Model);
+        var (path, body) = _requests.Single();
+        Assert.Equal("/v1/generate", path);
+        Assert.Equal("llama3-2-3b", body["model"]!.GetValue<string>());
         Assert.Equal("sys", body["system"]!.GetValue<string>());
+        Assert.Equal("prompt", body["prompt"]!.GetValue<string>());
+        Assert.Equal(0.2, body["temperature"]!.GetValue<double>());
         Assert.Equal(150, body["max_tokens"]!.GetValue<int>());
         Assert.Equal(42, body["seed"]!.GetValue<int>());
     }
@@ -319,7 +365,7 @@ public class HttpContractTests : IDisposable
     [Fact]
     public void A_refused_request_is_not_transient()
     {
-        var error = Assert.Throws<AiServiceException>(() => new HttpGenerator(_url, "inconnu").Generate(new GenerationRequest("s", "p", 0.2, 10)));
+        var error = Assert.Throws<AiServiceException>(() => new HttpGenerator(_url, "inconnu", Short).Generate(new GenerationRequest("s", "p", 0.2, 10)));
         Assert.Contains("HTTP 404", error.Message);
         Assert.False(error.Transient);
     }
@@ -327,6 +373,14 @@ public class HttpContractTests : IDisposable
     [Fact]
     public void An_unreachable_service_is_transient() =>
         Assert.True(Assert.Throws<AiServiceException>(() => new HttpEmbedder("http://127.0.0.1:1", "x", TimeSpan.FromSeconds(2)).EmbedQuery("a")).Transient);
+
+    [Fact]
+    public void An_invalid_address_is_an_explicit_non_transient_error()
+    {
+        var error = Assert.Throws<AiServiceException>(() => new HttpEmbedder("localhost:8100", "x", Short).EmbedQuery("a"));
+        Assert.False(error.Transient);
+        Assert.Contains("invalide", error.Message);
+    }
 }
 
 /// <summary>Règle de dépendance, vérifiée sur les assemblies compilés (séquence 2.2).</summary>
@@ -335,9 +389,15 @@ public class ArchitectureTests
     private static IEnumerable<string> References(Type anyTypeOfAssembly) =>
         anyTypeOfAssembly.Assembly.GetReferencedAssemblies().Select(a => a.Name!);
 
+    private static readonly HashSet<string> DomainAllowed = new()
+    {
+        "System.Runtime", "System.Collections", "System.Linq", "System.Text.RegularExpressions", "System.Memory", "netstandard",
+    };
+
     [Fact]
     public void Domain_depends_on_nothing_but_the_runtime() =>
-        Assert.All(References(typeof(Document)), name => Assert.True(name.StartsWith("System", StringComparison.Ordinal) || name == "netstandard", name));
+        // Liste blanche : System.Net.Http ou System.Text.Json dans le domaine feraient échouer ce test.
+        Assert.All(References(typeof(Document)), name => Assert.Contains(name, DomainAllowed));
 
     [Fact]
     public void Application_depends_only_on_the_domain() =>
@@ -345,18 +405,29 @@ public class ArchitectureTests
                    name => Assert.Equal("Assistant.Domain", name));
 
     [Fact]
-    public void Infrastructure_never_references_the_composition_root() =>
-        Assert.DoesNotContain("Assistant.Cli", References(typeof(HttpEmbedder)));
+    public void Infrastructure_does_not_reference_json_or_http_from_the_application_or_domain()
+    {
+        // L'application ne connaît ni HTTP ni JSON : ce sont des détails de l'infrastructure.
+        Assert.DoesNotContain(References(typeof(AskQuestion)), n => n.StartsWith("System.Net", StringComparison.Ordinal));
+        Assert.DoesNotContain(References(typeof(Document)), n => n.StartsWith("System.Text.Json", StringComparison.Ordinal));
+    }
 
     [Fact]
-    public void Only_the_composition_root_builds_adapters_and_stacks_decorators()
+    public void Adapters_are_assembled_only_by_the_composition_root()
     {
-        var infrastructureTypes = typeof(HttpEmbedder).Assembly.GetTypes().Where(t => t.IsClass && t.IsPublic).Select(t => t.FullName!).ToHashSet();
-        foreach (var type in typeof(AskQuestion).Assembly.GetTypes())
+        // Aucun constructeur public de l'infrastructure ne prend un autre type concret de l'infrastructure :
+        // les décorateurs ne reçoivent que des ports, et personne d'autre que Composition n'empile.
+        var infrastructure = typeof(HttpEmbedder).Assembly;
+        var concrete = infrastructure.GetTypes().Where(t => t.IsClass && !t.IsAbstract && t.IsPublic && !typeof(Delegate).IsAssignableFrom(t)).ToHashSet();
+        foreach (var type in concrete)
         {
-            foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public))
+            foreach (var ctor in type.GetConstructors())
             {
-                Assert.False(infrastructureTypes.Contains(field.FieldType.FullName ?? ""), $"{type.Name}.{field.Name} dépend de l'infrastructure");
+                foreach (var parameter in ctor.GetParameters())
+                {
+                    Assert.False(concrete.Contains(parameter.ParameterType),
+                                 $"{type.Name}({parameter.Name}) reçoit un adaptateur concret au lieu d'un port");
+                }
             }
         }
     }

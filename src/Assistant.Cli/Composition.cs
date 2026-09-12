@@ -54,17 +54,18 @@ public static class Composition
         var checkStatus = new CheckStatus(source, splitter, rawEmbedder, index, prompts, settings.PromptName);
         var snapshots = new JsonSnapshotStore(config.SnapshotsDir);
         // Empreinte de configuration d'un instantané : tout ce qui change les réponses.
-        var configuration = new Dictionary<string, string>
+        // Valeurs typées, comme dans la version Python : un instantané C# se compare à un instantané Python.
+        var configuration = new Dictionary<string, object?>
         {
             ["corpus"] = Path.GetFileName(config.CorpusDir.TrimEnd(Path.DirectorySeparatorChar, '/')),
             ["embedding_model"] = embeddingModel,
             ["generation_model"] = generationModel,
-            ["splitter"] = CheckStatus.Describe(splitter.Describe()),
-            ["top_k"] = settings.TopK.ToString(),
-            ["min_score"] = settings.MinScore.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            ["temperature"] = settings.Temperature.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            ["max_tokens"] = settings.MaxTokens.ToString(),
-            ["seed"] = settings.Seed?.ToString() ?? "",
+            ["splitter"] = splitter.Describe(),
+            ["top_k"] = settings.TopK,
+            ["min_score"] = settings.MinScore,
+            ["temperature"] = settings.Temperature,
+            ["max_tokens"] = settings.MaxTokens,
+            ["seed"] = settings.Seed,
             ["prompt"] = settings.PromptName,
         };
         var recordSnapshot = new RecordSnapshot(askQuestion, snapshots, clock, configuration);

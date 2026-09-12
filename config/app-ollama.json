@@ -1,5 +1,5 @@
 {
-  "_commentaire": "Configuration de l'application C#. Aucun détail de modèle ici : seulement l'adresse du service IA et des alias. Les seuils sont PAR modèle d'embeddings ET par corpus (calibrés le 11/09/2026 par le banc d'essai de la version Python).",
+  "_commentaire": "Configuration de l'application C#. Aucun détail de modèle ici : seulement l'adresse du service IA et des alias. Les seuils sont PAR modèle d'embeddings ET par corpus (`nomic` et `bge-m3` calibrés le 11/09/2026 par le banc d'essai de la version Python ; les autres sont des valeurs de départ).",
   "ai_service": {
     "base_url": "http://127.0.0.1:8100",
     "embedding_model": "bge-m3",

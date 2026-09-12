@@ -8,7 +8,7 @@ Deux corpus, choisis par `"corpus": {"directory": …}` dans `config/app*.json` 
 | `service-public/` | 322 fiches **réelles** de Service-Public.gouv.fr, thème « Travail - Formation », secteur privé | fil rouge avec de vrais modèles, banc d'essai, expériences (`config/app-ollama.json`) |
 
 Format commun : un fichier Markdown par document, avec un en-tête entre deux lignes `---`
-lu par `assistant/infrastructure/markdown_corpus.py` :
+lu par `src/Assistant.Infrastructure/MarkdownCorpus.cs` :
 
 ```markdown
 ---
@@ -38,9 +38,9 @@ thème…) sont conservées à titre documentaire et ignorées par l'application
   *Service-Public.gouv.fr / DILA*. Chaque fiche porte dans son en-tête l'URL de la fiche
   d'origine (`source`) et sa date de modification (`date`).
 - Les fiches sont converties en Markdown par `tools/import_service_public.py` de la version Python
-  (bibliothèque standard). La conversion conserve le texte, les titres, les listes, les tableaux
+  ([https://github.com/arthur-herve/fyc-assistant-rag](https://github.com/arthur-herve/fyc-assistant-rag), bibliothèque standard). La conversion conserve le texte, les titres, les listes, les tableaux
   et les encadrés ; elle écarte les contacts, services en ligne, références légales et renvois.
-  **Le contenu n'est pas modifié.** Pour une version à jour : `python tools/import_service_public.py --download`.
+  **Le contenu n'est pas modifié.** Pour une version à jour : depuis le dépôt Python, `python tools/import_service_public.py --download`, puis copier `corpus/service-public/` ici.
 
 ### Périmètre
 

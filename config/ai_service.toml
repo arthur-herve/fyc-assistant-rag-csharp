@@ -87,7 +87,8 @@ description = "~0,8 Go. Tourne sur presque tout, qualité limitée."
 model = "gemma3:1b"
 
 # Modèles qwen3 : le mode réflexion reste ACTIVÉ (think = true) et reçoit son
-# propre budget de jetons. Mesuré le 11/09/2026 (Ollama 0.34, qwen3:4b) :
+# propre budget de jetons. Mesuré le 11/09/2026 (Ollama 0.34, qwen3:4b, mesures de
+# la version Python, dossier eval/resultats/ de ce dépôt-là) :
 # think = false déverse le raisonnement dans la réponse, sans balise ;
 # think = true le renvoie à part, et la réponse est propre. Le budget doit
 # suivre la longueur du prompt : avec 4 passages de 800 caractères, qwen3:4b

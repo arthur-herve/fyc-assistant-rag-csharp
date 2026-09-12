@@ -22,6 +22,6 @@ SOFTWARE.
 
 ---
 
-Le corpus corpus/service-public/ n'est pas couvert par cette licence : il reproduit
+Le dossier corpus/service-public/ n'est pas couvert par cette licence : il reproduit
 des fiches de Service-Public.gouv.fr (DILA) sous Licence Ouverte / Open Licence 2.0
 (https://www.etalab.gouv.fr/licence-ouverte-open-licence/). Voir corpus/README.md.

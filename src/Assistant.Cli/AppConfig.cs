@@ -66,7 +66,7 @@ public sealed record AppConfig(
             MaxAttempts: gen["max_attempts"]?.GetValue<int>() ?? 2,
             Seed: gen["seed"]?.GetValue<int>(),
             Decorators: (raw["decorators"]?.AsObject() ?? new JsonObject())
-                .ToDictionary(kv => kv.Key, kv => kv.Value!.ToJsonString(), StringComparer.Ordinal),
+                .ToDictionary(kv => kv.Key, kv => kv.Value is JsonValue v ? v.ToString().ToLowerInvariant() : kv.Value!.ToJsonString(), StringComparer.Ordinal),
             Users: (raw["users"]?.AsObject() ?? new JsonObject()).ToDictionary(
                 kv => kv.Key,
                 kv => (IReadOnlySet<string>)(kv.Value!["groups"]?.AsArray().Select(g => g!.GetValue<string>()).ToHashSet()

@@ -37,20 +37,26 @@ public static class Program
     {
         // Sortie en UTF-8 même redirigée vers un fichier (Windows encoderait en cp1252).
         Console.OutputEncoding = new UTF8Encoding(false);
-        Console.InputEncoding = new UTF8Encoding(false);
         try
         {
             return Run(args);
         }
         catch (Exception error) when (error is AssistantApplicationException or DomainException or UnknownUserException
-                                           or CorpusFormatException or ArgumentException or InvalidOperationException)
+                                           or CorpusFormatException or ArgumentException or InvalidOperationException
+                                           or FormatException or OverflowException or NotSupportedException)
         {
             Console.Error.WriteLine($"Erreur : {error.Message}");
             return 1;
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException
+                                           or NullReferenceException or KeyNotFoundException)
         {
-            Console.Error.WriteLine($"Erreur : fichier ou dossier inaccessible — {error.Message}");
+            Console.Error.WriteLine($"Erreur : fichier illisible ou incomplet (configuration, questions, index) — {error.Message}");
+            return 1;
+        }
+        catch (System.Net.Http.HttpRequestException error)
+        {
+            Console.Error.WriteLine($"Erreur : service IA — {error.Message}");
             return 1;
         }
     }
@@ -81,9 +87,9 @@ public static class Program
             }
             case "ask":
             {
-                if (args.Positional.Count < 2)
+                if (args.Positional.Count != 2)
                 {
-                    throw new ArgumentException("ask attend une question entre guillemets");
+                    throw new ArgumentException("ask attend une seule question, entre guillemets");
                 }
                 var user = config.User(args.Value("--user") ?? "alice");
                 var answer = container.AskQuestion.Execute(user, args.Positional[1]);
@@ -119,9 +125,9 @@ public static class Program
                     throw new ArgumentException("snapshot record attend un nom");
                 }
                 var questions = LoadQuestions(ProjectPath(args.Value("--questions") ?? "eval/questions.json"), config);
-                if (args.Value("--limit") is { } limit)
+                if (args.Value("--limit") is { } limit && int.Parse(limit, System.Globalization.CultureInfo.InvariantCulture) is var n && n > 0)
                 {
-                    questions = questions.Take(int.Parse(limit)).ToList();
+                    questions = questions.Take(n).ToList();
                 }
                 var snapshot = container.RecordSnapshot.Execute(args.Positional[2], questions);
                 Console.WriteLine($"Instantané « {snapshot.Name} » : {snapshot.Entries.Count} réponses, enregistré dans {config.SnapshotsDir}");

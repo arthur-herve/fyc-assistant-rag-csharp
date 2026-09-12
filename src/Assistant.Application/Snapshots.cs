@@ -5,6 +5,7 @@
 // et on compare : le taux de dérive n'a de sens que lu à côté des différences de
 // configuration (séquence 3.2, principe CACE).
 
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Assistant.Domain;
 
@@ -19,10 +20,10 @@ public sealed class RecordSnapshot
     private readonly AskQuestion _ask;
     private readonly ISnapshotStore _store;
     private readonly IClock _clock;
-    private readonly IReadOnlyDictionary<string, string> _configuration;
+    private readonly IReadOnlyDictionary<string, object?> _configuration;
 
     public RecordSnapshot(AskQuestion ask, ISnapshotStore store, IClock clock,
-                          IReadOnlyDictionary<string, string> configuration)
+                          IReadOnlyDictionary<string, object?> configuration)
     {
         _ask = ask;
         _store = store;
@@ -36,7 +37,7 @@ public sealed class RecordSnapshot
         {
             throw new InvalidSnapshotNameException(name);   // avant de poser la moindre question
         }
-        var configuration = new SortedDictionary<string, string>(_configuration.ToDictionary(kv => kv.Key, kv => kv.Value), StringComparer.Ordinal);
+        var configuration = new SortedDictionary<string, object?>(_configuration.ToDictionary(kv => kv.Key, kv => kv.Value), StringComparer.Ordinal);
         var entries = new List<SnapshotEntry>();
         foreach (var q in questions)
         {
@@ -77,7 +78,7 @@ public static class DifferenceKind
 
 public sealed record EntryDifference(string QuestionId, string Kind, SnapshotEntry? Before, SnapshotEntry? After);
 
-public sealed record ConfigurationDifference(string Key, string? Before, string? After);
+public sealed record ConfigurationDifference(string Key, object? Before, object? After);
 
 public sealed record SnapshotComparison(
     string Baseline,
@@ -97,12 +98,14 @@ public static class SnapshotComparer
     public static SnapshotComparison Compare(Snapshot baseline, Snapshot candidate)
     {
         var keys = baseline.Configuration.Keys.Union(candidate.Configuration.Keys).OrderBy(k => k, StringComparer.Ordinal);
+        // Les valeurs sont comparées sous leur forme JSON : 4 et 4.0, un dictionnaire relu du disque
+        // et le même construit en mémoire, sont égaux.
         var configDiff = keys
             .Select(k => new ConfigurationDifference(k, baseline.Configuration.GetValueOrDefault(k), candidate.Configuration.GetValueOrDefault(k)))
-            .Where(d => d.Before != d.After)
+            .Where(d => Canonical(d.Before) != Canonical(d.After))
             .ToList();
-        var before = baseline.Entries.ToDictionary(e => e.QuestionId);
-        var after = candidate.Entries.ToDictionary(e => e.QuestionId);
+        var before = baseline.Entries.GroupBy(e => e.QuestionId).ToDictionary(g => g.Key, g => g.Last());
+        var after = candidate.Entries.GroupBy(e => e.QuestionId).ToDictionary(g => g.Key, g => g.Last());
         var order = before.Keys.Concat(after.Keys.Where(k => !before.ContainsKey(k))).ToList();
         var differences = new List<EntryDifference>();
         foreach (var id in order)
@@ -134,4 +137,14 @@ public static class SnapshotComparer
         }
         return new SnapshotComparison(baseline.Name, candidate.Name, configDiff, differences);
     }
+
+    public static string Canonical(object? value) => value switch
+    {
+        null => "null",
+        string s => s,
+        IReadOnlyDictionary<string, object> d => "{" + string.Join(", ", d.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={Canonical(kv.Value)}")) + "}",
+        bool b => b ? "true" : "false",
+        IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture)!,
+        _ => JsonSerializer.Serialize(value),
+    };
 }

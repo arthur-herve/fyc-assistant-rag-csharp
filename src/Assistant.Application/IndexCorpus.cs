@@ -1,5 +1,6 @@
 // Cas d'usage : indexer le corpus documentaire.
 
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -28,6 +29,17 @@ public static class Fingerprints
     {
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
     }
+
+    /// <summary>Sérialisation à la manière de Python (`json.dumps(sort_keys=True)`) pour les valeurs simples.</summary>
+    public static string PythonJson(object? value) => value switch
+    {
+        null => "null",
+        bool b => b ? "true" : "false",
+        string s => JsonSerializer.Serialize(s, new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }),
+        IReadOnlyDictionary<string, object> d => "{" + string.Join(", ", d.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"\"{kv.Key}\": {PythonJson(kv.Value)}")) + "}",
+        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture)!,
+        _ => JsonSerializer.Serialize(value),
+    };
 
     private static void Feed(SHA256 sha, string text)
     {
@@ -91,7 +103,9 @@ public sealed class IndexCorpus
 
         var fingerprint = Fingerprints.Corpus(documents);
         var splitter = _splitter.Describe();
-        var identity = JsonSerializer.Serialize(new object[] { fingerprint, model!, dimension, splitter });
+        // Même sérialisation que `json.dumps([...], sort_keys=True)` en Python : un même corpus, un même
+        // modèle et un même découpage donnent le même identifiant d'index dans les deux versions.
+        var identity = $"[{Fingerprints.PythonJson(fingerprint)}, {Fingerprints.PythonJson(model!)}, {dimension}, {Fingerprints.PythonJson(splitter)}]";
         var manifest = new IndexManifest(
             IndexId: Fingerprints.Sha256Hex(identity)[..12],
             EmbeddingModel: model!,

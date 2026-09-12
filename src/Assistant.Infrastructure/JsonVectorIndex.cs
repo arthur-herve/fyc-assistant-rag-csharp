@@ -157,6 +157,7 @@ public static class JsonValues
 {
     public static object ToObject(JsonNode node) => node switch
     {
+        JsonObject o => o.ToDictionary(kv => kv.Key, kv => kv.Value is null ? (object)"" : ToObject(kv.Value), StringComparer.Ordinal),
         JsonValue v when v.TryGetValue<bool>(out var b) => b,
         JsonValue v when v.TryGetValue<int>(out var i) => i,
         JsonValue v when v.TryGetValue<double>(out var d) => d,
@@ -164,20 +165,26 @@ public static class JsonValues
         _ => node.ToJsonString(),
     };
 
-    public static JsonObject FromDictionary(IReadOnlyDictionary<string, object> values)
+    public static object? ToObjectOrNull(JsonNode? node) => node is null ? null : ToObject(node);
+
+    public static JsonNode? ToNode(object? value) => value switch
+    {
+        null => null,
+        bool b => JsonValue.Create(b),
+        int i => JsonValue.Create(i),
+        long l => JsonValue.Create(l),
+        double d => JsonValue.Create(d),
+        string s => JsonValue.Create(s),
+        IReadOnlyDictionary<string, object?> d => FromDictionary(d),
+        _ => JsonValue.Create(value.ToString()),
+    };
+
+    public static JsonObject FromDictionary<TValue>(IReadOnlyDictionary<string, TValue> values)
     {
         var result = new JsonObject();
         foreach (var (key, value) in values.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
-            result[key] = value switch
-            {
-                bool b => JsonValue.Create(b),
-                int i => JsonValue.Create(i),
-                long l => JsonValue.Create(l),
-                double d => JsonValue.Create(d),
-                string s => JsonValue.Create(s),
-                _ => JsonValue.Create(value.ToString()),
-            };
+            result[key] = ToNode(value);
         }
         return result;
     }

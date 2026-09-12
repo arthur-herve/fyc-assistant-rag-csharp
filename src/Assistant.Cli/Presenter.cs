@@ -151,7 +151,7 @@ public static class Presenter
         {
             foreach (var d in c.ConfigurationDifferences)
             {
-                lines.AppendLine($"  - {d.Key} : {d.Before ?? "—"} → {d.After ?? "—"}");
+                lines.AppendLine($"  - {d.Key} : {SnapshotComparer.Canonical(d.Before)} → {SnapshotComparer.Canonical(d.After)}");
             }
         }
         else

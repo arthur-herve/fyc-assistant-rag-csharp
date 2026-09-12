@@ -3,11 +3,11 @@
 Le service IA ne connaît rien au métier. Il reçoit des textes, renvoie des vecteurs ou du texte, et **dit toujours quel modèle a réellement servi**. C'est ce champ qui permet à l'application de détecter qu'un index n'est plus compatible.
 
 Version 1, figée le 11/09/2026 ; ce contrat est la seule chose que partagent l'application C# et le service IA Python. Deux routes seulement : le service produit des vecteurs et du texte,
-l'index reste côté application (ADR 0002). L'exploration antérieure de l'équipe (`AssistantQR`)
-hébergeait l'index dans le service (`/index/reset`, `/index/upsert`, `/index/search` avec filtre
-d'accès) ; ce contrat-ci ne reprend pas ces routes, volontairement : la règle d'accès reste dans le
-domaine et l'index reste une donnée que l'application sait décrire (`status`). Tout ajout de route
-passe par une nouvelle version (`/v2/`).
+l'index reste côté application ([ADR 0002 de la version Python](https://github.com/arthur-herve/fyc-assistant-rag/blob/main/docs/adr/0002-index-cote-application.md)).
+Une exploration antérieure de l'équipe hébergeait l'index dans le service (`/index/reset`,
+`/index/upsert`, `/index/search` avec filtre d'accès) ; ce contrat-ci ne reprend pas ces routes,
+volontairement : la règle d'accès reste dans le domaine et l'index reste une donnée que l'application
+sait décrire (`status`). Tout ajout de route passe par une nouvelle version (`/v2/`).
 
 ## `GET /health`
 
@@ -93,4 +93,4 @@ Toujours au format :
 
 ## Évolution du contrat
 
-Toute modification incompatible (champ renommé, sémantique changée) passe par un nouveau préfixe (`/v2/…`). Les tests `tests/contract/` vérifient ce que l'application envoie et attend ; `tests/ai_service/test_server.py` vérifie ce que le service accepte et renvoie.
+Toute modification incompatible (champ renommé, sémantique changée) passe par un nouveau préfixe (`/v2/…`). Les tests `HttpContractTests` (`tests/Assistant.Tests/InfrastructureTests.cs`) vérifient ce que l'application envoie et attend ; `tests_python/ai_service/test_server.py` vérifie ce que le service accepte et renvoie.

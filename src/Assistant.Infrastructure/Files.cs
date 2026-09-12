@@ -75,7 +75,7 @@ public sealed class JsonSnapshotStore : ISnapshotStore
         {
             ["name"] = snapshot.Name,
             ["created_at"] = snapshot.CreatedAt,
-            ["configuration"] = new JsonObject(snapshot.Configuration.Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value))),
+            ["configuration"] = JsonValues.FromDictionary(snapshot.Configuration),
             ["entries"] = new JsonArray(snapshot.Entries.Select(e => (JsonNode)new JsonObject
             {
                 ["question_id"] = e.QuestionId,
@@ -99,8 +99,8 @@ public sealed class JsonSnapshotStore : ISnapshotStore
         }
         var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
         var configuration = root["configuration"]?.AsObject()
-            .ToDictionary(kv => kv.Key, kv => kv.Value?.ToString() ?? "", StringComparer.Ordinal)
-            ?? new Dictionary<string, string>();
+            .ToDictionary(kv => kv.Key, kv => JsonValues.ToObjectOrNull(kv.Value), StringComparer.Ordinal)
+            ?? new Dictionary<string, object?>();
         // Les champs inconnus (instantané écrit par une version plus récente) sont ignorés.
         var entries = root["entries"]!.AsArray().Select(e => new SnapshotEntry(
             e!["question_id"]!.GetValue<string>(), e["user_id"]!.GetValue<string>(), e["question"]!.GetValue<string>(),

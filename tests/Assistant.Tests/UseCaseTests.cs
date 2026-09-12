@@ -34,7 +34,23 @@ public class AskQuestionTests
     {
         var generator = new ScriptedGenerator("[1]");
         Build.Ask(generator, minScore: 0.0).Execute(Fakes.Alice, "Quel salaire pour un senior ?");
+        Assert.NotEmpty(generator.Requests);
         Assert.All(generator.Requests, r => Assert.DoesNotContain("56 000", r.Prompt));
+    }
+
+    [Fact]
+    public void A_huge_or_non_ascii_citation_number_is_invalid_not_a_crash()
+    {
+        var answer = Build.Ask(new ScriptedGenerator("Appelez le [33612345678].", "Deux jours [1].")).Execute(Fakes.Alice, "Combien de jours de télétravail ?");
+        Assert.Equal(AnswerStatus.Answered, answer.Status);
+        Assert.Equal(2, answer.Trace.Attempts);
+    }
+
+    [Fact]
+    public void A_passage_containing_the_placeholder_is_not_substituted_twice()
+    {
+        var template = new PromptTemplate("t", "v", "s", "P: {passages} Q: {question}");
+        Assert.Equal("P: texte {question} Q: réelle ?", template.Render("réelle ?", "texte {question}"));
     }
 
     [Fact]
@@ -215,7 +231,7 @@ public class SnapshotTests
         var ask = Build.Ask(generator, Build.Indexed(null,
             Fakes.Doc("teletravail", "Deux jours de télétravail par semaine."), Fakes.Doc("frais", "Les frais de repas sont plafonnés.")),
             minScore: minScore, maxAttempts: 1);
-        var snapshot = new RecordSnapshot(ask, store, new FixedClock(), new Dictionary<string, string> { ["generation_model"] = generator.Model })
+        var snapshot = new RecordSnapshot(ask, store, new FixedClock(), new Dictionary<string, object?> { ["generation_model"] = generator.Model })
             .Execute(name, Questions);
         return (snapshot, store);
     }
@@ -235,7 +251,7 @@ public class SnapshotTests
     public void Invalid_name_is_refused_before_any_question()
     {
         var generator = new ScriptedGenerator("Deux jours [1].");
-        var record = new RecordSnapshot(Build.Ask(generator), new MemorySnapshotStore(), new FixedClock(), new Dictionary<string, string>());
+        var record = new RecordSnapshot(Build.Ask(generator), new MemorySnapshotStore(), new FixedClock(), new Dictionary<string, object?>());
         Assert.Throws<InvalidSnapshotNameException>(() => record.Execute("../evil", Questions));
         Assert.Empty(generator.Requests);
     }
@@ -270,10 +286,20 @@ public class SnapshotTests
     }
 
     [Fact]
+    public void Configuration_values_are_compared_by_value_not_by_type()
+    {
+        var a = new Snapshot("a", "t", new Dictionary<string, object?> { ["top_k"] = 4, ["seed"] = null, ["splitter"] = new Dictionary<string, object> { ["max_chars"] = 800 } }, Array.Empty<SnapshotEntry>());
+        var b = new Snapshot("b", "t", new Dictionary<string, object?> { ["top_k"] = 4.0, ["seed"] = null, ["splitter"] = new Dictionary<string, object> { ["max_chars"] = 800.0 } }, Array.Empty<SnapshotEntry>());
+        Assert.Empty(SnapshotComparer.Compare(a, b).ConfigurationDifferences);
+        var c = b with { Configuration = new Dictionary<string, object?> { ["top_k"] = 5, ["seed"] = null, ["splitter"] = new Dictionary<string, object> { ["max_chars"] = 800 } } };
+        Assert.Equal(new[] { "top_k" }, SnapshotComparer.Compare(a, c).ConfigurationDifferences.Select(d => d.Key));
+    }
+
+    [Fact]
     public void Missing_questions_are_reported_but_not_counted_as_drift()
     {
-        var a = new Snapshot("a", "t", new Dictionary<string, string>(), new[] { new SnapshotEntry("q1", "alice", "?", "answered", new[] { "a" }, "x") });
-        var b = new Snapshot("b", "t", new Dictionary<string, string>(), new[] { new SnapshotEntry("q2", "alice", "?", "answered", new[] { "a" }, "x") });
+        var a = new Snapshot("a", "t", new Dictionary<string, object?>(), new[] { new SnapshotEntry("q1", "alice", "?", "answered", new[] { "a" }, "x") });
+        var b = new Snapshot("b", "t", new Dictionary<string, object?>(), new[] { new SnapshotEntry("q2", "alice", "?", "answered", new[] { "a" }, "x") });
         var comparison = SnapshotComparer.Compare(a, b);
         Assert.Equal(2, comparison.Count(DifferenceKind.Missing));
         Assert.Null(comparison.DriftRate);
