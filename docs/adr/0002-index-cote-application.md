@@ -1,6 +1,6 @@
 # ADR 0002 — L'index vectoriel vit côté application, pas côté service IA
 
-**Date** : 11/09/2026 · **Statut** : acceptée · reprise telle quelle dans la version C# le 12/09/2026
+**Date** : 11/09/2026 · **Statut** : acceptée · reprise dans la version C# le 12/09/2026, références de fichiers et mesures adaptées
 
 ## Contexte
 

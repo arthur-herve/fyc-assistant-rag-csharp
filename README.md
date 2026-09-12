@@ -9,7 +9,7 @@ poussé jusqu'au bout — en entreprise, les machines de calcul hébergent les m
 applicatifs hébergent l'application, et les deux équipes n'écrivent pas forcément dans le même langage.
 
 - Application : **.NET 8**, C# 12, aucun paquet tiers (`System.Text.Json`, `HttpClient`) ; xUnit pour les tests.
-- Service IA : **Python 3.11+**, bibliothèque standard, identique à celui de la version Python (copié tel quel).
+- Service IA : **Python 3.11+**, bibliothèque standard, code identique à celui de la version Python (copié tel quel) ; sa configuration ajoute seulement l'alias `hashing-stem4` pour l'exemple S1.3.
 - Mode hors-ligne intégré (embeddings hachés, générateur extractif) : tout fonctionne sans modèle ni GPU.
 - Vrais modèles via [Ollama](https://ollama.com) : `bge-m3` + `llama3.2:3b` dans la configuration `config/app-ollama.json`, comme la version Python.
 - Banc d'essai, cinq expériences reproductibles, test statistique, exemple jouet de la séquence 1.3, neuf ADR : tout ce que le cours promet est dans ce dépôt (voir « Où la problématique apparaît dans le code »).
@@ -48,9 +48,9 @@ src/Assistant.Infrastructure/   HttpEmbedder/HttpGenerator, MarkdownCorpus, Para
                                 FilePromptRepository, JsonSnapshotStore, SystemClock, décorateurs (cache, journal, tentatives)
 src/Assistant.Cli/              Program (index, ask, status, snapshot, benchmark, experience, serve), HttpApi (API HTTP de
                                 l'application), Composition (le seul endroit qui connaît tout), AppConfig, Benchmark, Experiments
-tests/Assistant.Tests/          90 tests xUnit : domaine, cas d'usage avec doubles, adaptateurs, contrat HTTP contre un faux
+tests/Assistant.Tests/          91 tests xUnit : domaine, cas d'usage avec doubles, adaptateurs, contrat HTTP contre un faux
                                 service, API HTTP contre des doubles, règle de dépendance, test statistique (S3.1), calculs du banc
-exemples/s1.3-transfert-naif/   le transfert naïf en 200 lignes : port dans le domaine, substitution, puis panne silencieuse
+exemples/s1.3-transfert-naif/   le transfert naïf en moins de 300 lignes : port dans le domaine, substitution, puis panne silencieuse
 ai_service/                     service IA en Python, copié de la version Python (registre, backends Ollama / hors-ligne)
 tests_python/                   ses tests (bibliothèque standard)
 config/app.json                 hors-ligne, corpus Solvéo · app-ollama.json : vrais modèles, corpus réduit (50 fiches) ·
@@ -79,14 +79,14 @@ Terminal 2 — l'application (C#) :
 dotnet build src/Assistant.Cli
 dotnet run --project src/Assistant.Cli -- index
 dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" -v
-dotnet run --project src/Assistant.Cli -- ask "Quelle est la fourchette de salaire d'un consultant senior ?" --user alice   # refus : document RH
+dotnet run --project src/Assistant.Cli -- ask "Quelle est la fourchette de salaire d'un consultant senior ?" --user alice   # la grille (RH) est filtrée avant le prompt : réponse tirée d'une fiche publique, voir -v
 dotnet run --project src/Assistant.Cli -- ask "Quelle est la fourchette de salaire d'un consultant senior ?" --user bruno   # autorisé
 dotnet run --project src/Assistant.Cli -- status
 dotnet run --project src/Assistant.Cli -- index --if-stale     # réindexe seulement si status dit « à refaire »
 ```
 
 Toutes les commandes se lancent depuis la racine du dépôt. Options utiles : `--json` (sortie JSON de `ask` et
-`status`), `--questions <fichier>` et `--limit N` pour `snapshot record`, `snapshot list`. Variables d'environnement :
+`status`), `--questions <fichier>` et `--limit N` pour `snapshot record` ; `snapshot list` ne prend aucune option. Variables d'environnement :
 `ASSISTANT_CONFIG` (fichier de configuration), `AI_SERVICE_URL` (adresse du service IA, pour un déploiement sur deux
 machines), `ASSISTANT_LOG=INFO` (journal des décorateurs, aussi avec `-v`).
 
@@ -143,14 +143,14 @@ dotnet run --project src/Assistant.Cli -- ask "Combien de jours dure le congé d
 dotnet run --project src/Assistant.Cli -- benchmark --config config/app-ollama.json --embedding bge-m3 nomic --generation llama3-2-3b --questions eval/questions-service-public.json --validate-with eval/questions-service-public-validation.json --runs 1
 ```
 
-Les mesures de référence (corpus réduit et corpus complet, `bge-m3` + `llama3.2:3b`, RTX 3070 8 Go) sont dans
+Les mesures de référence (corpus réduit, `bge-m3` + `llama3.2:3b`, RTX 3070 8 Go ; celles du corpus complet sont dans le dépôt Python) sont dans
 [`eval/resultats/`](eval/resultats/README.md). Le temps est passé dans le service IA, pas dans l'application :
 le langage de celle-ci ne change rien aux ordres de grandeur.
 
 ## Tests
 
 ```bash
-dotnet test                                              # 90 tests C#, sans IA ni réseau (dont un test statistique, S3.1)
+dotnet test                                              # 91 tests C#, sans IA ni réseau (dont un test statistique, S3.1)
 python -m unittest discover -s tests_python -t .         # 22 tests du service IA
 ```
 
@@ -196,4 +196,7 @@ réentraînement (un RAG n'entraîne rien : il se réindexe, `docs/artefacts.md`
 - Les temps sans carte graphique ne sont pas mesurés (voir `docs/installation.md`).
 - Vérifié le 12/09/2026 : pour le corpus Solvéo et le moteur `hashing`, les deux versions produisent le
   **même identifiant d'index** (`37d63c9a6986`) et la **même `prompt_version`** (`v1+085b70e7`) ; un
-  instantané C# comparé à un instantané Python donne 0 % de dérive et aucune différence de configuration.
+  instantané C# comparé à un instantané Python enregistré par la version courante des deux dépôts donne 0 % de
+  dérive et aucune différence de configuration.
+- L'API HTTP traite les requêtes une à la fois (la version Python les traite en parallèle, sauf l'indexation) :
+  une génération longue retarde `/health`. Suffisant pour le cours, à savoir pour un déploiement.

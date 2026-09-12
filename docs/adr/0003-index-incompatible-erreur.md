@@ -1,6 +1,6 @@
 # ADR 0003 — Un index construit avec un autre modèle est une erreur, pas un avertissement
 
-**Date** : 11/09/2026 · **Statut** : acceptée · reprise telle quelle dans la version C# le 12/09/2026
+**Date** : 11/09/2026 · **Statut** : acceptée · reprise dans la version C# le 12/09/2026, références de fichiers et mesures adaptées
 
 ## Contexte
 
@@ -11,7 +11,7 @@ d'avertir par défaut et d'échouer en mode strict, pour rendre la panne observa
 
 ## Décision
 
-`AskQuestion` compare, **à chaque question**, l'identifiant et la dimension du modèle renvoyés par
+`SearchPassages` (appelé par `AskQuestion`) compare, **à chaque question**, l'identifiant et la dimension du modèle renvoyés par
 le service au manifeste de l'index, et lève `IndexModelMismatchException`. Aucune option ne la
 désactive. C'est la démonstration du verdict « changer le modèle d'embeddings impose de
 réindexer ».

@@ -15,7 +15,6 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Assistant.Application;
 using Assistant.Domain;
-using Assistant.Infrastructure;
 
 namespace Assistant.Cli;
 
@@ -24,7 +23,6 @@ public sealed class HttpApi : IDisposable
     private readonly Container _container;
     private readonly bool _quiet;
     private readonly HttpListener _listener = new();
-    private readonly object _indexLock = new();
     private Thread? _thread;
 
     public HttpApi(Container container, string host, int port, bool quiet = false)
@@ -74,7 +72,9 @@ public sealed class HttpApi : IDisposable
             {
                 return;
             }
-            // Une requête à la fois : le cas d'usage n'est pas conçu pour être partagé entre fils.
+            // Une requête à la fois (les cas d'usage et le cache d'embeddings ne sont pas partagés entre
+            // fils) : une génération longue retarde /health. La version Python traite les requêtes en
+            // parallèle et ne verrouille que l'indexation ; écart assumé, suffisant pour le cours.
             try
             {
                 Handle(context);
@@ -124,9 +124,9 @@ public sealed class HttpApi : IDisposable
         {
             (status, body) = (502, Error("ai_service_error", error.Message));
         }
-        catch (Exception error) when (error is CorpusFormatException or AssistantApplicationException or IOException or UnauthorizedAccessException)
+        catch (Exception error) when (error is FormatException or AssistantApplicationException or IOException or UnauthorizedAccessException)
         {
-            // corpus mal formé, prompt ou index illisible, corpus vide…
+            // corpus mal formé (CorpusFormatException est une FormatException), prompt ou index illisible, corpus vide…
             (status, body) = (500, Error("unreadable_state", error.Message));
         }
         var method = request.HttpMethod;
@@ -159,12 +159,7 @@ public sealed class HttpApi : IDisposable
         {
             case "/v1/index":
             {
-                IndexManifest manifest;
-                lock (_indexLock)
-                {
-                    manifest = _container.IndexCorpus.Execute();
-                }
-                return (200, Presenter.ManifestToJson(manifest));
+                return (200, Presenter.ManifestToJson(_container.IndexCorpus.Execute()));
             }
             case "/v1/ask":
             {

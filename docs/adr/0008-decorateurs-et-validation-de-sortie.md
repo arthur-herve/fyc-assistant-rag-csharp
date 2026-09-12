@@ -1,6 +1,6 @@
 # ADR 0008 — Les garde-fous sont des décorateurs de ports ; la forme de la sortie est une règle métier
 
-**Date** : 11/09/2026 · **Statut** : acceptée · reprise telle quelle dans la version C# le 12/09/2026
+**Date** : 11/09/2026 · **Statut** : acceptée · reprise dans la version C# le 12/09/2026, références de fichiers et mesures adaptées
 
 ## Contexte
 
@@ -16,7 +16,7 @@ au cas d'usage ni à l'adaptateur HTTP (S4.1).
   vivent dans `src/Assistant.Infrastructure/Decorators.cs` ; celui qui porte une règle métier
   (`OutputValidatingGenerator`) vit dans `src/Assistant.Application/Guards.cs` et s'appuie sur
   `OutputRules` (`src/Assistant.Domain/Rules.cs`) (vide, trop long, autre langue, raisonnement déversé).
-- L'empilement est décidé dans `src/Assistant.Cli/Composition.cs` (`Decorate()`) à partir de `[decorators]` de la
+- L'empilement est décidé dans `src/Assistant.Cli/Composition.cs` (`Decorate()`) à partir de `"decorators"` de la
   configuration, de l'intérieur vers l'extérieur : tentatives, journal, cache, validation.
 - Une sortie rejetée est une tentative ratée pour `AskQuestion` (tracée `<rejetée : …>`), qui
   réessaie puis renvoie « non sourcé ».

@@ -1,6 +1,6 @@
 # ADR 0007 — Bibliothèque standard uniquement dans l'application
 
-**Date** : 11/09/2026 · **Statut** : acceptée · reprise telle quelle dans la version C# le 12/09/2026
+**Date** : 11/09/2026 · **Statut** : acceptée · reprise dans la version C# le 12/09/2026, références de fichiers et mesures adaptées
 
 ## Contexte
 

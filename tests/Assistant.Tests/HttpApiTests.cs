@@ -30,12 +30,26 @@ public sealed class HttpApiTests : IDisposable
             new RecordSnapshot(ask, new MemorySnapshotStore(), new FixedClock(), new Dictionary<string, object?>()),
             new MemorySnapshotStore(), _index, embedder, new StaticPrompts(), settings, "fake-keywords", "fake-llm");
 
-        var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        _api = new HttpApi(container, "127.0.0.1", port, quiet: true);
-        _api.Start();
+        // Un port libre : la sonde puis l'écoute ne sont pas atomiques, on réessaie si un autre processus s'est glissé entre.
+        HttpApi? api = null;
+        for (var attempt = 0; api is null; attempt++)
+        {
+            var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
+            probe.Start();
+            var port = ((IPEndPoint)probe.LocalEndpoint).Port;
+            probe.Stop();
+            var candidate = new HttpApi(container, "127.0.0.1", port, quiet: true);
+            try
+            {
+                candidate.Start();
+                api = candidate;
+            }
+            catch (HttpListenerException) when (attempt < 5)
+            {
+                candidate.Dispose();
+            }
+        }
+        _api = api;
     }
 
     public void Dispose()

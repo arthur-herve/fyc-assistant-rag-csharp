@@ -1,6 +1,6 @@
 # ADR 0004 — Le seuil de pertinence est calibré par modèle d'embeddings et par corpus
 
-**Date** : 11/09/2026 · **Statut** : acceptée · reprise telle quelle dans la version C# le 12/09/2026
+**Date** : 11/09/2026 · **Statut** : acceptée · reprise dans la version C# le 12/09/2026, références de fichiers et mesures adaptées
 
 ## Contexte
 
@@ -11,7 +11,7 @@ corpus à l'autre (`bge-m3` : 0,46 sur 15 morceaux, 0,65 sur 3 505).
 
 ## Décision
 
-Le seuil est une table `[retrieval.min_score]` indexée par alias de modèle, dans le fichier de
+Le seuil est une table `"retrieval": {"min_score": …}` indexée par alias de modèle, dans le fichier de
 configuration **du corpus** (`app.json` pour Solvéo, `app-ollama.json` pour Service-Public). Le
 banc d'essai propose un seuil par modèle (`suggested_threshold`) sur un jeu de calibration, et
 un jeu de validation distinct sert à le vérifier.

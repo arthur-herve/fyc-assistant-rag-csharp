@@ -58,7 +58,7 @@ Le dossier `solution/` (code, tests, note) déposé sur Moodle, ou l'URL de votr
 
 | Critère | Points | Ce qu'on regarde |
 |---|---|---|
-| Diagnostic | 4 | Les défauts sont nommés avec la bonne catégorie et reliés aux demandes. Au moins : droits filtrés après le top-k et confiés au prompt (et titre du document réservé affiché dans la console) ; citations non vérifiées contre les passages fournis ; changement de modèle d'embeddings sans réindexation silencieux ; balise `<think>` traitée dans l'application ; seuil, modèles et utilisateurs en champs statiques globaux ; aucun manifeste ni trace ; état global `INDEX` ; `Environment.Exit` dans la logique ; avertissements du compilateur désactivés ; aucun test. |
+| Diagnostic | 4 | Les défauts sont nommés avec la bonne catégorie et reliés aux demandes. Au moins : droits filtrés après le top-k et confiés au prompt (et identifiant du morceau réservé, avec son score, écrit dans la console) ; citations non vérifiées contre les passages fournis ; changement de modèle d'embeddings sans réindexation silencieux ; balise `<think>` traitée dans l'application ; seuil, modèles et utilisateurs en champs statiques globaux ; aucun manifeste ni trace ; état global `INDEX` ; `Environment.Exit` dans la logique ; avertissements du compilateur désactivés ; aucun test. |
 | Règle de dépendance | 4 | Le domaine ne référence rien ; l'application ne référence que le domaine ; les `ProjectReference` le disent et un test (réflexion sur les assemblies) ou, à défaut, la note l'explique. |
 | Règles métier dans le domaine, testées sans IA | 4 | Accès, citations, refus : fonctions pures, tests déterministes. Les droits sont appliqués avant le prompt (le test inspecte le prompt envoyé, pas la réponse). |
 | Ports, adaptateurs, composition | 3 | Les ports sont des interfaces définies par le besoin du cas d'usage ; un seul endroit assemble ; on change de modèle de génération par la configuration sans toucher au cœur. |
@@ -75,15 +75,15 @@ correction commentée (vidéo S5.2) parcourt le tableau suivant, défaut par dé
 
 | Défaut dans `depart/Program.cs` | Catégorie | Où c'est corrigé dans le dépôt |
 |---|---|---|
-| Les droits sont appliqués **après** le top-k (`Search`) : un passage réservé consomme une place, puis est retiré — en écrivant son titre et son score dans la console de l'utilisateur ; et le prompt demande au modèle de « ne pas utiliser » les passages marqués (réservé) | règle métier mal placée | `AccessPolicy` (`Assistant.Domain/Rules.cs`) + prédicat passé à `IVectorIndex.Search` dans `SearchPassages` ; ADR 0006 |
+| Les droits sont appliqués **après** le top-k (`Search`) : un passage réservé consomme une place, puis est retiré — en écrivant son identifiant et son score dans la console de l'utilisateur ; et le prompt demande au modèle de « ne pas utiliser » les passages marqués (réservé) | règle métier mal placée | `AccessPolicy` (`Assistant.Domain/Rules.cs`) + prédicat passé à `IVectorIndex.Search` dans `SearchPassages` ; ADR 0006 |
 | Les citations sont extraites par regex sans vérifier qu'elles renvoient à un passage fourni (`[7]` passe) ; une réponse sans citation est réessayée une fois puis affichée telle quelle | règle métier absente | `Citations.Check`, statut `Unsourced` ; `OutputRules` pour la forme |
 | `--embed nomic` sans réindexer : `Zip` tronque les vecteurs, les scores deviennent du bruit, l'application répond « aucun document » sans erreur | absence de frontière + traçabilité | `IndexManifest` + `IndexModelMismatchException` ; ADR 0003 ; commandes `status` et `index --if-stale` |
 | `Regex.Replace("<think>…")` dans `Generate` | particularité de modèle qui a fui | `ai_service/backends/ollama.py` (réflexion renvoyée à part, budget séparé) ; ADR 0001, 0009 |
 | `THRESHOLD = 0.65` « ajusté à la main », valable pour un seul modèle et un seul corpus | règle métier mal placée | `"retrieval": { "min_score": … }` par modèle et par corpus, calibré par `benchmark` ; ADR 0004 |
 | `PROMPT` constante, ni versionnée ni tracée | absence de traçabilité | `prompts/answer.json`, version + empreinte dans `AnswerTrace` ; ADR 0005 |
-| `EMBED_MODEL`, `GEN_MODEL`, `USERS`, `AI_URL` en champs statiques modifiés par `Main` ; `INDEX` global ; `Environment.Exit` dans la logique | absence de frontière | `Composition.cs` (seul endroit qui connaît tout), `AppConfig`, exceptions typées attrapées dans `Program.Main` |
+| `EMBED_MODEL`, `GEN_MODEL`, `USERS`, `AI_URL` en champs statiques globaux, dont deux réassignés par `Main` ; `INDEX` global ; `Environment.Exit` dans la logique | absence de frontière | `Composition.cs` (seul endroit qui connaît tout), `AppConfig`, exceptions typées attrapées dans `Program.Main` |
 | `index.bin` sans manifeste : l'index ne sait pas de quoi il est dérivé | absence de traçabilité | `JsonVectorIndex` (JSON lisible + manifeste) ; `docs/artefacts.md` |
-| Corpus parsé, découpé, vectorisé, recherché et généré dans la même classe statique ; aucun test possible sans service IA ; `TreatWarningsAsErrors` et `Nullable` désactivés dans le `.csproj` | absence de frontière | ports `IDocumentSource`, `ITextSplitter`, `IEmbedder`, `IVectorIndex`, `IGenerator` ; doubles dans `tests/Assistant.Tests/Fakes.cs` ; 87 tests sans réseau ; `Directory.Build.props` |
+| Corpus parsé, découpé, vectorisé, recherché et généré dans la même classe statique ; aucun test possible sans service IA ; `TreatWarningsAsErrors` et `Nullable` désactivés dans le `.csproj` | absence de frontière | ports `IDocumentSource`, `ITextSplitter`, `IEmbedder`, `IVectorIndex`, `IGenerator` ; doubles dans `tests/Assistant.Tests/Fakes.cs` ; 91 tests sans réseau ; `Directory.Build.props` |
 
 Les trois demandes, après refonte : (1) changer d'embeddings = changer un alias dans la
 configuration, réindexer, et l'application refuse tant que ce n'est pas fait ; (2) la
@@ -101,7 +101,7 @@ dotnet run -- ask "Combien de jours de télétravail par semaine ?" --user alice
 
 Sans Ollama : `index --embed hashing` puis `ask … --embed hashing --model extractive`. L'application
 répond alors « aucun document » à tout : le seuil `0.65` codé en dur a été réglé pour `bge-m3` et
-les scores du hachage ne dépassent pas 0,4. C'est le premier défaut à noter dans le diagnostic.
+les scores du hachage restent sous 0,65 (0,53 au mieux sur ces questions). C'est le premier défaut à noter dans le diagnostic.
 
 `depart/corpus/` est une copie du corpus Solvéo (9 fiches, dont 3 réservées). Le projet est
 volontairement hors de la solution `FycAssistantRag.sln` : il ne partage rien avec le fil rouge.

@@ -1,6 +1,6 @@
 # ADR 0001 — Le service IA est un déployable séparé, joint en HTTP
 
-**Date** : 11/09/2026 · **Statut** : acceptée · reprise telle quelle dans la version C# le 12/09/2026
+**Date** : 11/09/2026 · **Statut** : acceptée · reprise dans la version C# le 12/09/2026, références de fichiers et mesures adaptées
 
 ## Contexte
 
@@ -12,7 +12,7 @@ bibliothèque importée dans l'application aurait masqué cette réalité.
 ## Décision
 
 Deux programmes : `src/Assistant.*` (application, C#) et `ai_service/` (embeddings et génération). Ils ne
-partagent aucun code (vérifié par `ArchitectureTests` (références de projets et réflexion sur les assemblies)) et ne communiquent que par le contrat
+partagent aucun code — ils n'ont pas le même langage, ADR 0009 — et ne communiquent que par le contrat
 `docs/contrat-http.md`. Le service IA ne connaît ni les documents, ni les droits, ni les citations.
 
 ## Conséquences

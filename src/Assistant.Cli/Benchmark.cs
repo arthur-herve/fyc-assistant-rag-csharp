@@ -29,7 +29,8 @@ public sealed record BenchmarkOptions(
     string MinScoreMode = "config",
     int? SplitterMaxChars = null,
     int? SplitterOverlapChars = null,
-    int? Seed = null);
+    int? Seed = null,
+    string? PromptName = null);
 
 public sealed record RetrievalScore(EvalQuestion Question, double Top1, bool? Hit, bool? Hit1);
 
@@ -51,7 +52,7 @@ public static class Benchmark
         {
             log($"\n=== Embeddings : {emb} ===");
             var indexPath = Path.Combine(options.OutDir, $"index-{emb}.json");
-            var overrides = new Overrides(EmbeddingModel: emb, IndexPath: indexPath,
+            var overrides = new Overrides(EmbeddingModel: emb, IndexPath: indexPath, PromptName: options.PromptName,
                                           SplitterMaxChars: options.SplitterMaxChars, SplitterOverlapChars: options.SplitterOverlapChars,
                                           Seed: options.Seed);
             var container = Composition.Build(config, overrides);
@@ -163,7 +164,7 @@ public static class Benchmark
         var result = new JsonObject { ["retrieval"] = new JsonArray(retrieval.ToArray<JsonNode>()), ["generation"] = Summarize(rows) };
         WriteCsv(rows, Path.Combine(options.OutDir, "resultats.csv"));
         File.WriteAllText(Path.Combine(options.OutDir, "synthese.json"), result.ToJsonString(Json) + "\n", new UTF8Encoding(false));
-        var promptVersion = Composition.Build(config, new Overrides()).Prompts.Get(config.PromptName).Version;
+        var promptVersion = Composition.Build(config, new Overrides()).Prompts.Get(options.PromptName ?? config.PromptName).Version;
         var splitter = new Dictionary<string, object>
         {
             ["max_chars"] = options.SplitterMaxChars ?? config.SplitterMaxChars,
@@ -350,7 +351,7 @@ public static class Benchmark
             $"# Banc d'essai — {DateTime.Now:yyyy-MM-dd HH:mm}",
             "",
             $"{questionCount} questions · {runs} passage(s) par question · prompt `{promptVersion}` · "
-            + $"découpage `{Infrastructure.JsonValues.FromDictionary(splitter).ToJsonString()}` · top_k={config.TopK} · température={config.Temperature}",
+            + $"découpage `{Presenter.Splitter(splitter).ToJsonString()}` · top_k={config.TopK} · température={config.Temperature}",
             "",
             "## Recherche (sans génération)",
             "",

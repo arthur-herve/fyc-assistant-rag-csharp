@@ -464,4 +464,18 @@ public class ArchitectureTests
             }
         }
     }
+
+    [Fact]
+    public void Only_the_composition_root_knows_the_infrastructure()
+    {
+        // Même règle que le test d'imports de la version Python : dans la couche interface (Assistant.Cli),
+        // seule la racine de composition nomme l'infrastructure. Vérifié sur les sources, comme en Python.
+        var cli = Path.Combine(AppConfig.ProjectRoot, "src", "Assistant.Cli");
+        var offenders = Directory.GetFiles(cli, "*.cs", SearchOption.TopDirectoryOnly)
+            .Where(f => Path.GetFileName(f) != "Composition.cs")
+            .Where(f => System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(f), @"\bAssistant\.Infrastructure\b|\bInfrastructure\."))
+            .Select(Path.GetFileName)
+            .ToList();
+        Assert.True(offenders.Count == 0, $"seule Composition.cs peut nommer l'infrastructure : {string.Join(", ", offenders)}");
+    }
 }

@@ -53,6 +53,6 @@ oui ; sans conséquence, non.
 ## Comparaison avec la version Python
 
 Mêmes ordres de grandeur que `eval/resultats/` du dépôt Python sur le corpus complet (dérive de
-base ≈ 70 %, prompt v2 qui divise la longueur par 7 à 8, qwen ×20 en latence, nomic moins bon que
+base ≈ 70 %, prompt v2 qui divise la longueur par 6 à 9 (338 → 52 en Python, 357 → 41 ici), qwen ×20 en latence, nomic moins bon que
 bge-m3 sur les refus). Le temps est passé dans le service IA : le langage de l'application ne
 change rien aux mesures, seul le corpus (50 contre 322 fiches) change les durées d'indexation.

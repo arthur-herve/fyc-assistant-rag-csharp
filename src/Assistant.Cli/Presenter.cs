@@ -19,13 +19,17 @@ public static class Presenter
 
     private static string F(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
 
+    /// <summary>Le découpage (valeurs typées) en JSON : la couche interface n'a pas besoin de l'infrastructure pour cela.</summary>
+    public static JsonObject Splitter(IReadOnlyDictionary<string, object> splitter) =>
+        JsonSerializer.SerializeToNode(splitter, Json)!.AsObject();
+
     public static JsonObject ManifestToJson(IndexManifest m) => new()
     {
         ["index_id"] = m.IndexId,
         ["embedding_model"] = m.EmbeddingModel,
         ["dimension"] = m.Dimension,
         ["corpus_fingerprint"] = m.CorpusFingerprint,
-        ["splitter"] = Infrastructure.JsonValues.FromDictionary(m.Splitter),
+        ["splitter"] = Splitter(m.Splitter),
         ["document_count"] = m.DocumentCount,
         ["chunk_count"] = m.ChunkCount,
         ["created_at"] = m.CreatedAt,
@@ -101,7 +105,7 @@ public static class Presenter
         ["issues"] = new JsonArray(r.Issues.Select(i => (JsonNode)i).ToArray()),
         ["index"] = r.Index is null ? null : ManifestToJson(r.Index),
         ["corpus"] = new JsonObject { ["documents"] = r.CorpusDocuments, ["fingerprint"] = r.CorpusFingerprint },
-        ["splitter"] = Infrastructure.JsonValues.FromDictionary(r.Splitter),
+        ["splitter"] = Splitter(r.Splitter),
         ["ai_service"] = new JsonObject { ["embedding_model"] = r.EmbeddingModel, ["dimension"] = r.EmbeddingDimension, ["error"] = r.AiServiceError },
         ["prompt_version"] = r.PromptVersion,
     };

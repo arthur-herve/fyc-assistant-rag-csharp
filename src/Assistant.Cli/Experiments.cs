@@ -26,13 +26,16 @@ public sealed class Experiment
     public IReadOnlyList<EvalQuestion> Questions { get; }
     private readonly List<string> _lines = new();
     private readonly Action<string> _log;
+    private readonly Overrides _common;
 
-    public Experiment(string name, AppConfig config, IReadOnlyList<EvalQuestion> questions, string? outDir, string questionsPath, string configPath, Action<string> log)
+    public Experiment(string name, AppConfig config, IReadOnlyList<EvalQuestion> questions, string? outDir, string questionsPath, string configPath,
+                      Action<string> log, Overrides? common = null)
     {
         Name = name;
         Config = config;
         Questions = questions;
         _log = log;
+        _common = common ?? new Overrides();
         OutDir = outDir ?? Path.Combine(AppConfig.ProjectRoot, "eval", "resultats", $"exp-{name}-{DateTime.Now:yyyyMMdd-HHmmss}");
         Directory.CreateDirectory(OutDir);
         if (questions.Count == 0)
@@ -45,13 +48,28 @@ public sealed class Experiment
         Log("");
     }
 
-    /// <summary>Index et instantanés vivent dans le dossier de l'expérience : rien n'est écrasé ailleurs.</summary>
-    public Container Build(string indexName, Overrides? overrides = null) =>
-        Composition.Build(Config, (overrides ?? new Overrides()) with
+    /// <summary>Modèles et prompt effectifs : les options communes de la ligne de commande, sinon la configuration.</summary>
+    public string EmbeddingModel => _common.EmbeddingModel ?? Config.EmbeddingModel;
+    public string GenerationModel => _common.GenerationModel ?? Config.GenerationModel;
+    public string PromptName => _common.PromptName ?? Config.PromptName;
+
+    /// <summary>
+    /// Index et instantanés vivent dans le dossier de l'expérience : rien n'est écrasé ailleurs.
+    /// Les options communes (--embedding-model, --generation-model, --prompt) s'appliquent, sauf
+    /// ce que l'expérience change elle-même.
+    /// </summary>
+    public Container Build(string indexName, Overrides? overrides = null)
+    {
+        var o = overrides ?? new Overrides();
+        return Composition.Build(Config, o with
         {
+            EmbeddingModel = o.EmbeddingModel ?? _common.EmbeddingModel,
+            GenerationModel = o.GenerationModel ?? _common.GenerationModel,
+            PromptName = o.PromptName ?? _common.PromptName,
             IndexPath = Path.Combine(OutDir, $"index-{indexName}.json"),
             SnapshotsDir = Path.Combine(OutDir, "instantanes"),
         }, _log);
+    }
 
     public (Container Container, IndexManifest Manifest, double Seconds) Index(string indexName, Overrides? overrides = null)
     {
@@ -105,7 +123,7 @@ public sealed class Experiment
     public void Table(IReadOnlyList<(string Column, IReadOnlyDictionary<string, object?> Values)> columns)
     {
         var metrics = columns.SelectMany(c => c.Values.Keys).Distinct().ToList();
-        Log("| Mesure | " + string.Join(" | ", columns.Select(c => c.Column)) + " |");
+        Log("| | " + string.Join(" | ", columns.Select(c => c.Column)) + " |");
         Log("|---|" + string.Concat(Enumerable.Repeat("---|", columns.Count)));
         foreach (var metric in metrics)
         {
@@ -153,15 +171,37 @@ public static class Experiments
 {
     public static readonly string[] Names = { "cace-decoupage", "changement-embeddings", "changement-generateur", "prompt-v2", "stabilite" };
 
-    public static int Run(string name, Args args, AppConfig config, string configPath, Action<string> log)
+    public static int Run(string name, Args args, AppConfig config, Overrides common, string configPath, Action<string> log)
     {
+        if (!Names.Contains(name))
+        {
+            throw new ArgumentException($"expérience inconnue : {name} (connues : {string.Join(", ", Names)})");
+        }
+        // Tout est validé avant de créer le dossier de sortie : pas de dossier vide en cas de faute de frappe.
+        if (name is "changement-embeddings" or "changement-generateur" && args.Value("--other") is null)
+        {
+            throw new ArgumentException($"{name} attend --other <alias du second modèle>");
+        }
+        if (name == "stabilite" && (args.Int("--runs") ?? 3) < 2)
+        {
+            throw new ArgumentException("--runs doit valoir au moins 2 : il faut deux passages pour mesurer une dérive");
+        }
+        foreach (var option in new[] { "--limit", "--max-chars", "--overlap-chars", "--seed" })
+        {
+            args.Int(option);
+        }
         var questionsPath = args.Value("--questions") ?? "eval/questions.json";
         var questions = EvalQuestions.Load(EvalQuestions.Resolve(questionsPath));
-        if (args.Value("--limit") is { } limit && int.Parse(limit, CultureInfo.InvariantCulture) is var n && n > 0)
+        if (args.Int("--limit") is > 0 and var n)
         {
             questions = questions.Take(n).ToList();
         }
-        var exp = new Experiment(name, config, questions, args.Value("--out"), questionsPath, configPath, log);
+        if (questions.Count == 0)
+        {
+            throw new ArgumentException($"aucune question dans {questionsPath}");
+        }
+        AiService.Require(config.AiBaseUrl);
+        var exp = new Experiment(name, config, questions, args.Value("--out"), questionsPath, configPath, log, common);
         switch (name)
         {
             case "cace-decoupage": CaceDecoupage(exp, args); break;
@@ -177,8 +217,8 @@ public static class Experiments
 
     private static void CaceDecoupage(Experiment exp, Args args)
     {
-        var maxChars = int.Parse(args.Value("--max-chars") ?? "300", CultureInfo.InvariantCulture);
-        var overlap = int.Parse(args.Value("--overlap-chars") ?? "50", CultureInfo.InvariantCulture);
+        var maxChars = args.Int("--max-chars") ?? 300;
+        var overlap = args.Int("--overlap-chars") ?? 50;
         var before = (exp.Config.SplitterMaxChars, exp.Config.SplitterOverlapChars);
 
         Console.WriteLine($"Avant : {before.SplitterMaxChars} / {before.SplitterOverlapChars}");
@@ -214,8 +254,8 @@ public static class Experiments
 
     private static void ChangementEmbeddings(Experiment exp, Args args)
     {
-        var other = args.Value("--other") ?? throw new ArgumentException("changement-embeddings attend --other <alias du second modèle d'embeddings>");
-        var first = exp.Config.EmbeddingModel;
+        var other = args.Value("--other")!;
+        var first = exp.EmbeddingModel;
 
         Console.WriteLine($"Avant : {first}");
         var (containerA, manifestA, secondsA) = exp.Index("avant");
@@ -277,8 +317,8 @@ public static class Experiments
 
     private static void ChangementGenerateur(Experiment exp, Args args)
     {
-        var other = args.Value("--other") ?? throw new ArgumentException("changement-generateur attend --other <alias du second modèle de génération>");
-        var first = exp.Config.GenerationModel;
+        var other = args.Value("--other")!;
+        var first = exp.GenerationModel;
 
         var (containerA, manifest, _) = exp.Index("partage");
         Console.WriteLine($"Avant : {first}");
@@ -319,7 +359,7 @@ public static class Experiments
     private static void PromptV2(Experiment exp, Args args)
     {
         var other = args.Value("--other") ?? "answer-v2";
-        var first = exp.Config.PromptName;
+        var first = exp.PromptName;
 
         var (containerA, manifest, _) = exp.Index("partage");
         Console.WriteLine($"Avant : prompt {first}");
@@ -356,23 +396,20 @@ public static class Experiments
         exp.Log("");
         exp.Log("- La version du prompt (déclarée + empreinte du contenu) est dans chaque trace : la dérive est attribuable à cette seule modification.");
         exp.Log("- Ce que le prompt change (forme, longueur, ton) n'est pas ce que le domaine garantit (citations vérifiées, forme validée, droits filtrés) : c'est ce qui permet de le traiter comme une configuration *surveillée comme du métier* (ADR 0005).");
-        exp.Log("- Avec `extractive` (hors-ligne), 0 % de dérive : ce générateur ignore les consignes. Un modèle de langage, lui, les suit — et c'est précisément ce qui rend le prompt sensible.");
+        exp.Log("- Avec `extractive` (hors-ligne), 0 % de dérive : ce générateur ignore les consignes. Un modèle qui ignore le prompt produit exactement cette signature.");
     }
 
     private static void Stabilite(Experiment exp, Args args)
     {
-        var runs = int.Parse(args.Value("--runs") ?? "3", CultureInfo.InvariantCulture);
-        if (runs < 2)
-        {
-            throw new ArgumentException("--runs doit valoir au moins 2 : il faut deux passages pour mesurer une dérive");
-        }
-        int? seed = args.Value("--seed") is { } s ? int.Parse(s, CultureInfo.InvariantCulture) : null;
+        var runs = args.Int("--runs") ?? 3;
+        var seed = args.Int("--seed");
 
         var (container, manifest, _) = exp.Index("partage", new Overrides(Seed: seed));
+        var effectiveSeed = container.Settings.Seed;   // --seed, sinon la graine de la configuration
         var snapshots = Enumerable.Range(1, runs).Select(i => exp.Record($"passage-{i}", container).Snapshot).ToList();
 
         exp.Log($"Rien ne change entre les passages : même index `{manifest.IndexId}`, même générateur `{snapshots[0].Configuration.GetValueOrDefault("generation_model_id")}`, "
-                + $"même prompt, même seuil, température {exp.Config.Temperature}, graine {(seed?.ToString(CultureInfo.InvariantCulture) ?? "aucune")}.");
+                + $"même prompt, même seuil, température {exp.Config.Temperature}, graine {(effectiveSeed?.ToString(CultureInfo.InvariantCulture) ?? "aucune")}.");
         exp.Log("");
         exp.Log("## Chaque passage comparé au premier");
         exp.Log("");

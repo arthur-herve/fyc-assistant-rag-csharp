@@ -1,6 +1,6 @@
 # ADR 0006 — Les droits d'accès sont filtrés avant le prompt, jamais confiés au modèle
 
-**Date** : 11/09/2026 · **Statut** : acceptée · reprise telle quelle dans la version C# le 12/09/2026
+**Date** : 11/09/2026 · **Statut** : acceptée · reprise dans la version C# le 12/09/2026, références de fichiers et mesures adaptées
 
 ## Contexte
 
@@ -9,7 +9,7 @@ lire. Demander au modèle de « ne pas révéler » un document est une consigne
 
 ## Décision
 
-`AccessPolicy.can_read(user, chunk)` (domaine) est appliqué comme prédicat de la recherche : un
+`AccessPolicy.CanRead(user, chunk)` (domaine) est appliqué comme prédicat de la recherche : un
 morceau interdit n'entre ni dans le classement, ni dans le prompt, ni dans la trace. Les groupes
 autorisés sont portés par chaque document et hérités par ses morceaux ; ils entrent dans
 l'empreinte du corpus (un changement de droits = corpus modifié = réindexation).

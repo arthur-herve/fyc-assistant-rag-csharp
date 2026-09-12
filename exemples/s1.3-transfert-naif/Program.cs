@@ -5,7 +5,7 @@
 //   dotnet run --project exemples/s1.3-transfert-naif -- index hashing
 //   dotnet run --project exemples/s1.3-transfert-naif -- search hashing "jours de télétravail"
 //   dotnet run --project exemples/s1.3-transfert-naif -- search hashing-512 "jours de télétravail"   → plante (dimension)
-//   dotnet run --project exemples/s1.3-transfert-naif -- search hashing-stem4 "jours de télétravail" → répond à côté, sans rien dire
+//   dotnet run --project exemples/s1.3-transfert-naif -- search hashing-stem4 "remboursement du repas" → répond à côté, sans rien dire
 //
 // Partie 1 (generate) : substituer le générateur marche comme promis, le domaine ne bouge pas.
 // Partie 2 (index / search) : substituer le fournisseur d'embeddings « marche » aussi… et

@@ -230,7 +230,7 @@ Question : {question}
             text = Generate(prompt + "\nN'oublie pas les numéros de passage entre crochets.", seed: 1);
         }
         var cited = Regex.Matches(text, @"\[(\d+)\]").Select(m => int.Parse(m.Groups[1].Value)).Distinct().OrderBy(n => n).ToList();
-        var sources = cited.Where(n => n - 1 < passages.Count).Select(n => passages[n - 1].e.doc).ToList();
+        var sources = cited.Where(n => n >= 1 && n - 1 < passages.Count).Select(n => passages[n - 1].e.doc).ToList();
         return (text, sources);
     }
 

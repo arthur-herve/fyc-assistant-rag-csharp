@@ -1,6 +1,6 @@
 # ADR 0005 — Le prompt est construit et versionné dans l'application
 
-**Date** : 11/09/2026 · **Statut** : acceptée · reprise telle quelle dans la version C# le 12/09/2026
+**Date** : 11/09/2026 · **Statut** : acceptée · reprise dans la version C# le 12/09/2026, références de fichiers et mesures adaptées
 
 ## Contexte
 
@@ -10,7 +10,7 @@ configuration, de l'infrastructure ou du métier ? (S3.3)
 
 ## Décision
 
-Le prompt est un fichier `prompts/answer.json`, chargé par un port `PromptRepository`,
+Le prompt est un fichier `prompts/answer.json`, chargé par un port `IPromptRepository`,
 **construit côté application** (numérotation des passages, question) et envoyé tel quel au
 service IA, qui ne fait que le transmettre. Sa version déclarée et une empreinte de son contenu
 sont inscrites dans chaque `AnswerTrace`.
@@ -18,7 +18,7 @@ sont inscrites dans chaque `AnswerTrace`.
 ## Conséquences
 
 - Les règles métier ne dépendent pas du prompt : citations et forme de la sortie sont vérifiées
-  après coup, de façon déterministe (`Citations` (`src/Assistant.Domain/Rules.cs`), `OutputRules` (`src/Assistant.Domain/Rules.cs`)). Le prompt
+  après coup, de façon déterministe (`Citations` et `OutputRules`, `src/Assistant.Domain/Rules.cs`). Le prompt
   est une *tentative de persuasion* ; la garantie est ailleurs.
 - Modifier une virgule change l'empreinte : une dérive de réponses devient attribuable.
 - Le prompt est réglé pour `llama3.2:3b` ; un autre générateur peut demander une autre

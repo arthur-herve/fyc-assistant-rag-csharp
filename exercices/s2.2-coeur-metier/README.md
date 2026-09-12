@@ -5,7 +5,7 @@ Durée indicative : 45 minutes · Exercice guidé, code à écrire, tests fourni
 ## Ce que vous avez
 
 Le dossier `depart/` est une solution .NET autonome : aucune IA, aucun réseau, aucune référence
-au fil rouge, aucun paquet en dehors de xUnit.
+au fil rouge, aucun paquet en dehors de l'outillage xUnit.
 
 ```
 depart/
@@ -22,8 +22,8 @@ depart/
   Coeur.Tests/
     Fakes.cs            des doubles pour chaque port : embeddings « par mots-clés », générateur
                         scripté, index en mémoire, corpus en liste, prompts fixes               — fourni
-    DomainTests.cs      7 tests des deux règles métier                                          — fournis
-    AskQuestionTests.cs 13 tests qui décrivent le cas d'usage                                   — fournis
+    DomainTests.cs      6 tests des deux règles métier                                          — fournis
+    AskQuestionTests.cs 14 tests : 13 sur le cas d'usage, 1 sur PromptTemplate.Render (fourni)  — fournis
 ```
 
 Lancer les tests depuis `depart/` :
@@ -42,7 +42,8 @@ modèle**.
    monde ; sinon il faut un groupe en commun. Tests : `DomainTests.cs`, classe `AccessPolicyTests`.
 2. `Coeur/Citations.cs` — `Citations.Check(text, passageCount)` : reconnaît `[1]`, `[2, 3]`,
    `[2,3]` ; renvoie les numéros valides sans doublon et les numéros invalides ; un nombre trop
-   grand pour un `int` est invalide, pas une exception. Tests : `DomainTests.cs`, classe `CitationsTests`.
+   grand pour un `int` est invalide, pas une exception. Le type `CitationCheck` (`Cited`, `Invalid`, `IsValid`) est
+   fourni : c'est le contrat qu'attendent les tests. Tests : `DomainTests.cs`, classe `CitationsTests`.
 3. `Coeur/AskQuestion.cs` — `FormatPassages` puis `Execute`, en suivant le déroulé décrit dans le
    fichier (question vide → index absent → modèle incompatible → recherche filtrée par les droits →
    seuil → prompt → tentatives → réponse sourcée ou refus). Tests : `AskQuestionTests.cs` (13 tests).

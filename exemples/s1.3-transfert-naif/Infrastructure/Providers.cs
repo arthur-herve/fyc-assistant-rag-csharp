@@ -32,6 +32,12 @@ internal static class Http
     /// <summary>Corps avec Content-Length : le service IA (bibliothèque standard Python) ne lit pas les envois en morceaux.</summary>
     public static StringContent Json(object payload) =>
         new(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+    /// <summary>Message d'erreur du contrat ({error:{message}}), ou le code HTTP si le corps n'a pas cette forme.</summary>
+    public static string ErrorMessage(JsonElement body, HttpResponseMessage response) =>
+        body.ValueKind == JsonValueKind.Object && body.TryGetProperty("error", out var error) && error.TryGetProperty("message", out var message)
+            ? message.GetString() ?? response.StatusCode.ToString()
+            : $"HTTP {(int)response.StatusCode}";
 }
 
 public sealed class HttpGenerator : ITextGenerator
@@ -51,7 +57,7 @@ public sealed class HttpGenerator : ITextGenerator
         var body = response.Content.ReadFromJsonAsync<JsonElement>().Result;
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"service IA : {body.GetProperty("error").GetProperty("message").GetString()}");
+            throw new InvalidOperationException($"service IA : {Http.ErrorMessage(body, response)}");
         }
         return body.GetProperty("text").GetString() ?? "";
     }
@@ -74,7 +80,7 @@ public sealed class HttpEmbeddings : IEmbeddingProvider
         var body = response.Content.ReadFromJsonAsync<JsonElement>().Result;
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"service IA : {body.GetProperty("error").GetProperty("message").GetString()}");
+            throw new InvalidOperationException($"service IA : {Http.ErrorMessage(body, response)}");
         }
         // Le service renvoie aussi "model" (identifiant concret) et "dimension" : ce jouet les ignore.
         // C'est précisément l'erreur que le fil rouge ne commet pas (IndexManifest, IndexModelMismatchException).

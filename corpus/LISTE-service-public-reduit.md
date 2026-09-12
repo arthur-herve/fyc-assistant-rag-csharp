@@ -3,7 +3,7 @@
 Sous-ensemble figé de `service-public/` (Service-Public.gouv.fr / DILA, Licence Ouverte 2.0,
 téléchargement du 11 septembre 2026), constitué le 12 septembre 2026. Critère : les 39 fiches
 citées par `eval/questions-service-public.json` et `eval/questions-service-public-validation.json`
-(raison « question »), plus 11 fiches de diversion dans des dossiers non couverts par les
+(raison « question »), plus 11 fiches de diversion, pour l'essentiel dans des dossiers non couverts par les
 questions (raison « diversion »). Les groupes d'accès sont ceux du corpus complet.
 
 | Fiche | Groupe | Dossier | Titre | Raison |

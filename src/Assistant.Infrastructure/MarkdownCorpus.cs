@@ -14,7 +14,7 @@ using Assistant.Domain;
 
 namespace Assistant.Infrastructure;
 
-public sealed class CorpusFormatException : Exception
+public sealed class CorpusFormatException : FormatException
 {
     public CorpusFormatException(string message) : base(message) { }
 }

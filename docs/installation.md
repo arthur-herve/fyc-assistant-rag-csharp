@@ -48,7 +48,7 @@ dotnet test --nologo                                   # l'application
 python -m unittest discover -s tests_python -t .       # le service IA
 ```
 
-Attendu : `Réussi! … total : 90` (le premier `dotnet test` compile tout : 30 à 60 secondes,
+Attendu : `Réussi! … total : 91` (le premier `dotnet test` compile tout : 30 à 60 secondes,
 ensuite quelques secondes) et `Ran 22 tests … OK`. Si les deux sont verts, votre poste est prêt
 pour les séquences 1 à 2.2.
 

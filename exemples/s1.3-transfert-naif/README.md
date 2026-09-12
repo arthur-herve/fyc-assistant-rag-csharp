@@ -1,6 +1,6 @@
 # Séquence 1.3 — Le transfert naïf : « le modèle est un détail d'infrastructure »
 
-Un programme de 200 lignes, indépendant du fil rouge, qui fait **exactement** ce que dit
+Un programme de moins de 300 lignes, indépendant du fil rouge, qui fait **exactement** ce que dit
 l'opinion couramment admise : déclarer un port dans le domaine, l'implémenter dans
 l'infrastructure, substituer un second fournisseur. Puis qui montre où cela casse.
 

@@ -16,5 +16,5 @@ nouvelle ADR qui remplace l'ancienne.
 | [0008](0008-decorateurs-et-validation-de-sortie.md) | Les garde-fous sont des décorateurs de ports ; la forme de la sortie est une règle métier | S4.1 |
 | [0009](0009-application-csharp-modeles-python.md) | Application en C#, modèles en Python : la frontière est le contrat, pas le langage | S1.3, S2.3, S4.2, S5.3 |
 
-Les ADR 0001 à 0008 ont été prises pour la version Python du fil rouge et reprises telles quelles
-ici (les références de fichiers sont celles de ce dépôt). L'ADR 0009 est propre à cette version.
+Les ADR 0001 à 0008 ont été prises pour la version Python du fil rouge et reprises ici : mêmes
+décisions, références de fichiers et mesures adaptées à ce dépôt (0002 et 0007 en particulier). L'ADR 0009 est propre à cette version.
