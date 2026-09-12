@@ -1,7 +1,4 @@
-// Règle métier n° 2 : toute réponse cite ses sources.
-
-using System.Globalization;
-using System.Text.RegularExpressions;
+// Règle métier n° 2 : toute réponse cite ses sources.                        — À ÉCRIRE
 
 namespace Coeur;
 
@@ -12,31 +9,17 @@ public sealed record CitationCheck(IReadOnlyList<int> Cited, IReadOnlyList<int> 
 }
 
 /// <summary>
-/// Règle métier n° 2 : le modèle est probabiliste, la vérification ne l'est pas.
-/// On contrôle que la réponse contient au moins une citation et que chaque
-/// citation renvoie à un passage réellement fourni. Formats acceptés : [1], [2, 3], [2,3].
+/// Le modèle est probabiliste, la vérification ne l'est pas. On contrôle que la réponse
+/// contient au moins une citation et que chaque citation renvoie à un passage réellement
+/// fourni (numéros de 1 à <c>passageCount</c>). Formats acceptés : [1], [2, 3], [2,3].
+/// Renvoyer les numéros valides sans doublon (dans l'ordre d'apparition) et les numéros
+/// invalides. Un nombre trop grand pour un int est une citation invalide, pas un plantage.
+/// Tests : Coeur.Tests/DomainTests.cs (CitationsTests).
 /// </summary>
 public static class Citations
 {
-    private static readonly Regex Citation = new(@"\[([0-9]+(?:\s*,\s*[0-9]+)*)\]", RegexOptions.Compiled);
-
     public static CitationCheck Check(string text, int passageCount)
     {
-        var numbers = new List<int>();
-        foreach (Match match in Citation.Matches(text))
-        {
-            foreach (var part in match.Groups[1].Value.Split(','))
-            {
-                // Un nombre trop grand pour un int ([33612345678]) est une citation invalide, pas un plantage.
-                var number = int.TryParse(part.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) ? parsed : int.MaxValue;
-                if (!numbers.Contains(number))
-                {
-                    numbers.Add(number);
-                }
-            }
-        }
-        var valid = numbers.Where(n => n >= 1 && n <= passageCount).ToList();
-        var invalid = numbers.Where(n => n < 1 || n > passageCount).ToList();
-        return new CitationCheck(valid, invalid);
+        throw new NotImplementedException("Citations.Check : à écrire (exercice S2.2)");
     }
 }

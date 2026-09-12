@@ -1,4 +1,4 @@
-// Cas d'usage : répondre à une question à partir des documents accessibles.
+// Cas d'usage : répondre à une question à partir des documents accessibles.   — À ÉCRIRE
 //
 // Déroulé, du plus déterministe au moins déterministe :
 // 1. règles métier sur la question (déterministe) ;
@@ -44,90 +44,43 @@ public sealed class AskQuestion
 
     public AskSettings Settings => _settings;
 
+    /// <summary>
+    /// Met en forme les passages pour le prompt : « [n] Titre » puis le texte (sans espaces
+    /// autour), un bloc par passage, blocs séparés par une ligne vide. La numérotation
+    /// commence à 1 : c'est elle que les citations désignent.
+    /// </summary>
     public static string FormatPassages(IReadOnlyList<Passage> passages)
     {
-        var blocks = new StringBuilder();
-        for (var i = 0; i < passages.Count; i++)
-        {
-            if (i > 0)
-            {
-                blocks.Append("\n\n");
-            }
-            blocks.Append('[').Append(i + 1).Append("] ").Append(passages[i].Chunk.DocumentTitle)
-                  .Append('\n').Append(passages[i].Chunk.Text.Trim());
-        }
-        return blocks.ToString();
+        throw new NotImplementedException("AskQuestion.FormatPassages : à écrire (exercice S2.2)");
     }
 
+    /// <summary>
+    /// Déroulé, du plus déterministe au moins déterministe :
+    ///  1. question vide (après Trim) → <see cref="EmptyQuestionException"/> ;
+    ///  2. pas de manifeste d'index → <see cref="IndexNotBuiltException"/> ;
+    ///  3. vecteur de la question (<see cref="IEmbedder.EmbedQuery"/>) ; si son modèle ou sa
+    ///     dimension diffèrent du manifeste → <see cref="IndexModelMismatchException"/> ;
+    ///  4. recherche des TopK passages, en ne gardant que ceux que l'utilisateur peut lire
+    ///     (prédicat <see cref="AccessPolicy.CanRead"/>) : les droits sont filtrés AVANT le prompt ;
+    ///  5. passages pertinents = score ≥ MinScore ; s'il n'y en a aucun, réponse
+    ///     <see cref="AnswerStatus.NoRelevantSource"/> avec <see cref="Messages.NoRelevantSource"/>,
+    ///     sans appeler le générateur (trace : 0 tentative, passages retrouvés et scores arrondis à 4 décimales) ;
+    ///  6. prompt = <see cref="PromptTemplate.Render"/>(question, FormatPassages(pertinents)) ;
+    ///  7. jusqu'à MaxAttempts tentatives (graine = Seed + tentative − 1 si Seed est fixée) :
+    ///     appeler le générateur, garder la sortie brute dans la trace, vérifier les citations
+    ///     (<see cref="Citations.Check"/>) ; si elles sont valides, réponse
+    ///     <see cref="AnswerStatus.Answered"/> avec une <see cref="Source"/> par numéro cité ;
+    ///     une <see cref="ModelOutputRejectedException"/> compte comme une tentative ratée
+    ///     (trace « &lt;rejetée : problèmes&gt; texte ») ;
+    ///  8. sinon, réponse <see cref="AnswerStatus.Unsourced"/> avec <see cref="Messages.Unsourced"/>
+    ///     et tous les passages pertinents comme sources.
+    /// La trace (<see cref="AnswerTrace"/>) porte l'identifiant de l'index, le modèle d'embeddings,
+    /// le modèle de génération réellement utilisé, la version du prompt, les passages retrouvés,
+    /// le seuil, le nombre de tentatives et les sorties brutes.
+    /// Tests : Coeur.Tests/AskQuestionTests.cs.
+    /// </summary>
     public Answer Execute(User user, string question)
     {
-        question = question.Trim();
-        if (question.Length == 0)
-        {
-            throw new EmptyQuestionException();
-        }
-
-        var manifest = _index.Manifest() ?? throw new IndexNotBuiltException();
-
-        var query = _embedder.EmbedQuery(question);
-        if (query.Model != manifest.EmbeddingModel || query.Dimension != manifest.Dimension)
-        {
-            throw new IndexModelMismatchException(manifest.EmbeddingModel, manifest.Dimension, query.Model, query.Dimension);
-        }
-
-        var passages = _index.Search(query.Vectors[0], _settings.TopK, chunk => _access.CanRead(user, chunk));
-        var relevant = passages.Where(p => p.Score >= _settings.MinScore).ToList();
-        var retrieved = passages.Select(p => new Retrieved(p.Chunk.Id, Math.Round(p.Score, 4))).ToList();
-
-        if (relevant.Count == 0)
-        {
-            return new Answer(question, AnswerStatus.NoRelevantSource, Messages.NoRelevantSource, Array.Empty<Source>(),
-                new AnswerTrace(manifest.IndexId, manifest.EmbeddingModel, null, null, retrieved,
-                                _settings.MinScore, 0, Array.Empty<string>()));
-        }
-
-        var template = _prompts.Get(_settings.PromptName);
-        var prompt = template.Render(question, FormatPassages(relevant));
-
-        var rawOutputs = new List<string>();
-        string? generationModel = null;
-        for (var attempt = 1; attempt <= _settings.MaxAttempts; attempt++)
-        {
-            var seed = _settings.Seed is null ? (int?)null : _settings.Seed + attempt - 1;
-            Generation generation;
-            try
-            {
-                generation = _generator.Generate(new GenerationRequest(
-                    template.System, prompt, _settings.Temperature, _settings.MaxTokens, seed));
-            }
-            catch (ModelOutputRejectedException rejected)
-            {
-                // Garde-fou de forme (décorateur de validation) : tentative ratée, tracée.
-                generationModel = rejected.Model;
-                rawOutputs.Add($"<rejetée : {string.Join(" ; ", rejected.Problems)}> {rejected.Text}");
-                continue;
-            }
-            generationModel = generation.Model;
-            rawOutputs.Add(generation.Text);
-            var check = Citations.Check(generation.Text, relevant.Count);
-            if (check.IsValid)
-            {
-                var sources = check.Cited
-                    .Select(n => new Source(n, relevant[n - 1].Chunk.DocumentId, relevant[n - 1].Chunk.DocumentTitle, relevant[n - 1].Chunk.Id))
-                    .ToList();
-                return new Answer(question, AnswerStatus.Answered, generation.Text.Trim(), sources,
-                    Trace(manifest, generationModel, template.Version, retrieved, attempt, rawOutputs));
-            }
-        }
-
-        // Règle métier : pas de réponse non sourcée. On renvoie les passages.
-        var all = relevant.Select((p, i) => new Source(i + 1, p.Chunk.DocumentId, p.Chunk.DocumentTitle, p.Chunk.Id)).ToList();
-        return new Answer(question, AnswerStatus.Unsourced, Messages.Unsourced, all,
-            Trace(manifest, generationModel, template.Version, retrieved, _settings.MaxAttempts, rawOutputs));
+        throw new NotImplementedException("AskQuestion.Execute : à écrire (exercice S2.2)");
     }
-
-    private AnswerTrace Trace(IndexManifest manifest, string? generationModel, string promptVersion,
-                              IReadOnlyList<Retrieved> retrieved, int attempts, List<string> rawOutputs) =>
-        new(manifest.IndexId, manifest.EmbeddingModel, generationModel, promptVersion, retrieved,
-            _settings.MinScore, attempts, rawOutputs.ToList());
 }

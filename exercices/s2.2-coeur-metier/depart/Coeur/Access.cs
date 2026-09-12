@@ -1,4 +1,4 @@
-// Règle métier n° 1 : qui peut lire quoi.
+// Règle métier n° 1 : qui peut lire quoi.                                    — À ÉCRIRE
 
 namespace Coeur;
 
@@ -6,6 +6,10 @@ namespace Coeur;
 /// Le contrôle d'accès est appliqué de façon déterministe AVANT l'appel au modèle.
 /// On ne demande jamais au modèle de « ne pas révéler » un document : un passage
 /// interdit n'entre tout simplement pas dans le prompt.
+///
+/// Règle : un morceau dont les groupes contiennent <see cref="PublicGroup"/> est lisible
+/// par tout le monde ; sinon, il faut au moins un groupe en commun entre l'utilisateur
+/// et le morceau. Tests : Coeur.Tests/DomainTests.cs (AccessPolicyTests).
 /// </summary>
 public sealed class AccessPolicy
 {
@@ -13,10 +17,6 @@ public sealed class AccessPolicy
 
     public bool CanRead(User user, Chunk chunk)
     {
-        if (chunk.AllowedGroups.Contains(PublicGroup))
-        {
-            return true;
-        }
-        return user.Groups.Overlaps(chunk.AllowedGroups);
+        throw new NotImplementedException("AccessPolicy.CanRead : à écrire (exercice S2.2)");
     }
 }
