@@ -80,10 +80,15 @@ Réponses aux questions :
   Mettre la règle dans le service, c'est faire fuir le métier vers l'infrastructure — l'inverse
   de ce qu'on cherche. Et ici, le service est dans un autre langage : la règle y serait écrite
   en Python, loin des tests du domaine. Voir ADR 0008 et 0009.
-- **Ordre des décorateurs.** Validation sous les tentatives réseau : une sortie rejetée serait
-  prise pour une panne du service et relancée avec le même prompt, en consommant les tentatives
-  réseau ; et une vraie panne réseau serait masquée par une erreur de validation. La validation
-  est une règle métier : au plus près du cas d'usage, donc à l'extérieur de la pile.
+- **Ordre des décorateurs.** Avec le décorateur de tentatives du dépôt, placer la validation
+  dessous ne change rien : il ne relance que les pannes passagères du service IA (`AiServiceException`
+  passagère), et une sortie rejetée le traverse sans nouvel appel au modèle. C'est ce filtre qui
+  protège, pas l'ordre : un décorateur de tentatives qui attraperait toute erreur relancerait une
+  sortie rejetée comme une panne, avec le même prompt, en consommant les tentatives réseau.
+  Mettre la validation au-dessus rend la pile sûre quel que soit ce filtre, et chaque décorateur
+  reste à sa place : les tentatives traitent le réseau, au plus près de lui ; la validation est
+  une règle métier, au plus près du cas d'usage. Seul le journal des générations est encore
+  au-dessus, pour voir aussi les rejets.
 - **Limites de l'heuristique.** Rejet à tort possible : une réponse française qui cite un intitulé
   anglais long (« the General Data Protection Regulation… ») ; acceptation à tort : un raisonnement
   déversé *en français* sans les marqueurs listés. C'est la limite annoncée en S3.1 : un test

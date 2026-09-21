@@ -28,11 +28,15 @@ public sealed class HttpApiTests : IDisposable
         var container = new Container(config, indexCorpus, ask, new SearchPassages(embedder, _index),
             new CheckStatus(source, new WholeDocumentSplitter(), embedder, _index, new StaticPrompts()),
             new RecordSnapshot(ask, new MemorySnapshotStore(), new FixedClock(), new Dictionary<string, object?>()),
-            new MemorySnapshotStore(), _index, embedder, new StaticPrompts(), settings, "fake-keywords", "fake-llm");
+            new MemorySnapshotStore(), _index, new StaticPrompts(), settings, "fake-keywords");
 
+        _api = StartOnAFreePort(container);
+    }
+
+    private static HttpApi StartOnAFreePort(Container container)
+    {
         // Un port libre : la sonde puis l'écoute ne sont pas atomiques, on réessaie si un autre processus s'est glissé entre.
-        HttpApi? api = null;
-        for (var attempt = 0; api is null; attempt++)
+        for (var attempt = 0; ; attempt++)
         {
             var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
             probe.Start();
@@ -42,14 +46,13 @@ public sealed class HttpApiTests : IDisposable
             try
             {
                 candidate.Start();
-                api = candidate;
+                return candidate;
             }
             catch (HttpListenerException) when (attempt < 5)
             {
                 candidate.Dispose();
             }
         }
-        _api = api;
     }
 
     public void Dispose()
@@ -96,7 +99,7 @@ public sealed class HttpApiTests : IDisposable
     }
 
     [Fact]
-    public void Errors_have_the_same_codes_as_the_python_version()
+    public async Task Errors_have_the_same_codes_as_the_python_version()
     {
         Post("/v1/index", "");
         Assert.Equal(HttpStatusCode.Forbidden, Post("/v1/ask", """{"user": "mallory", "question": "Q ?"}""").Status);
@@ -108,6 +111,44 @@ public sealed class HttpApiTests : IDisposable
         Assert.Equal("invalid_json", body.GetProperty("error").GetProperty("code").GetString());
         Assert.Equal(HttpStatusCode.NotFound, Get("/v1/inconnu").Status);
         Assert.Equal(HttpStatusCode.NotFound, Post("/v1/inconnu", "{}").Status);
+        (status, body) = Post("/v1/ask", "[]");
+        Assert.Equal((HttpStatusCode.BadRequest, "invalid_json"), (status, body.GetProperty("error").GetProperty("code").GetString()));
+        (status, body) = Post("/v1/ask", """{"user": "alice", "question": 42}""");
+        Assert.Equal((HttpStatusCode.BadRequest, "invalid_request"), (status, body.GetProperty("error").GetProperty("code").GetString()));
+        (status, body) = Post("/v1/ask", """{"user": "alice", "question": null}""");
+        Assert.Equal((HttpStatusCode.BadRequest, "invalid_question"), (status, body.GetProperty("error").GetProperty("code").GetString()));
+        var latin1 = await _client.PostAsync(_api.Url + "/v1/ask", new ByteArrayContent(new byte[] { 0x7B, 0xE9, 0x7D }));
+        Assert.Equal(HttpStatusCode.BadRequest, latin1.StatusCode);   // octets non UTF-8
+    }
+
+    [Fact]
+    public async Task An_unreadable_index_is_a_server_error_not_a_client_error()
+    {
+        // Un fichier d'index abîmé n'est pas la faute de l'appelant : 500, pas « 400 : votre JSON est invalide ».
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(dir.FullName, "index.json");
+            File.WriteAllText(path, "{ pas du json");
+            var index = new Assistant.Infrastructure.JsonVectorIndex(path);
+            var embedder = new KeywordEmbedder();
+            var settings = new AskSettings(MinScore: 0.5);
+            var ask = new AskQuestion(embedder, index, _generator, new StaticPrompts(), settings);
+            var source = new ListSource(Fakes.Doc("teletravail", "Deux jours de télétravail par semaine."));
+            var container = new Container(AppConfig.Load(), new IndexCorpus(source, new WholeDocumentSplitter(), embedder, index, new FixedClock()), ask,
+                new SearchPassages(embedder, index), new CheckStatus(source, new WholeDocumentSplitter(), embedder, index, new StaticPrompts()),
+                new RecordSnapshot(ask, new MemorySnapshotStore(), new FixedClock(), new Dictionary<string, object?>()),
+                new MemorySnapshotStore(), index, new StaticPrompts(), settings, "fake-keywords");
+            using var api = StartOnAFreePort(container);
+            var response = await _client.PostAsync(api.Url + "/v1/ask", new StringContent("""{"user": "alice", "question": "télétravail"}""", Encoding.UTF8, "application/json"));
+            var body = JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync());
+            Assert.Equal((HttpStatusCode.InternalServerError, "unreadable_state"),
+                         (response.StatusCode, body.GetProperty("error").GetProperty("code").GetString()));
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
     }
 
     [Fact]

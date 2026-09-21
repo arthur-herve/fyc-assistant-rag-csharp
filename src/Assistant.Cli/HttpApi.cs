@@ -7,6 +7,7 @@
 //     POST /v1/ask  {"user": "alice", "question": "..."}
 //
 // Elle ne construit aucun adaptateur : elle reçoit le Container de Composition.Build.
+// L'utilisateur est celui que déclare l'appelant : pas d'authentification (voir docs/installation.md).
 // Bibliothèque de classes seule (HttpListener), aucun paquet.
 
 using System.Net;
@@ -74,7 +75,8 @@ public sealed class HttpApi : IDisposable
             }
             // Une requête à la fois (les cas d'usage et le cache d'embeddings ne sont pas partagés entre
             // fils) : une génération longue retarde /health. La version Python traite les requêtes en
-            // parallèle et ne verrouille que l'indexation ; écart assumé, suffisant pour le cours.
+            // parallèle (verrous sur l'indexation et sur le cache d'embeddings) ; écart assumé,
+            // suffisant pour le cours.
             try
             {
                 Handle(context);
@@ -104,9 +106,10 @@ public sealed class HttpApi : IDisposable
                 _ => (405, Error("method_not_allowed", request.HttpMethod)),
             };
         }
-        catch (JsonException error)
+        catch (InvalidRequestException error)
         {
-            (status, body) = (400, Error("invalid_json", error.Message));
+            // Seul le corps de la requête est la faute de l'appelant : un index illisible est une erreur 500.
+            (status, body) = (400, Error(error.Code, error.Message));
         }
         catch (UnknownUserException error)
         {
@@ -116,7 +119,7 @@ public sealed class HttpApi : IDisposable
         {
             (status, body) = (400, Error("invalid_question", error.Message));
         }
-        catch (Exception error) when (error is IndexNotBuiltException or IndexModelMismatchException)
+        catch (Exception error) when (error is IndexNotBuiltException or IndexModelMismatchException or IndexReplacedException)
         {
             (status, body) = (409, Error("index_unusable", error.Message));
         }
@@ -163,8 +166,8 @@ public sealed class HttpApi : IDisposable
             }
             case "/v1/ask":
             {
-                var user = _container.Config.User(payload["user"]?.ToString() ?? "");
-                var answer = _container.AskQuestion.Execute(user, payload["question"]?.ToString() ?? "");
+                var user = _container.Config.User(TextField(payload, "user"));
+                var answer = _container.AskQuestion.Execute(user, TextField(payload, "question"));
                 return (200, Presenter.AnswerToJson(answer));
             }
             default:
@@ -172,15 +175,30 @@ public sealed class HttpApi : IDisposable
         }
     }
 
+    private static string TextField(JsonObject payload, string name) =>
+        payload[name] switch
+        {
+            null => "",
+            JsonValue value when value.TryGetValue<string>(out var text) => text,
+            _ => throw new InvalidRequestException("invalid_request", $"le champ « {name} » doit être une chaîne"),
+        };
+
     private static JsonObject ReadBody(HttpListenerRequest request)
     {
-        using var reader = new StreamReader(request.InputStream, request.ContentEncoding ?? Encoding.UTF8);
-        var text = reader.ReadToEnd();
-        if (string.IsNullOrWhiteSpace(text))
+        try
         {
-            return new JsonObject();
+            using var reader = new StreamReader(request.InputStream, new UTF8Encoding(false, throwOnInvalidBytes: true));
+            var text = reader.ReadToEnd();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return new JsonObject();
+            }
+            return JsonNode.Parse(text) as JsonObject ?? throw new InvalidRequestException("invalid_json", "le corps doit être un objet JSON");
         }
-        return JsonNode.Parse(text) as JsonObject ?? throw new JsonException("le corps doit être un objet JSON");
+        catch (Exception error) when (error is JsonException or DecoderFallbackException)
+        {
+            throw new InvalidRequestException("invalid_json", error.Message);
+        }
     }
 
     private static JsonObject Error(string code, string message) =>
@@ -213,4 +231,12 @@ public sealed class HttpApi : IDisposable
             Console.Error.WriteLine($"[application] {message}");
         }
     }
+}
+
+/// <summary>Corps de requête illisible ou mal formé : la faute est chez l'appelant (400).</summary>
+public sealed class InvalidRequestException : Exception
+{
+    public InvalidRequestException(string code, string message) : base(message) => Code = code;
+
+    public string Code { get; }
 }

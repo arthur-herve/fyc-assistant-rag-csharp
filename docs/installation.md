@@ -18,7 +18,9 @@ Si une étape résiste, tout le cours jusqu'à la séquence 2.2 fonctionne en **
 | macOS | même page (installeur .pkg, choisir Arm64 ou x64 selon la puce) ou `brew install --cask dotnet-sdk@8` | `dotnet --version` |
 | Linux (Debian/Ubuntu) | `sudo apt install dotnet-sdk-8.0` (dépôt Microsoft ou Ubuntu 22.04+) | `dotnet --version` |
 
-`global.json` accepte toute version 8.0 ou plus récente (`rollForward: latestMajor`).
+`global.json` accepte un SDK 8.0 ou plus récent (`rollForward: latestMajor`), mais l'application et
+les tests visent .NET 8 : il leur faut le **runtime 8**. Il est fourni avec le SDK 8 ; avec seulement
+un SDK 9 ou 10, installer aussi le runtime 8 (même page, « .NET Runtime 8.0.x »).
 **Aucun paquet NuGet dans l'application** ; le projet de tests télécharge xUnit au premier
 `dotnet test` (quelques Mo, une fois).
 
@@ -48,8 +50,8 @@ dotnet test --nologo                                   # l'application
 python -m unittest discover -s tests_python -t .       # le service IA
 ```
 
-Attendu : `Réussi! … total : 91` (le premier `dotnet test` compile tout : 30 à 60 secondes,
-ensuite quelques secondes) et `Ran 22 tests … OK`. Si les deux sont verts, votre poste est prêt
+Attendu : `Réussi! … total : 147` (le premier `dotnet test` compile tout : 30 à 60 secondes,
+ensuite quelques secondes) et `Ran 33 tests … OK`. Si les deux sont verts, votre poste est prêt
 pour les séquences 1 à 2.2.
 
 ## 4. Le mode hors-ligne (2 min)
@@ -136,6 +138,11 @@ AI_SERVICE_URL=http://machine-gpu:8100 dotnet run --project src/Assistant.Cli --
 ```
 
 L'application répond alors sur `http://<serveur>:8000` (`/health`, `/v1/ask`, `/v1/status`, `/v1/index`).
+
+⚠️ Ni le service IA ni l'application n'ont d'**authentification** : ils sont prévus pour un réseau interne.
+L'application croit l'utilisateur que déclare l'appelant (`"user": "alice"`) : les droits d'accès ne protègent
+donc que si un proxy authentifié fixe ce champ. En production, placer les deux derrière un tel proxy.
+
 Sous Windows, `HttpListener` peut demander un droit d'écoute pour `--host 0.0.0.0` : `netsh http add
 urlacl url=http://+:8000/ user=%USERNAME%` (une fois, en administrateur) ; `127.0.0.1` n'en a pas besoin.
 
@@ -144,10 +151,13 @@ urlacl url=http://+:8000/ user=%USERNAME%` (une fois, en administrateur) ; `127.
 | Symptôme | Cause probable | Remède |
 |---|---|---|
 | `Erreur : service IA — …` ou `injoignable (http://127.0.0.1:8100)` | le terminal 1 n'est pas lancé | `python -m ai_service` |
-| `HTTP 502 — … Ollama est-il lancé sur http://127.0.0.1:11434 ?` | Ollama arrêté ou modèle non téléchargé | `ollama serve` / `ollama pull <modèle>` |
+| `HTTP 502 — … Ollama est-il lancé sur http://127.0.0.1:11434 ?` | Ollama arrêté | `ollama serve` |
+| `HTTP 502 — empreinte de … introuvable … (modèles installés : …)` | modèle non téléchargé, ou nom écrit autrement que dans `ollama list` | `ollama pull <modèle>`, ou corriger `model` dans `config/ai_service.toml` |
+| `HTTP 502 — … a changé pendant l'appel` | un `ollama pull` pendant la requête | relancer la commande |
 | `L'index a été construit avec « … » mais le modèle d'embeddings actuel est « … »` | vous avez changé de modèle d'embeddings | c'est voulu (séquence 2.3) : `index` avec ce modèle, ou `index --if-stale` |
 | `dotnet : commande introuvable` | SDK non installé ou PATH non mis à jour | rouvrir le terminal après l'installation ; `dotnet --info` |
 | `NETSDK1045` ou « version du SDK » | SDK plus ancien que 8.0 | installer le SDK 8.0 (étape 1) |
+| « You must install or update .NET to run this application » (`Microsoft.NETCore.App` 8.0) | SDK 9 ou 10 seul, sans runtime 8 | installer le runtime .NET 8 (étape 1) |
 | `python : commande introuvable` sous Windows | PATH non mis à jour à l'installation | utiliser `py`, ou réinstaller Python en cochant « Add to PATH » |
 | Réponses très lentes (> 1 min) avec `qwen3:4b` | mode réflexion, budget de jetons | normal sur CPU ; utiliser `llama3.2:3b` hors expériences |
 | `MemoryError` ou Ollama qui se ferme | modèle trop gros pour la RAM | modèle plus petit (`gemma3:1b`, `nomic-embed-text`) |

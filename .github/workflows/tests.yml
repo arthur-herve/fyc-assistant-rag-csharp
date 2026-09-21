@@ -30,12 +30,17 @@ jobs:
       - name: Cas pratique S5.1 — la version de départ compile
         run: dotnet build cas-pratique/depart --nologo
   python:
-    name: service IA Python
-    runs-on: ubuntu-latest
+    name: service IA Python ${{ matrix.python }} · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.13"]   # version minimale annoncée (docs/installation.md) et récente
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
       - name: Tests du service IA
         run: python -m unittest discover -s tests_python -t . -v

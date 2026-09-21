@@ -3,9 +3,7 @@
 // traduisent les ports IEmbedder et IGenerator en appels HTTP selon docs/contrat-http.md.
 // Le service peut être écrit dans n'importe quel langage : seul le contrat compte.
 
-using System.Net;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Assistant.Application;
 
 namespace Assistant.Infrastructure;
@@ -15,8 +13,6 @@ public delegate JsonElement JsonTransport(string url, object payload);
 
 public static class HttpTransport
 {
-    private static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
-
     public static JsonTransport Create(TimeSpan timeout)
     {
         var client = new HttpClient { Timeout = timeout };
@@ -28,7 +24,7 @@ public static class HttpTransport
             {
                 // Corps sérialisé d'un bloc, avec Content-Length : le service (bibliothèque standard
                 // Python) ne lit pas les envois en morceaux (chunked).
-                var json = JsonSerializer.Serialize(payload, payload.GetType(), Options);
+                var json = JsonSerializer.Serialize(payload, payload.GetType());
                 using var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
                 response = client.PostAsync(url, content).GetAwaiter().GetResult();
                 body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
@@ -45,20 +41,26 @@ public static class HttpTransport
             if (!response.IsSuccessStatusCode)
             {
                 var detail = body;
+                var retryable = true;
                 try
                 {
-                    detail = JsonDocument.Parse(body).RootElement.GetProperty("error").GetProperty("message").GetString() ?? body;
+                    using var error = JsonDocument.Parse(body);
+                    var problem = error.RootElement.GetProperty("error");
+                    detail = problem.GetProperty("message").GetString() ?? body;
+                    retryable = !(problem.TryGetProperty("retryable", out var flag) && flag.ValueKind == JsonValueKind.False);
                 }
                 catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException)
                 {
                     // corps non JSON : on garde le texte brut
                 }
+                // 5xx : passager, sauf si le service dit que réessayer ne changera rien (modèle absent…).
                 throw new AiServiceException($"Service IA : HTTP {(int)response.StatusCode} — {detail}",
-                                             transient: (int)response.StatusCode >= 500);
+                                             transient: (int)response.StatusCode >= 500 && retryable);
             }
             try
             {
-                return JsonDocument.Parse(body).RootElement.Clone();
+                using var document = JsonDocument.Parse(body);
+                return document.RootElement.Clone();
             }
             catch (JsonException error)
             {
@@ -69,11 +71,24 @@ public static class HttpTransport
 
     public static void Require(JsonElement payload, params string[] keys)
     {
-        var missing = keys.Where(k => !payload.TryGetProperty(k, out _)).ToList();
+        var missing = keys.Where(k => payload.ValueKind != JsonValueKind.Object || !payload.TryGetProperty(k, out _)).ToList();
         if (missing.Count > 0)
         {
             throw new AiServiceException($"Réponse du service IA incomplète, champs manquants : [{string.Join(", ", missing)}]",
                                          transient: false);
+        }
+    }
+
+    /// <summary>Lit une réponse qui a les bons champs mais peut-être pas les bons types.</summary>
+    public static T Read<T>(Func<T> read)
+    {
+        try
+        {
+            return read();
+        }
+        catch (Exception error) when (error is InvalidOperationException or FormatException)
+        {
+            throw new AiServiceException($"Réponse du service IA incohérente : {error.Message}", transient: false);
         }
     }
 }
@@ -99,10 +114,19 @@ public sealed class HttpEmbedder : IEmbedder
     {
         var payload = _post(_url, new { model = _model, input_type = inputType, inputs = texts });
         HttpTransport.Require(payload, "model", "dimension", "vectors");
-        var vectors = payload.GetProperty("vectors").EnumerateArray()
-            .Select(v => v.EnumerateArray().Select(x => x.GetDouble()).ToArray())
-            .ToList();
-        return new EmbeddingBatch(payload.GetProperty("model").GetString()!, payload.GetProperty("dimension").GetInt32(), vectors);
+        var (model, dimension, vectors) = HttpTransport.Read(() => (
+            payload.GetProperty("model").GetString() ?? throw new FormatException("« model » est nul"),
+            payload.GetProperty("dimension").GetInt32(),
+            payload.GetProperty("vectors").EnumerateArray()
+                .Select(v => v.EnumerateArray().Select(x => x.GetDouble()).ToArray())
+                .ToList()));
+        if (vectors.Count != texts.Count || vectors.Any(v => v.Length != dimension))
+        {
+            throw new AiServiceException(
+                $"Réponse du service IA incohérente : {texts.Count} vecteurs de {dimension} dimensions attendus, reçu {vectors.Count} "
+                + $"de [{string.Join(", ", vectors.Select(v => v.Length).Distinct().Order())}] dimensions", transient: false);
+        }
+        return new EmbeddingBatch(model, dimension, vectors);
     }
 }
 
@@ -131,6 +155,8 @@ public sealed class HttpGenerator : IGenerator
             seed = request.Seed,
         });
         HttpTransport.Require(payload, "model", "text");
-        return new Generation(payload.GetProperty("model").GetString()!, payload.GetProperty("text").GetString() ?? "");
+        return HttpTransport.Read(() => new Generation(
+            payload.GetProperty("model").GetString() ?? throw new FormatException("« model » est nul"),
+            payload.GetProperty("text").GetString() ?? ""));
     }
 }

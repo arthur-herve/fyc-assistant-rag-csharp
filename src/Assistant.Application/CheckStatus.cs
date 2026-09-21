@@ -88,7 +88,7 @@ public sealed class CheckStatus
         }
         if (serviceError is not null)
         {
-            issues.Add($"service IA injoignable, modèle servi non vérifié : {serviceError}");
+            issues.Add($"modèle servi non vérifié, le service IA a échoué : {serviceError}");
         }
 
         return new StatusReport(manifest, documents.Count, fingerprint, splitter, model, dimension,
@@ -97,8 +97,9 @@ public sealed class CheckStatus
 
     public static string Describe(IReadOnlyDictionary<string, object> splitter) =>
         "{" + string.Join(", ", splitter.OrderBy(kv => kv.Key, StringComparer.Ordinal)
-                                       .Select(kv => $"{kv.Key}: {kv.Value}")) + "}";
+                                       .Select(kv => $"{kv.Key}: {SnapshotComparer.Canonical(kv.Value)}")) + "}";
 
+    // Par valeur, comme l'égalité de dictionnaires de Python (800 et 800.0 sont le même découpage).
     private static bool SameSplitter(IReadOnlyDictionary<string, object> a, IReadOnlyDictionary<string, object> b) =>
-        Describe(a) == Describe(b);
+        SnapshotComparer.Canonical(a) == SnapshotComparer.Canonical(b);
 }

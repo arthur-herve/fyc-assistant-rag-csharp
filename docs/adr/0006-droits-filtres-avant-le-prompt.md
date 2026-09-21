@@ -1,6 +1,6 @@
 # ADR 0006 — Les droits d'accès sont filtrés avant le prompt, jamais confiés au modèle
 
-**Date** : 11/09/2026 · **Statut** : acceptée · reprise dans la version C# le 12/09/2026, références de fichiers et mesures adaptées
+**Date** : 11/09/2026 · **Statut** : acceptée · reprise dans la version C# le 12/09/2026, références de fichiers et mesures adaptées · erratum du 21/09/2026 (en fin de document)
 
 ## Contexte
 
@@ -29,3 +29,14 @@ l'empreinte du corpus (un changement de droits = corpus modifié = réindexation
 
 Compter sur le prompt (« ne cite pas les documents RH ») ou vérifier les citations après coup
 seulement : le modèle aurait vu le contenu interdit.
+
+## Erratum (21/09/2026)
+
+Le point « Coût » ci-dessus est faux : l'index applique le prédicat d'accès **avant** le tri et la
+coupe du top-k (`InMemoryVectorIndex.Search`), c'est un pré-filtrage. Un passage interdit ne prend
+donc jamais une place du top-k ; le test `Forbidden_passages_take_no_place_in_the_top_k` le fixe. Et
+le pré-filtrage ne met pas de règle métier dans un composant technique : la règle reste dans le
+domaine (`AccessPolicy`), l'index ne reçoit qu'un prédicat.
+
+La mesure de fuites citée est celle de la version Python. Pour cette version : 0 fuite sur
+84 appels (banc du 12/09/2026, `eval/resultats/README.md`).

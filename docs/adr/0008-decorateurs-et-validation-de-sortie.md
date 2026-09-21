@@ -1,6 +1,6 @@
 # ADR 0008 — Les garde-fous sont des décorateurs de ports ; la forme de la sortie est une règle métier
 
-**Date** : 11/09/2026 · **Statut** : acceptée · reprise dans la version C# le 12/09/2026, références de fichiers et mesures adaptées
+**Date** : 11/09/2026 · **Statut** : acceptée · reprise dans la version C# le 12/09/2026, références de fichiers et mesures adaptées · complétée par l'ADR 0010 (21/09/2026)
 
 ## Contexte
 

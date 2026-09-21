@@ -2,7 +2,8 @@
 
 Une décision par fichier : contexte, décision, conséquences, ce qu'on a écarté. Elles se lisent
 dans l'ordre. Une ADR n'est jamais modifiée après coup : une décision qui change donne une
-nouvelle ADR qui remplace l'ancienne.
+nouvelle ADR qui remplace l'ancienne. Seules exceptions, datées : la ligne de statut (« complétée
+par l'ADR … ») et un erratum en fin de document quand un fait énoncé s'avère faux.
 
 | N° | Décision | Séquences |
 |---|---|---|
@@ -15,6 +16,7 @@ nouvelle ADR qui remplace l'ancienne.
 | [0007](0007-bibliotheque-standard.md) | Bibliothèque standard uniquement dans l'application | S1.1, S4.3 |
 | [0008](0008-decorateurs-et-validation-de-sortie.md) | Les garde-fous sont des décorateurs de ports ; la forme de la sortie est une règle métier | S4.1 |
 | [0009](0009-application-csharp-modeles-python.md) | Application en C#, modèles en Python : la frontière est le contrat, pas le langage | S1.3, S2.3, S4.2, S5.3 |
+| [0010](0010-cache-et-identite-du-modele.md) | Le cache d'embeddings dérive de l'index ; l'identité d'un modèle Ollama est relue à chaque appel | S4.1, S4.2 |
 
 Les ADR 0001 à 0008 ont été prises pour la version Python du fil rouge et reprises ici : mêmes
-décisions, références de fichiers et mesures adaptées à ce dépôt (0002 et 0007 en particulier). L'ADR 0009 est propre à cette version.
+décisions, références de fichiers et mesures adaptées à ce dépôt (0002 et 0007 en particulier). L'ADR 0009 est propre à cette version ; l'ADR 0010 est commune aux deux (numérotée 0009 dans la version Python).

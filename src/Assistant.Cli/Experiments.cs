@@ -15,6 +15,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using Assistant.Application;
+using Assistant.Domain;
 
 namespace Assistant.Cli;
 
@@ -86,6 +87,10 @@ public sealed class Experiment
         return (snapshot, clock.Elapsed.TotalSeconds);
     }
 
+    /// <summary>Noms des statuts dans les instantanés : ceux du domaine, pas des chaînes recopiées.</summary>
+    public static readonly string Answered = StatusNames.Of(AnswerStatus.Answered),
+        NoRelevantSource = StatusNames.Of(AnswerStatus.NoRelevantSource), Unsourced = StatusNames.Of(AnswerStatus.Unsourced);
+
     /// <summary>Cinq mesures lues dans un instantané, à partir de ce que les questions attendent.</summary>
     public Dictionary<string, object?> Stats(Snapshot snapshot)
     {
@@ -93,13 +98,19 @@ public sealed class Experiment
         var entries = snapshot.Entries.Where(e => byId.ContainsKey(e.QuestionId)).ToList();
         var answerable = entries.Where(e => byId[e.QuestionId].Answerable).ToList();
         var unanswerable = entries.Where(e => !byId[e.QuestionId].Answerable).ToList();
-        var sourced = answerable.Where(e => e.Status == "answered" && byId[e.QuestionId].ExpectedDocuments.Count > 0).ToList();
+        var sourced = answerable.Where(e => e.Status == Answered && byId[e.QuestionId].ExpectedDocuments.Count > 0).ToList();
+        var coverages = answerable.Where(e => e.Status == Answered)
+            .Select(e => Benchmark.KeywordCoverage(e.Text, byId[e.QuestionId].ExpectedKeywords))
+            .OfType<double>().ToList();
         return new Dictionary<string, object?>
         {
-            ["répond (répondables)"] = Rate(answerable, e => e.Status == "answered"),
+            ["répond (répondables)"] = Rate(answerable, e => e.Status == Answered),
             ["bonne source"] = Rate(sourced, e => e.CitedDocuments.Intersect(byId[e.QuestionId].ExpectedDocuments).Any()),
-            ["refus justes (hors corpus)"] = Rate(unanswerable, e => e.Status == "no_relevant_source"),
-            ["non sourcé"] = Rate(entries, e => e.Status == "unsourced"),
+            // Mesure (grossière) du contenu : le taux de dérive seul ne distingue pas une reformulation
+            // d'une réponse inversée.
+            ["mots-clés (réponses données)"] = coverages.Count == 0 ? null : Math.Round(coverages.Average(), 2),
+            ["refus justes (sans réponse accessible)"] = Rate(unanswerable, e => e.Status == NoRelevantSource),
+            ["non sourcé"] = Rate(entries, e => e.Status == Unsourced),
             ["fuites d'accès"] = (double)entries.Count(e => e.CitedDocuments.Intersect(byId[e.QuestionId].ForbiddenDocuments).Any()),
         };
     }
@@ -114,7 +125,7 @@ public sealed class Experiment
         ["taux de dérive"] = comparison.DriftRate,
         ["changements de statut"] = comparison.Count(DifferenceKind.StatusChanged),
         ["changements de sources"] = comparison.Count(DifferenceKind.SourcesChanged),
-        ["reformulations"] = comparison.Count(DifferenceKind.TextChanged),
+        ["textes modifiés (à relire)"] = comparison.Count(DifferenceKind.TextChanged),
     };
 
     public void Log(string line) => _lines.Add(line);
@@ -328,7 +339,7 @@ public static class Experiments
         var (snapshotB, secondsB) = exp.Record("apres", containerB);
         var sameIndex = Equals(snapshotA.Configuration.GetValueOrDefault("index_id"), snapshotB.Configuration.GetValueOrDefault("index_id"));
 
-        static int Rejected(Snapshot snapshot) => snapshot.Entries.Count(e => e.Status == "unsourced");
+        static int Rejected(Snapshot snapshot) => snapshot.Entries.Count(e => e.Status == Experiment.Unsourced);
 
         var comparison = SnapshotComparer.Compare(snapshotA, snapshotB);
         exp.Log($"Une seule chose change : le modèle de génération, `{first}` → `{other}`. L'index `{manifest.IndexId}` est construit une fois et partagé : "
@@ -370,7 +381,7 @@ public static class Experiments
 
         static object? MeanLength(Snapshot snapshot)
         {
-            var answered = snapshot.Entries.Where(e => e.Status == "answered").Select(e => e.Text.Length).ToList();
+            var answered = snapshot.Entries.Where(e => e.Status == Experiment.Answered).Select(e => e.Text.Length).ToList();
             return answered.Count == 0 ? null : (int)Math.Round(answered.Average());
         }
 
@@ -413,18 +424,18 @@ public static class Experiments
         exp.Log("");
         exp.Log("## Chaque passage comparé au premier");
         exp.Log("");
-        var rows = new List<(string, IReadOnlyDictionary<string, object?>)>();
-        for (var i = 2; i <= runs; i++)
-        {
-            rows.Add(($"passage 1 → {i}", Experiment.DriftSummary(SnapshotComparer.Compare(snapshots[0], snapshots[i - 1]))));
-        }
-        exp.Table(rows);
-        var drifts = rows.Select(r => r.Item2["taux de dérive"] as double?).Where(d => d is not null).Select(d => d!.Value).ToList();
+        var comparisons = Enumerable.Range(2, Math.Max(0, runs - 1))
+            .Select(i => ($"passage 1 → {i}", SnapshotComparer.Compare(snapshots[0], snapshots[i - 1]))).ToList();
+        exp.Table(comparisons.Select(c => (c.Item1, (IReadOnlyDictionary<string, object?>)Experiment.DriftSummary(c.Item2))).ToList());
+        var drifts = comparisons.Select(c => c.Item2.DriftRate).OfType<double>().ToList();
         var meanDrift = drifts.Count == 0 ? (double?)null : Math.Round(drifts.Average(), 3);
-        var statuses = rows.Sum(r => (int)r.Item2["changements de statut"]!);
+        var statuses = comparisons.Sum(c => c.Item2.Count(DifferenceKind.StatusChanged));
         exp.Log($"**Dérive moyenne à configuration constante : {(meanDrift is null ? "—" : meanDrift.Value.ToString("0.###", CultureInfo.InvariantCulture))}** "
-                + $"({statuses} changement(s) de statut sur {rows.Count} comparaison(s)).");
+                + $"({statuses} changement(s) de statut sur {comparisons.Count} comparaison(s)).");
         exp.Log("");
+        exp.Log("## Indicateurs par passage");
+        exp.Log("");
+        exp.Table(snapshots.Select((snapshot, i) => ($"passage {i + 1}", (IReadOnlyDictionary<string, object?>)exp.Stats(snapshot))).ToList());
         exp.Log("## Statuts par question");
         exp.Log("");
         exp.Log("| Question | " + string.Join(" | ", Enumerable.Range(1, runs).Select(i => $"passage {i}")) + " |");
@@ -439,7 +450,7 @@ public static class Experiments
         exp.Log("## Lecture");
         exp.Log("");
         exp.Log("- C'est la mesure de base de la séquence 3.1 : un test par assertion exacte sur ces réponses échouerait au hasard. On teste donc une *proportion* (taux de réponses sourcées, de refus justes) avec une tolérance, et on documente la probabilité de faux échec.");
-        exp.Log("- Les reformulations sont attendues ; les changements de statut (⚠) sont ce qu'un test statistique doit borner.");
+        exp.Log("- Le texte change presque toujours d'un passage à l'autre, et un « texte modifié » peut inverser la réponse (Oui devenu Non) : il se relit, la couverture des mots-clés le mesure grossièrement. Les changements de statut (⚠) existent aussi à configuration constante : un test statistique doit les borner avec une tolérance, pas exiger zéro.");
         exp.Log("- Une graine réduit la variabilité pour un même modèle et un même moteur ; elle ne garantit rien d'un modèle à l'autre, ni d'une version d'Ollama à l'autre.");
     }
 

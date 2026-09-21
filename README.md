@@ -12,7 +12,7 @@ applicatifs hébergent l'application, et les deux équipes n'écrivent pas forc�
 - Service IA : **Python 3.11+**, bibliothèque standard, code identique à celui de la version Python (copié tel quel) ; sa configuration ajoute seulement l'alias `hashing-stem4` pour l'exemple S1.3.
 - Mode hors-ligne intégré (embeddings hachés, générateur extractif) : tout fonctionne sans modèle ni GPU.
 - Vrais modèles via [Ollama](https://ollama.com) : `bge-m3` + `llama3.2:3b` dans la configuration `config/app-ollama.json`, comme la version Python.
-- Banc d'essai, cinq expériences reproductibles, test statistique, exemple jouet de la séquence 1.3, neuf ADR : tout ce que le cours promet est dans ce dépôt (voir « Où la problématique apparaît dans le code »).
+- Banc d'essai, cinq expériences reproductibles, test statistique, exemple jouet de la séquence 1.3, dix ADR : tout ce que le cours promet est dans ce dépôt (voir « Où la problématique apparaît dans le code »).
 
 **Par où commencer** : [`docs/installation.md`](docs/installation.md) (20 minutes hors-ligne), puis le démarrage rapide ci-dessous, puis
 [`exemples/s1.3-transfert-naif/`](exemples/s1.3-transfert-naif/README.md) pour voir le transfert naïf marcher… et casser.
@@ -48,7 +48,7 @@ src/Assistant.Infrastructure/   HttpEmbedder/HttpGenerator, MarkdownCorpus, Para
                                 FilePromptRepository, JsonSnapshotStore, SystemClock, décorateurs (cache, journal, tentatives)
 src/Assistant.Cli/              Program (index, ask, status, snapshot, benchmark, experience, serve), HttpApi (API HTTP de
                                 l'application), Composition (le seul endroit qui connaît tout), AppConfig, Benchmark, Experiments
-tests/Assistant.Tests/          91 tests xUnit : domaine, cas d'usage avec doubles, adaptateurs, contrat HTTP contre un faux
+tests/Assistant.Tests/          147 tests xUnit : domaine, cas d'usage avec doubles, adaptateurs, contrat HTTP contre un faux
                                 service, API HTTP contre des doubles, règle de dépendance, test statistique (S3.1), calculs du banc
 exemples/s1.3-transfert-naif/   le transfert naïf en moins de 300 lignes : port dans le domaine, substitution, puis panne silencieuse
 ai_service/                     service IA en Python, copié de la version Python (registre, backends Ollama / hors-ligne)
@@ -60,7 +60,7 @@ corpus/                         solveo/ (9 documents fictifs) · service-public-
                                 service-public/ (322 fiches, Licence Ouverte 2.0, pour les expériences à l'échelle)
 eval/questions*.json            jeux de questions partagés avec la version Python · eval/resultats/ : rapports du banc et des expériences
 docs/contrat-http.md            le contrat entre les deux programmes — la seule chose qu'ils partagent
-docs/adr/                       neuf décisions d'architecture · docs/artefacts.md : les sept artefacts à versionner ensemble
+docs/adr/                       dix décisions d'architecture · docs/artefacts.md : les sept artefacts à versionner ensemble
 ```
 
 ## Démarrage rapide (hors-ligne)
@@ -131,7 +131,7 @@ curl http://127.0.0.1:8000/v1/status                                 # 200 à jo
 curl -X POST http://127.0.0.1:8000/v1/index -d '{}'                  # reconstruit l'index
 ```
 
-Erreurs : `400 invalid_json` / `invalid_question`, `403 unknown_user`, `409 index_unusable`, `502 ai_service_error`, `404 not_found`.
+Erreurs : `400 invalid_json` / `invalid_request` / `invalid_question`, `403 unknown_user`, `404 not_found`, `405 method_not_allowed`, `409 index_unusable`, `500 unreadable_state` / `internal_error`, `502 ai_service_error`.
 
 ## Avec de vrais modèles
 
@@ -150,8 +150,8 @@ le langage de celle-ci ne change rien aux ordres de grandeur.
 ## Tests
 
 ```bash
-dotnet test                                              # 91 tests C#, sans IA ni réseau (dont un test statistique, S3.1)
-python -m unittest discover -s tests_python -t .         # 22 tests du service IA
+dotnet test                                              # 147 tests C#, sans IA ni réseau (dont un test statistique, S3.1)
+python -m unittest discover -s tests_python -t .         # 33 tests du service IA
 ```
 
 ## Ce que la version C# montre que la version Python ne peut pas montrer
@@ -194,8 +194,8 @@ réentraînement (un RAG n'entraîne rien : il se réindexe, `docs/artefacts.md`
 
 - Le dépôt de départ de l'exercice S4.1 (branche sans le décorateur) attend le découpage du cours en étiquettes Git.
 - Les temps sans carte graphique ne sont pas mesurés (voir `docs/installation.md`).
-- Vérifié le 12/09/2026 : pour le corpus Solvéo et le moteur `hashing`, les deux versions produisent le
-  **même identifiant d'index** (`37d63c9a6986`) et la **même `prompt_version`** (`v1+085b70e7`) ; un
+- Vérifié le 21/09/2026 : pour le corpus Solvéo et le moteur `hashing`, les deux versions produisent le
+  **même identifiant d'index** (`d5276d0355c9`) et la **même `prompt_version`** (`v1+085b70e7`) ; un
   instantané C# comparé à un instantané Python enregistré par la version courante des deux dépôts donne 0 % de
   dérive et aucune différence de configuration.
 - L'API HTTP traite les requêtes une à la fois (la version Python les traite en parallèle, sauf l'indexation) :

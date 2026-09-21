@@ -8,6 +8,28 @@ namespace Assistant.Tests;
 public class BenchmarkTests
 {
     [Fact]
+    public void Csv_lines_are_written_like_the_python_csv_module()
+    {
+        var row = new BenchmarkRow("e", "g", 1, "q", true, "answered", 100, Attempts: 1, GenerationModelId: "m", CitedDocuments: "d",
+                                   SourceHit: true, KeywordCoverage: 0.5, Text: "Réponse, \"citée\"\nsuite");
+        // Ce qu'écrit csv.writer (Python) pour la même ligne, fin de ligne exclue.
+        Assert.Equal("e,g,1,q,True,answered,1,100,m,d,True,False,0.5,,\"Réponse, \"\"citée\"\"\nsuite\"", row.CsvLine());
+    }
+
+    [Fact]
+    public void Latency_is_measured_on_generated_answers_only()
+    {
+        var rows = new List<BenchmarkRow>
+        {
+            new("e", "g", 1, "q1", true, "answered", 900, Attempts: 1),
+            new("e", "g", 1, "q2", false, "no_relevant_source", 2, Attempts: 0),   // refus sans appel au modèle
+        };
+        var summary = Benchmark.Summarize(rows).Single()!;
+        Assert.Equal(900.0, summary["latency_median_ms"]!.GetValue<double>());
+        Assert.Equal(1, summary["refusals_without_generation"]!.GetValue<int>());
+    }
+
+    [Fact]
     public void Suggested_threshold_separates_the_two_populations()
     {
         var (threshold, separation) = Benchmark.SuggestThreshold(new[] { 0.8, 0.7, 0.65 }, new[] { 0.4, 0.5 });
@@ -63,7 +85,7 @@ public class BenchmarkTests
     {
         var questions = new List<EvalQuestion>
         {
-            new("q1", "alice", "Q1", new[] { "teletravail" }, Array.Empty<string>(), true, Array.Empty<string>()),
+            new("q1", "alice", "Q1", new[] { "teletravail" }, new[] { "deux jours", "semaine" }, true, Array.Empty<string>()),
             new("q2", "alice", "Q2", Array.Empty<string>(), Array.Empty<string>(), false, Array.Empty<string>()),
             new("q3", "alice", "Q3", new[] { "frais" }, Array.Empty<string>(), true, new[] { "grille" }),
         };
@@ -81,7 +103,8 @@ public class BenchmarkTests
             var stats = exp.Stats(snapshot);
             Assert.Equal(1.0, stats["répond (répondables)"]);
             Assert.Equal(0.5, stats["bonne source"]);
-            Assert.Equal(1.0, stats["refus justes (hors corpus)"]);
+            Assert.Equal(0.5, stats["mots-clés (réponses données)"]);   // « deux jours » oui, « semaine » non
+            Assert.Equal(1.0, stats["refus justes (sans réponse accessible)"]);
             Assert.Equal(0.0, stats["non sourcé"]);
             Assert.Equal(1.0, stats["fuites d'accès"]);   // q3 cite un document interdit : le banc doit le voir
         }

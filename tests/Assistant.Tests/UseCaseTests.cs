@@ -39,6 +39,16 @@ public class AskQuestionTests
     }
 
     [Fact]
+    public void A_citation_points_to_the_passage_it_numbers()
+    {
+        // [2] désigne le deuxième passage du prompt, pas le premier ni le dernier.
+        var generator = new ScriptedGenerator("Le repas est remboursé [2].");
+        var answer = Build.Ask(generator, minScore: 0.1).Execute(Fakes.Alice, "télétravail jours frais");
+        Assert.Equal(2, Regex.Matches(generator.Requests[0].Prompt, @"^\[\d+\]", RegexOptions.Multiline).Count);
+        Assert.Equal(new[] { (2, "frais") }, answer.Sources.Select(s => (s.Number, s.DocumentId)));
+    }
+
+    [Fact]
     public void A_huge_or_non_ascii_citation_number_is_invalid_not_a_crash()
     {
         var answer = Build.Ask(new ScriptedGenerator("Appelez le [33612345678].", "Deux jours [1].")).Execute(Fakes.Alice, "Combien de jours de télétravail ?");
@@ -155,6 +165,95 @@ public class SearchPassagesTests
     public void Requires_an_index() =>
         Assert.Throws<IndexNotBuiltException>(() =>
             new SearchPassages(new KeywordEmbedder(), new FakeIndex()).Execute(Fakes.Alice, "Q ?", 4));
+
+    [Fact]
+    public void The_passages_are_labelled_with_the_index_they_come_from()
+    {
+        var index = new RebuiltDuringSearch(rebuilds: 1);
+        var first = index.Manifest()!.IndexId;
+        var retrieval = new SearchPassages(new KeywordEmbedder(), index).Execute(Fakes.Alice, "télétravail", 4);
+        Assert.NotEqual(first, retrieval.Manifest.IndexId);
+        Assert.Equal(index.Manifest()!.IndexId, retrieval.Manifest.IndexId);
+    }
+
+    [Fact]
+    public void An_index_rebuilt_by_another_model_meanwhile_is_refused() =>
+        Assert.Throws<IndexModelMismatchException>(() =>
+            new SearchPassages(new KeywordEmbedder(), new RebuiltDuringSearch(rebuilds: 1, model: "autre-modele"))
+                .Execute(Fakes.Alice, "télétravail", 4));
+
+    [Fact]
+    public void An_index_rebuilt_with_another_dimension_is_an_index_error_not_a_crash() =>
+        // Reconstruit par un modèle d'une autre dimension pendant la recherche : c'est la recherche
+        // elle-même qui échoue (vecteur de la mauvaise taille). 409 : réindexer, pas 500.
+        Assert.Throws<IndexModelMismatchException>(() =>
+            new SearchPassages(new KeywordEmbedder(), new RebuiltWithAnotherDimension()).Execute(Fakes.Alice, "télétravail", 4));
+
+    private sealed class RebuiltWithAnotherDimension : Assistant.Infrastructure.InMemoryVectorIndex
+    {
+        private bool _rebuilt;
+
+        public RebuiltWithAnotherDimension()
+        {
+            var ready = Build.Indexed();
+            base.Replace(ready.Manifest()!, ready.Chunks, ready.Vectors);
+        }
+
+        public override IReadOnlyList<Passage> Search(double[] vector, int topK, Func<Chunk, bool> predicate)
+        {
+            if (!_rebuilt)
+            {
+                _rebuilt = true;
+                var dimension = vector.Length + 2;
+                Replace(new IndexManifest("autre-index", "autre-modele", dimension, "fp", new Dictionary<string, object>(), 1, 1, "t"),
+                        new[] { new Chunk("autre#0", "autre", "Autre", "texte", 0, new HashSet<string> { "tous" }) },
+                        new[] { Enumerable.Repeat(1.0, dimension).ToArray() });
+            }
+            return base.Search(vector, topK, predicate);
+        }
+    }
+
+    [Fact]
+    public void An_index_rebuilt_at_every_attempt_is_an_error() =>
+        Assert.Throws<IndexReplacedException>(() =>
+            new SearchPassages(new KeywordEmbedder(), new RebuiltDuringSearch(rebuilds: 2)).Execute(Fakes.Alice, "télétravail", 4));
+
+    /// <summary>
+    /// Un autre processus reconstruit l'index juste pendant la recherche : celle-ci porte déjà sur
+    /// le nouvel index, alors que le modèle a été contrôlé sur l'ancien manifeste.
+    /// </summary>
+    private sealed class RebuiltDuringSearch : IVectorIndex
+    {
+        private readonly FakeIndex _index = new();
+        private readonly string _model;
+        private int _rebuilds;
+
+        public RebuiltDuringSearch(int rebuilds, string model = "fake-keywords")
+        {
+            (_rebuilds, _model) = (rebuilds, model);
+            Rebuild(new KeywordEmbedder(), "départ");
+        }
+
+        private void Rebuild(IEmbedder embedder, string note) =>
+            new IndexCorpus(new ListSource(Fakes.Doc("teletravail", "Deux jours de télétravail par semaine."),
+                                           Fakes.Doc("note", $"Note de version : {note}.")),   // autre corpus, autre index_id
+                            new WholeDocumentSplitter(), embedder, _index, new FixedClock()).Execute();
+
+        public IndexManifest? Manifest() => _index.Manifest();
+
+        public void Replace(IndexManifest manifest, IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> vectors) =>
+            _index.Replace(manifest, chunks, vectors);
+
+        public IReadOnlyList<Passage> Search(double[] vector, int topK, Func<Chunk, bool> predicate)
+        {
+            if (_rebuilds > 0)
+            {
+                _rebuilds--;
+                Rebuild(new KeywordEmbedder(_model), $"reconstruit, reste {_rebuilds}");
+            }
+            return _index.Search(vector, topK, predicate);
+        }
+    }
 }
 
 public class IndexCorpusTests
@@ -178,6 +277,46 @@ public class IndexCorpusTests
         var pub = Fingerprints.Corpus(new[] { Fakes.Doc("a", "texte") });
         var restricted = Fingerprints.Corpus(new[] { Fakes.Doc("a", "texte", "rh") });
         Assert.NotEqual(pub, restricted);
+    }
+
+    [Fact]
+    public void Fingerprint_separates_the_fields_and_matches_the_python_version()
+    {
+        var tous = new HashSet<string> { "tous" };
+        Assert.NotEqual(Fingerprints.Corpus(new[] { new Document("a", "t", "bc", tous) }),
+                        Fingerprints.Corpus(new[] { new Document("a", "tb", "c", tous) }));
+        var documents = new[]
+        {
+            new Document("b", "Congés", "Vingt-cinq jours.", tous),
+            new Document("a", "Grille", "Salaire senior.", new HashSet<string> { "rh", "direction" }),
+        };
+        // Même valeur attendue dans test_index_corpus.py : les deux versions calculent la même empreinte.
+        Assert.Equal("ec3df17f9b790082ea28ee7ca48f688a23e23a893f3bce5ce89c61e9d9798db0", Fingerprints.Corpus(documents));
+    }
+
+    [Fact]
+    public void A_model_change_between_two_batches_is_refused()
+    {
+        // Le service change de modèle au milieu d'une indexation : on refuse un index mélangé.
+        var embedder = new SwitchingEmbedder();
+        var use = new IndexCorpus(new ListSource(Fakes.Doc("a", "télétravail"), Fakes.Doc("b", "frais"), Fakes.Doc("c", "congés")),
+                                  new WholeDocumentSplitter(), embedder, new FakeIndex(), new FixedClock(), batchSize: 2);
+        Assert.Throws<InconsistentEmbeddingsException>(() => use.Execute());
+        Assert.Equal(2, embedder.Calls);
+    }
+
+    private sealed class SwitchingEmbedder : IEmbedder
+    {
+        private readonly KeywordEmbedder _inner = new();
+        public int Calls { get; private set; }
+
+        public EmbeddingBatch EmbedDocuments(IReadOnlyList<string> texts)
+        {
+            var batch = _inner.EmbedDocuments(texts);
+            return batch with { Model = ++Calls == 1 ? "modele-a" : "modele-b" };
+        }
+
+        public EmbeddingBatch EmbedQuery(string text) => _inner.EmbedQuery(text);
     }
 
     [Fact]
@@ -220,6 +359,14 @@ public class CheckStatusTests
         var report = Status(Build.Indexed(null, Docs), Docs.Append(Fakes.Doc("c", "congés")).ToArray());
         Assert.Single(report.Issues);
         Assert.Contains("corpus modifié", report.Issues[0]);
+    }
+
+    [Fact]
+    public void Detects_a_text_modified_under_the_same_id()
+    {
+        // Mêmes documents, mêmes identifiants : seul un texte a changé, et cela suffit.
+        var report = Status(Build.Indexed(null, Docs), new[] { Fakes.Doc("a", "télétravail trois jours"), Docs[1] });
+        Assert.Contains("corpus modifié", Assert.Single(report.Issues));
     }
 
     [Fact]

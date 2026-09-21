@@ -9,51 +9,73 @@ using Assistant.Application;
 namespace Assistant.Infrastructure;
 
 /// <summary>
-/// Mémorise les vecteurs déjà calculés dans le processus. Attention (séquence 4.2) : un
-/// cache d'embeddings est lui-même un artefact lié au modèle. Il est ici en mémoire, donc
-/// perdu à l'arrêt ; un cache persistant devrait porter l'identifiant du modèle dans sa clé.
+/// Mémorise, dans le processus, les vecteurs des questions déjà posées. Leçon de la séquence 4.2 :
+/// un cache d'embeddings est un artefact dérivé de l'index, comme l'index est dérivé du modèle
+/// (ADR 0010). D'où trois règles :
+/// <list type="bullet">
+/// <item>il ne sert que l'index courant (<c>currentIndex</c>) : un nouvel index le vide, même si le
+/// nom du modèle n'a pas changé (préfixes modifiés, moteur qui ne fournit pas d'empreinte…) ;</item>
+/// <item>il ne garde que des vecteurs du modèle et de la dimension de cet index : sinon, une question
+/// posée pendant que le service servait un autre modèle resterait en erreur même après le retour
+/// du service au bon modèle ;</item>
+/// <item>les documents ne sont jamais mis en cache : une (ré)indexation doit refléter le modèle
+/// servi <i>maintenant</i>, pas celui d'une indexation précédente.</item>
+/// </list>
+/// Garanti : le cache ne mélange jamais deux index. Pas garanti : une question déjà posée ne repart
+/// pas au service, donc c'est une question nouvelle (ou <c>status</c>, qui n'utilise pas ce cache) qui
+/// révèle un changement de modèle servi (ADR 0010). Pas de verrou : l'API HTTP de l'application
+/// (HttpApi) traite une requête à la fois.
 /// </summary>
 public sealed class CachedEmbedder : IEmbedder
 {
     private readonly IEmbedder _inner;
+    private readonly Func<IndexManifest?> _currentIndex;
     private readonly int _maxEntries;
     private readonly Dictionary<string, EmbeddingBatch> _queries = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, EmbeddingBatch> _documents = new(StringComparer.Ordinal);
-    private readonly Queue<(Dictionary<string, EmbeddingBatch> Store, string Key)> _order = new();
+    private readonly Queue<string> _order = new();
+    private IndexManifest? _index;   // l'index que les entrées servent
 
     public int Hits { get; private set; }
     public int Misses { get; private set; }
 
-    public CachedEmbedder(IEmbedder inner, int maxEntries = 10_000)
+    public CachedEmbedder(IEmbedder inner, Func<IndexManifest?> currentIndex, int maxEntries = 10_000)
     {
         _inner = inner;
+        _currentIndex = currentIndex;
         _maxEntries = maxEntries;
     }
 
-    public EmbeddingBatch EmbedQuery(string text) => Lookup(_queries, text, () => _inner.EmbedQuery(text));
-
-    public EmbeddingBatch EmbedDocuments(IReadOnlyList<string> texts) =>
-        // Clé sans ambiguïté : ["a b", "c"] et ["a", "b c"] ne doivent pas se confondre.
-        Lookup(_documents, string.Join("\u001f", texts.Select(t => $"{t.Length}:{t}")), () => _inner.EmbedDocuments(texts));
-
-    private EmbeddingBatch Lookup(Dictionary<string, EmbeddingBatch> store, string key, Func<EmbeddingBatch> compute)
+    public EmbeddingBatch EmbedQuery(string text)
     {
-        if (store.TryGetValue(key, out var cached))
+        var index = _currentIndex();
+        // Un nouvel index est un nouvel objet manifeste. ReferenceEquals, pas == : deux manifestes
+        // de mêmes valeurs (record) peuvent décrire deux index aux vecteurs différents.
+        if (!ReferenceEquals(index, _index))
+        {
+            _index = index;
+            _queries.Clear();
+            _order.Clear();
+        }
+        if (_queries.TryGetValue(text, out var cached))
         {
             Hits++;
             return cached;
         }
         Misses++;
-        var batch = compute();
-        if (_order.Count >= _maxEntries)
+        var batch = _inner.EmbedQuery(text);
+        if (index is not null && batch.Model == index.EmbeddingModel && batch.Dimension == index.Dimension)
         {
-            var (oldStore, oldKey) = _order.Dequeue();   // le plus ancien sort
-            oldStore.Remove(oldKey);
+            if (_order.Count >= _maxEntries)
+            {
+                _queries.Remove(_order.Dequeue());   // le plus ancien sort
+            }
+            _queries[text] = batch;
+            _order.Enqueue(text);
         }
-        store[key] = batch;
-        _order.Enqueue((store, key));
         return batch;
     }
+
+    public EmbeddingBatch EmbedDocuments(IReadOnlyList<string> texts) => _inner.EmbedDocuments(texts);
 }
 
 public sealed class LoggingEmbedder : IEmbedder

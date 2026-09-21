@@ -27,11 +27,20 @@ public sealed class FilePromptRepository : IPromptRepository
     public PromptTemplate Get(string name)
     {
         var path = Path.Combine(_directory, name + ".json");
-        var data = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
-        var version = data["version"]!.GetValue<string>();
-        var system = data["system"]!.GetValue<string>().Trim();
-        var user = data["user"]!.GetValue<string>().Trim();
-        return new PromptTemplate(name, $"{version}+{Fingerprint(version, system, user)}", system, user);
+        var text = File.ReadAllText(path);
+        try
+        {
+            var data = JsonNode.Parse(text)!.AsObject();
+            var version = data["version"]!.GetValue<string>();
+            var system = data["system"]!.GetValue<string>().Trim();
+            var user = data["user"]!.GetValue<string>().Trim();
+            return new PromptTemplate(name, $"{version}+{Fingerprint(version, system, user)}", system, user);
+        }
+        catch (Exception error) when (JsonFiles.IsMalformed(error))
+        {
+            // Les prompts sont édités à la main (docs/artefacts.md) : dire quoi corriger, et où.
+            throw new FormatException($"prompt illisible ({path}) : il faut trois textes, version, system et user — {JsonFiles.Describe(error)}", error);
+        }
     }
 
     /// <summary>
@@ -41,12 +50,6 @@ public sealed class FilePromptRepository : IPromptRepository
     /// </summary>
     public static string Fingerprint(string version, string system, string user) =>
         Fingerprints.Sha256Hex($"{version}\n{system}\n{user}".Replace("\r\n", "\n"))[..8];
-}
-
-public sealed class SnapshotNotFoundException : AssistantApplicationException
-{
-    public SnapshotNotFoundException(string name, IReadOnlyList<string> known)
-        : base($"instantané introuvable : {name} (connus : [{string.Join(", ", known)}])") { }
 }
 
 /// <summary>Instantanés conservés en fichiers JSON lisibles, un par nom. Même format que la version Python.</summary>
@@ -104,17 +107,25 @@ public sealed class JsonSnapshotStore : ISnapshotStore
         {
             throw new SnapshotNotFoundException(name, Names());
         }
-        var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
-        var configuration = root["configuration"]?.AsObject()
-            .ToDictionary(kv => kv.Key, kv => JsonValues.ToObjectOrNull(kv.Value), StringComparer.Ordinal)
-            ?? new Dictionary<string, object?>();
-        // Les champs inconnus (instantané écrit par une version plus récente) sont ignorés.
-        var entries = root["entries"]!.AsArray().Select(e => new SnapshotEntry(
-            e!["question_id"]!.GetValue<string>(), e["user_id"]!.GetValue<string>(), e["question"]!.GetValue<string>(),
-            e["status"]!.GetValue<string>(),
-            e["cited_documents"]!.AsArray().Select(d => d!.GetValue<string>()).ToList(),
-            e["text"]!.GetValue<string>(), e["attempts"]?.GetValue<int>() ?? 0)).ToList();
-        return new Snapshot(root["name"]!.GetValue<string>(), root["created_at"]!.GetValue<string>(), configuration, entries);
+        var text = File.ReadAllText(path);
+        try
+        {
+            var root = JsonNode.Parse(text)!.AsObject();
+            var configuration = root["configuration"]?.AsObject()
+                .ToDictionary(kv => kv.Key, kv => JsonValues.ToObjectOrNull(kv.Value), StringComparer.Ordinal)
+                ?? new Dictionary<string, object?>();
+            // Les champs inconnus (instantané écrit par une version plus récente) sont ignorés.
+            var entries = root["entries"]!.AsArray().Select(e => new SnapshotEntry(
+                e!["question_id"]!.GetValue<string>(), e["user_id"]!.GetValue<string>(), e["question"]!.GetValue<string>(),
+                e["status"]!.GetValue<string>(),
+                e["cited_documents"]!.AsArray().Select(d => d!.GetValue<string>()).ToList(),
+                e["text"]!.GetValue<string>(), e["attempts"]?.GetValue<int>() ?? 0)).ToList();
+            return new Snapshot(root["name"]!.GetValue<string>(), root["created_at"]!.GetValue<string>(), configuration, entries);
+        }
+        catch (Exception error) when (JsonFiles.IsMalformed(error))
+        {
+            throw new FormatException($"instantané illisible ({path}) : {JsonFiles.Describe(error)}", error);
+        }
     }
 
     public IReadOnlyList<string> Names() =>
@@ -122,6 +133,21 @@ public sealed class JsonSnapshotStore : ISnapshotStore
             ? Array.Empty<string>()
             : Directory.GetFiles(_directory, "*.json").Select(p => Path.GetFileNameWithoutExtension(p))
                        .OrderBy(n => n, StringComparer.Ordinal).ToList();
+}
+
+/// <summary>
+/// Ce que lève la lecture d'un fichier JSON bien formé mais incomplet ou mal typé : champ absent
+/// (NullReferenceException), autre type que prévu (InvalidOperationException, FormatException).
+/// </summary>
+internal static class JsonFiles
+{
+    public static bool IsMalformed(Exception error) =>
+        error is JsonException or InvalidOperationException or NullReferenceException or FormatException
+              or ArgumentException;
+
+    /// <summary>Le message d'une NullReferenceException ne dit rien d'utile : c'est un champ obligatoire absent.</summary>
+    public static string Describe(Exception error) =>
+        error is NullReferenceException ? "champ obligatoire manquant" : error.Message;
 }
 
 public sealed class SystemClock : IClock

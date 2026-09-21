@@ -25,22 +25,44 @@ public sealed class SearchPassages
     }
 
     /// <summary>
-    /// Vérifie que l'index existe et qu'il a été construit avec le modèle servi
+    /// Vérifie que l'index existe et qu'il a été construit avec le modèle qui a produit les
+    /// vecteurs de la question — servi, ou mémorisé pour cet index par le cache (ADR 0010) —
     /// (sinon <see cref="IndexModelMismatchException"/> : réindexer, jamais contourner),
     /// puis cherche les <paramref name="topK"/> passages les plus proches parmi ceux que
     /// l'utilisateur peut lire. Les droits sont filtrés ici, avant tout prompt.
+    /// L'index peut être reconstruit par un autre processus entre la vérification et la recherche
+    /// (<c>serve</c> relit le fichier quand il change) : on vérifie après coup que l'index interrogé
+    /// est bien celui qu'on a contrôlé, sinon on recommence une fois (y compris quand la recherche échoue
+    /// parce que le nouvel index a une autre dimension).
     /// </summary>
     public Retrieval Execute(User user, string question, int topK)
     {
-        var manifest = _index.Manifest() ?? throw new IndexNotBuiltException();
-
-        var query = _embedder.EmbedQuery(question);
-        if (query.Model != manifest.EmbeddingModel || query.Dimension != manifest.Dimension)
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            throw new IndexModelMismatchException(manifest.EmbeddingModel, manifest.Dimension, query.Model, query.Dimension);
-        }
+            var manifest = _index.Manifest() ?? throw new IndexNotBuiltException();
 
-        var passages = _index.Search(query.Vectors[0], topK, chunk => _access.CanRead(user, chunk));
-        return new Retrieval(manifest, passages);
+            var query = _embedder.EmbedQuery(question);
+            if (query.Model != manifest.EmbeddingModel || query.Dimension != manifest.Dimension)
+            {
+                throw new IndexModelMismatchException(manifest.EmbeddingModel, manifest.Dimension, query.Model, query.Dimension);
+            }
+
+            IReadOnlyList<Passage> passages;
+            try
+            {
+                passages = _index.Search(query.Vectors[0], topK, chunk => _access.CanRead(user, chunk));
+            }
+            catch (ArgumentException) when (!Unchanged(manifest))
+            {
+                continue;   // autre index, d'une autre dimension : on recommence ; même index, une vraie erreur
+            }
+            if (Unchanged(manifest))
+            {
+                return new Retrieval(manifest, passages);
+            }
+        }
+        throw new IndexReplacedException();
     }
+
+    private bool Unchanged(IndexManifest manifest) => _index.Manifest()?.IndexId == manifest.IndexId;
 }

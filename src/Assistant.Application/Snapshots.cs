@@ -5,7 +5,6 @@
 // et on compare : le taux de dérive n'a de sens que lu à côté des différences de
 // configuration (séquence 3.2, principe CACE).
 
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using Assistant.Domain;
 
@@ -15,7 +14,8 @@ public sealed record SnapshotQuestion(string Id, User User, string Question);
 
 public sealed class RecordSnapshot
 {
-    public static readonly Regex ValidName = new(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", RegexOptions.Compiled);
+    // \z et non $ : « $ » accepterait un saut de ligne final dans le nom (donc dans le chemin du fichier).
+    public static readonly Regex ValidName = new(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z", RegexOptions.Compiled);
 
     private readonly AskQuestion _ask;
     private readonly ISnapshotStore _store;
@@ -66,11 +66,14 @@ public sealed class RecordSnapshot
     }
 }
 
-/// <summary>Natures d'écart, de la plus bénigne à la plus grave.</summary>
+/// <summary>
+/// Natures d'écart, de la moins visible à la plus visible. « Moins visible » ne veut pas dire bénin :
+/// un texte modifié peut dire le contraire du précédent avec les mêmes sources.
+/// </summary>
 public static class DifferenceKind
 {
     public const string Identical = "identique";
-    public const string TextChanged = "texte modifié";        // mêmes sources, même statut : reformulation
+    public const string TextChanged = "texte modifié";        // mêmes sources, même statut : texte à relire
     public const string SourcesChanged = "sources modifiées"; // la réponse ne s'appuie plus sur le même matériau
     public const string StatusChanged = "statut modifié";     // un refus devient une réponse, ou l'inverse
     public const string Missing = "absente d'un des deux";
@@ -98,8 +101,8 @@ public static class SnapshotComparer
     public static SnapshotComparison Compare(Snapshot baseline, Snapshot candidate)
     {
         var keys = baseline.Configuration.Keys.Union(candidate.Configuration.Keys).OrderBy(k => k, StringComparer.Ordinal);
-        // Les valeurs sont comparées sous leur forme JSON : 4 et 4.0, un dictionnaire relu du disque
-        // et le même construit en mémoire, sont égaux.
+        // Les valeurs sont comparées sous une forme canonique (Canonical) : 4 et 4.0, un dictionnaire
+        // relu du disque et le même construit en mémoire, sont égaux.
         var configDiff = keys
             .Select(k => new ConfigurationDifference(k, baseline.Configuration.GetValueOrDefault(k), candidate.Configuration.GetValueOrDefault(k)))
             .Where(d => Canonical(d.Before) != Canonical(d.After))
@@ -138,6 +141,10 @@ public static class SnapshotComparer
         return new SnapshotComparison(baseline.Name, candidate.Name, configDiff, differences);
     }
 
+    /// <summary>
+    /// Forme de comparaison (et d'affichage) d'une valeur de configuration : par valeur, pas par type — 4 et 4.0
+    /// sont égaux, comme l'égalité de Python. Les empreintes, elles, passent par <see cref="Fingerprints.PythonJson"/>.
+    /// </summary>
     public static string Canonical(object? value) => value switch
     {
         null => "null",
@@ -145,6 +152,7 @@ public static class SnapshotComparer
         IReadOnlyDictionary<string, object> d => "{" + string.Join(", ", d.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={Canonical(kv.Value)}")) + "}",
         bool b => b ? "true" : "false",
         IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture)!,
-        _ => JsonSerializer.Serialize(value),
+        System.Collections.IEnumerable items => "[" + string.Join(", ", items.Cast<object?>().Select(Canonical)) + "]",
+        _ => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "",
     };
 }

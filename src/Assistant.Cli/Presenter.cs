@@ -128,7 +128,7 @@ public static class Presenter
         lines.AppendLine($"Corpus     : {r.CorpusDocuments} documents · empreinte {r.CorpusFingerprint[..12]}…");
         lines.AppendLine($"Découpage  : {CheckStatus.Describe(r.Splitter)}");
         lines.AppendLine(r.AiServiceError is not null
-            ? $"Service IA : injoignable ({r.AiServiceError})"
+            ? $"Service IA : en erreur ({r.AiServiceError})"
             : $"Service IA : sert {r.EmbeddingModel} ({r.EmbeddingDimension} dim.)");
         lines.AppendLine($"Prompt     : {r.PromptVersion}").AppendLine();
         if (r.UpToDate)
@@ -171,7 +171,7 @@ public static class Presenter
         {
             (DifferenceKind.StatusChanged, "changement de comportement : refus devenu réponse, ou l'inverse"),
             (DifferenceKind.SourcesChanged, "même décision, autres documents cités"),
-            (DifferenceKind.TextChanged, "mêmes sources, même décision : reformulation, la dérive la plus bénigne"),
+            (DifferenceKind.TextChanged, "mêmes sources, même statut, texte différent : à relire, le sens a pu changer (Oui devenu Non…)"),
             (DifferenceKind.Identical, "rien n'a bougé"),
             (DifferenceKind.Missing, "question présente d'un seul côté"),
         };

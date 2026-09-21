@@ -17,11 +17,9 @@ public sealed record Container(
     RecordSnapshot RecordSnapshot,
     ISnapshotStore Snapshots,
     IVectorIndex Index,
-    IEmbedder Embedder,
     IPromptRepository Prompts,
     AskSettings Settings,
-    string EmbeddingModel,
-    string GenerationModel);
+    string EmbeddingModel);
 
 /// <summary>
 /// Ce que la ligne de commande, le banc d'essai et les expériences peuvent changer sans
@@ -53,10 +51,11 @@ public static class Composition
         var generationModel = overrides.GenerationModel ?? config.GenerationModel;
         log ??= _ => { };
 
+        var index = new JsonVectorIndex(overrides.IndexPath ?? config.IndexPath);
         // L'adaptateur nu sert à `status` : un cache d'embeddings masquerait un changement de modèle servi.
         var rawEmbedder = new HttpEmbedder(config.AiBaseUrl, embeddingModel, config.Timeout);
-        var (embedder, generator) = Decorate(rawEmbedder, new HttpGenerator(config.AiBaseUrl, generationModel, config.Timeout), config, log);
-        var index = new JsonVectorIndex(overrides.IndexPath ?? config.IndexPath);
+        var (embedder, generator) = Decorate(rawEmbedder, new HttpGenerator(config.AiBaseUrl, generationModel, config.Timeout), config, log,
+                                             currentIndex: index.Manifest);
         var source = new MarkdownCorpus(config.CorpusDir);
         var splitter = new ParagraphSplitter(overrides.SplitterMaxChars ?? config.SplitterMaxChars,
                                              overrides.SplitterOverlapChars ?? config.SplitterOverlapChars,
@@ -77,8 +76,10 @@ public static class Composition
         var searchPassages = new SearchPassages(embedder, index);
         var checkStatus = new CheckStatus(source, splitter, rawEmbedder, index, prompts, settings.PromptName);
         var snapshots = new JsonSnapshotStore(overrides.SnapshotsDir ?? config.SnapshotsDir);
-        // Empreinte de configuration d'un instantané : tout ce qui change les réponses.
-        // Valeurs typées, comme dans la version Python : un instantané C# se compare à un instantané Python.
+        // Empreinte de configuration d'un instantané : tout ce qui change les réponses côté application.
+        // Valeurs typées et mêmes clés que la version Python : un instantané C# se compare à un instantané
+        // Python. Les réglages propres au service IA (budget de réflexion…) n'y sont pas : ils vivent dans
+        // l'autre déployable. C'est une limite à nommer (S4.2), pas un oubli.
         var configuration = new Dictionary<string, object?>
         {
             ["corpus"] = Path.GetFileName(config.CorpusDir.TrimEnd(Path.DirectorySeparatorChar, '/')),
@@ -91,10 +92,13 @@ public static class Composition
             ["max_tokens"] = settings.MaxTokens,
             ["seed"] = settings.Seed,
             ["prompt"] = settings.PromptName,
+            ["max_attempts"] = settings.MaxAttempts,
+            ["validate_output"] = config.Decorator("validate_output", true),
+            ["max_output_chars"] = config.DecoratorInt("max_output_chars", 1500),
         };
         var recordSnapshot = new RecordSnapshot(askQuestion, snapshots, clock, configuration);
         return new Container(config, indexCorpus, askQuestion, searchPassages, checkStatus, recordSnapshot, snapshots,
-                             index, embedder, prompts, settings, embeddingModel, generationModel);
+                             index, prompts, settings, embeddingModel);
     }
 
     /// <summary>
@@ -102,8 +106,11 @@ public static class Composition
     /// l'intérieur vers l'extérieur : nouvelles tentatives (au plus près du réseau), journal
     /// des embeddings, cache, validation de la sortie (règle métier), puis journal des
     /// générations (pour voir aussi les rejets). Les cas d'usage ne voient que les ports.
+    /// <paramref name="currentIndex"/> renvoie le manifeste de l'index courant : le cache
+    /// d'embeddings ne sert que cet index (ADR 0010).
     /// </summary>
-    public static (IEmbedder, IGenerator) Decorate(IEmbedder embedder, IGenerator generator, AppConfig config, Action<string> log)
+    public static (IEmbedder, IGenerator) Decorate(IEmbedder embedder, IGenerator generator, AppConfig config, Action<string> log,
+                                                   Func<IndexManifest?> currentIndex)
     {
         var retries = config.DecoratorInt("retries", 0);
         if (retries > 0)
@@ -117,7 +124,7 @@ public static class Composition
         }
         if (config.Decorator("cache_embeddings", false))
         {
-            embedder = new CachedEmbedder(embedder);
+            embedder = new CachedEmbedder(embedder, currentIndex);
         }
         if (config.Decorator("validate_output", true))
         {

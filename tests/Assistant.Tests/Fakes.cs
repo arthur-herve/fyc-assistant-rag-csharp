@@ -19,7 +19,7 @@ public static class Fakes
 /// <summary>Un axe par mot du vocabulaire : les scores sont prévisibles à la main.</summary>
 public sealed class KeywordEmbedder : IEmbedder
 {
-    public string Model { get; }
+    public string Model { get; set; }   // modifiable : imite un changement de modèle derrière l'alias
     public List<(string Kind, IReadOnlyList<string> Texts)> Calls { get; } = new();
 
     public KeywordEmbedder(string model = "fake-keywords") => Model = model;

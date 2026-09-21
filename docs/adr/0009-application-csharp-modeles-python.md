@@ -1,6 +1,6 @@
 # ADR 0009 — Application en C#, modèles en Python : la frontière est le contrat, pas le langage
 
-**Date** : 11/09/2026 (décision), 12/09/2026 (rédaction) · **Statut** : acceptée
+**Date** : 11/09/2026 (décision), 12/09/2026 (rédaction) · **Statut** : acceptée · erratum du 21/09/2026 (en fin de document)
 
 ## Contexte
 
@@ -56,3 +56,14 @@ pourquoi elle ne suffit pas.
   dépendre le domaine d'une interface vers le monde extérieur. Le domaine du fil rouge a des
   règles (droits, citations, forme) qui ne dépendent d'aucun modèle ; il n'a pas à connaître
   l'existence d'un générateur.
+
+## Erratum (21/09/2026)
+
+« Il n'a pas à connaître l'existence d'un générateur » est trop fort : le domaine ne dépend
+d'aucun générateur ni d'aucune technologie d'IA, mais `AnswerTrace` (`Model.cs`) nomme le modèle
+d'embeddings et le modèle de génération qui ont produit la réponse. C'est une fuite assumée : une
+réponse d'un assistant RAG vient de modèles identifiés, et la tracer est une règle du métier
+(S4.2). De même, la règle de forme (`OutputRules`, `Rules.cs`) contient une connaissance des modèles
+rencontrés (marqueurs de raisonnement de qwen3), assumée et datée (ADR 0008) : les règles du domaine
+ne dépendent d'aucune technologie d'IA, pas de toute connaissance des modèles. Les ports, eux,
+restent hors du domaine, comme décidé ici.

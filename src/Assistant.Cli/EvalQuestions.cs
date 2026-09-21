@@ -25,16 +25,23 @@ public static class EvalQuestions
 {
     public static List<EvalQuestion> Load(string path)
     {
-        var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
-        var questions = root["questions"]?.AsArray() ?? throw new FormatException($"{path} : clé « questions » absente");
-        return questions.Select(q => new EvalQuestion(
-            q!["id"]!.GetValue<string>(),
-            q["user"]?.GetValue<string>() ?? "alice",
-            q["question"]!.GetValue<string>(),
-            Strings(q["expected_documents"]),
-            Strings(q["expected_keywords"]),
-            q["answerable"]?.GetValue<bool>() ?? true,
-            Strings(q["forbidden_documents"]))).ToList();
+        try
+        {
+            var root = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
+            var questions = root["questions"]?.AsArray() ?? throw new FormatException($"{path} : clé « questions » absente");
+            return questions.Select(q => new EvalQuestion(
+                q!["id"]!.GetValue<string>(),
+                q["user"]?.GetValue<string>() ?? "alice",
+                q["question"]!.GetValue<string>(),
+                Strings(q["expected_documents"]),
+                Strings(q["expected_keywords"]),
+                q["answerable"]?.GetValue<bool>() ?? true,
+                Strings(q["forbidden_documents"]))).ToList();
+        }
+        catch (Exception error) when (error is NullReferenceException or InvalidOperationException)
+        {
+            throw new FormatException($"{path} : jeu de questions mal formé (champ manquant ou de mauvais type)", error);
+        }
     }
 
     /// <summary>Un chemin relatif introuvable depuis le dossier courant est cherché depuis la racine du projet.</summary>

@@ -1,5 +1,5 @@
 {
-  "_commentaire": "Configuration du cours avec de vrais modèles, sur le corpus RÉDUIT (50 fiches Service-Public). Aucun détail de modèle ici : seulement l'adresse du service IA et des alias. Les seuils sont PAR modèle d'embeddings ET par corpus. Calibrés le 12/09/2026 par `assistant benchmark` sur ce corpus (42 questions, validation sur 16 questions jamais vues) : bge-m3 suggéré 0,64, conservé 0,65 (validation : 92 % de répondables retenues, 100 % de refus justes) ; nomic suggéré 0,71, conservé 0,73 (100 % / 67 %). Les autres alias gardent des valeurs de départ.",
+  "_commentaire": "Configuration du cours avec de vrais modèles, sur le corpus RÉDUIT (50 fiches Service-Public). Aucun détail d'implémentation des modèles ici : l'adresse du service IA et des alias ; seule exception, voulue, un seuil de pertinence par alias d'embeddings (ADR 0004). Les seuils sont PAR modèle d'embeddings ET par corpus. Calibrés le 12/09/2026 par `assistant benchmark` sur ce corpus (42 questions, validation sur 16 questions jamais vues) : bge-m3 suggéré 0,64, conservé 0,65 (validation : 92 % de répondables retenues, 100 % de refus justes) ; nomic suggéré 0,71, conservé 0,73 (100 % / 67 %). Les autres alias gardent des valeurs de départ.",
   "ai_service": {
     "base_url": "http://127.0.0.1:8100",
     "embedding_model": "bge-m3",

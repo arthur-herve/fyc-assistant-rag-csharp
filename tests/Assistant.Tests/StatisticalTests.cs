@@ -45,13 +45,25 @@ public class StatisticalTests
     {
         var index = Build.Indexed();
         var ask = Build.Ask(new ForgetfulGenerator(), index: index, maxAttempts: 2);
-        var statuses = Enumerable.Range(0, Trials).Select(_ => ask.Execute(Fakes.Alice, "jours de télétravail").Status).ToList();
+        var answers = Enumerable.Range(0, Trials).Select(_ => ask.Execute(Fakes.Alice, "jours de télétravail")).ToList();
 
-        var rate = (double)statuses.Count(s => s == AnswerStatus.Answered) / Trials;
+        var rate = (double)answers.Count(a => a.Status == AnswerStatus.Answered) / Trials;
         Assert.True(rate >= MinAnswerRate, $"taux de réponse sourcée : {rate:0.00}");
 
-        // La règle métier, elle, est déterministe : jamais de réponse non sourcée affichée.
-        Assert.All(statuses, s => Assert.True(s is AnswerStatus.Answered or AnswerStatus.Unsourced));
+        // La règle métier, elle, est déterministe, et se vérifie sur chaque réponse : une réponse affichée
+        // cite une source valide ; sinon, c'est le message « non sourcé », jamais le texte du modèle.
+        Assert.All(answers, a =>
+        {
+            if (a.Status == AnswerStatus.Answered)
+            {
+                Assert.True(Citations.Check(a.Text, 1).IsValid, a.Text);
+                Assert.NotEmpty(a.Sources);
+            }
+            else
+            {
+                Assert.Equal((AnswerStatus.Unsourced, Messages.Unsourced), (a.Status, a.Text));
+            }
+        });
     }
 
     [Fact]

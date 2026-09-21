@@ -25,9 +25,18 @@ public class MarkdownCorpusTests
         Assert.StartsWith("# Grille", doc.Text);
     }
 
+    [Theory]
+    [InlineData("id: x")]
+    [InlineData("id: x\ngroupes:")]
+    [InlineData("id: x\ngroupe: rh")]
+    public void Access_groups_are_mandatory(string header) =>
+        // Un droit oublié ou mal écrit ne rend jamais un document public en silence.
+        Assert.Throws<CorpusFormatException>(() => MarkdownCorpus.Parse($"---\n{header}\n---\nTexte."));
+
     [Fact]
-    public void Document_without_groups_is_public() =>
-        Assert.Contains("tous", MarkdownCorpus.Parse("---\nid: x\n---\nTexte.").AllowedGroups);
+    public void A_comment_in_the_groups_is_rejected() =>
+        // L'exemple commenté d'une ancienne documentation donnait des droits faux.
+        Assert.Throws<CorpusFormatException>(() => MarkdownCorpus.Parse("---\nid: x\ngroupes: rh  # ou : rh, direction\n---\nTexte."));
 
     [Fact]
     public void Id_is_mandatory() =>
@@ -58,11 +67,14 @@ public class SplitterTests
     [Fact]
     public void Long_document_is_cut_with_overlap()
     {
-        var text = string.Join("\n\n", Enumerable.Range(1, 12).Select(i => $"Paragraphe numéro {i} " + new string('x', 150)));
+        // Des paragraphes tous différents : le recouvrement ne peut pas être trouvé par hasard.
+        var text = string.Join("\n\n", Enumerable.Range(1, 12).Select(i =>
+            $"Paragraphe numéro {i} : " + string.Join(" ", Enumerable.Range(1, 25).Select(j => $"mot{i}x{j}"))));
         var chunks = new ParagraphSplitter(400, 60, includeTitle: false).Split(Fakes.Doc("a", text));
         Assert.True(chunks.Count > 3);
         Assert.All(chunks, c => Assert.True(c.Text.Length <= 400 + 60));
-        Assert.Contains(chunks[0].Text[^20..].Trim(), chunks[1].Text);   // recouvrement
+        var lastWord = chunks[0].Text.TrimEnd().Split(' ')[^1];        // mot unique du corpus
+        Assert.Contains(lastWord, chunks[1].Text[..Math.Min(100, chunks[1].Text.Length)]);   // recouvrement
     }
 
     [Fact]
@@ -100,6 +112,95 @@ public class JsonVectorIndexTests
         }
     }
 
+    private static readonly IndexManifest Manifest2 =
+        new("id", "m", 2, "fp", new Dictionary<string, object> { ["type"] = "whole" }, 1, 2, "t");
+
+    private static readonly Chunk[] TwoChunks =
+    {
+        new("a#0", "a", "A", "x", 0, new HashSet<string> { "tous" }),
+        new("b#0", "b", "B", "y", 0, new HashSet<string> { "rh" }),
+    };
+
+    [Fact]
+    public void Forbidden_passages_take_no_place_in_the_top_k()
+    {
+        // Pré-filtrage (ADR 0006) : un passage interdit mieux classé ne masque pas le passage autorisé.
+        var index = new InMemoryVectorIndex();
+        index.Replace(Manifest2, TwoChunks, new[] { new[] { 1.0, 0.0 }, new[] { 0.0, 1.0 } });
+        var hits = index.Search(new[] { 0.0, 1.0 }, 1, c => !c.AllowedGroups.Contains("rh"));
+        Assert.Equal("a#0", Assert.Single(hits).Chunk.Id);
+    }
+
+    [Fact]
+    public void Rejects_a_query_of_the_wrong_dimension()
+    {
+        var index = new InMemoryVectorIndex();
+        index.Replace(Manifest2, TwoChunks, new[] { new[] { 1.0, 0.0 }, new[] { 0.0, 1.0 } });
+        Assert.Throws<ArgumentException>(() => index.Search(new[] { 1.0, 0.0, 0.0 }, 2, _ => true));
+    }
+
+    [Fact]
+    public void An_unreadable_file_is_not_an_absent_index()
+    {
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(dir.FullName, "index.json");
+            File.WriteAllText(path, "{ pas du json");
+            var index = new JsonVectorIndex(path);
+            Assert.Throws<IndexUnreadableException>(() => index.Manifest());
+            Assert.Throws<IndexUnreadableException>(() => index.Manifest());   // pas « aucun index » la deuxième fois
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void An_index_rebuilt_by_another_process_is_seen()
+    {
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(dir.FullName, "index.json");
+            new JsonVectorIndex(path).Replace(Manifest2, TwoChunks, new[] { new[] { 1.0, 0.0 }, new[] { 0.0, 1.0 } });
+            var server = new JsonVectorIndex(path);   // le processus `serve`
+            Assert.Equal("id", server.Manifest()!.IndexId);
+            new JsonVectorIndex(path).Replace(Manifest2 with { IndexId = "id-2", ChunkCount = 1 }, TwoChunks[..1], new[] { new[] { 1.0, 0.0 } });
+            File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddSeconds(1));   // une seconde plus tard
+            Assert.Equal("id-2", server.Manifest()!.IndexId);
+            Assert.Single(server.Search(new[] { 1.0, 0.0 }, 5, _ => true));
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void An_index_rebuilt_with_the_same_size_and_date_is_seen()
+    {
+        // Même taille, même date : seule la reconstruction (created_at) distingue les deux fichiers.
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(dir.FullName, "index.json");
+            var vectors = new[] { new[] { 1.0, 0.0 }, new[] { 0.0, 1.0 } };
+            new JsonVectorIndex(path).Replace(Manifest2 with { CreatedAt = "t1" }, TwoChunks, vectors);
+            var server = new JsonVectorIndex(path);   // le processus `serve`
+            Assert.Equal("t1", server.Manifest()!.CreatedAt);
+            var date = File.GetLastWriteTimeUtc(path);
+            new JsonVectorIndex(path).Replace(Manifest2 with { CreatedAt = "t2" }, TwoChunks, vectors);
+            File.SetLastWriteTimeUtc(path, date);
+            Assert.Equal("t2", server.Manifest()!.CreatedAt);
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+
     [Fact]
     public void Reads_and_searches_an_index_written_by_the_python_version()
     {
@@ -122,12 +223,41 @@ public class JsonVectorIndexTests
     }
 
     [Fact]
-    public void Index_id_matches_the_python_formula()
+    public void Same_corpus_same_model_same_splitter_gives_the_index_id_of_the_python_version()
     {
-        // Même corpus, même modèle, même découpage → même identifiant que json.dumps(sort_keys=True) en Python.
-        var splitter = new Dictionary<string, object> { ["type"] = "paragraph", ["max_chars"] = 800, ["overlap_chars"] = 120, ["include_title"] = true };
-        var identity = $"[{Fingerprints.PythonJson("fp")}, {Fingerprints.PythonJson("m")}, {64}, {Fingerprints.PythonJson(splitter)}]";
-        Assert.Equal("[\"fp\", \"m\", 64, {\"include_title\": true, \"max_chars\": 800, \"overlap_chars\": 120, \"type\": \"paragraph\"}]", identity);
+        // On indexe ici le même corpus Solvéo, avec le même découpage, qu'a indexé la version Python pour
+        // produire la fixture : l'identifiant et l'empreinte du corpus doivent être identiques.
+        var fixture = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(AppConfig.ProjectRoot, "tests", "Assistant.Tests", "fixtures", "index-python-hashing.json")))!["manifest"]!;
+        var manifest = new IndexCorpus(new MarkdownCorpus(Path.Combine(AppConfig.ProjectRoot, "corpus", "solveo")), new ParagraphSplitter(800, 120, true),
+                                       new FixedModelEmbedder("hashing-64-stem6", 64), new InMemoryVectorIndex(), new FixedClock()).Execute();
+        Assert.Equal(fixture["corpus_fingerprint"]!.GetValue<string>(), manifest.CorpusFingerprint);
+        Assert.Equal(fixture["index_id"]!.GetValue<string>(), manifest.IndexId);
+    }
+
+    [Theory]
+    [InlineData("é", "\"\\u00e9\"")]
+    [InlineData("a\"b\\c", "\"a\\\"b\\\\c\"")]
+    public void The_canonical_form_escapes_like_python(string value, string expected) =>
+        // json.dumps de Python échappe le non-ASCII : même forme, donc même index_id avec des accents.
+        Assert.Equal(expected, Fingerprints.PythonJson(value));
+
+    [Fact]
+    public void The_canonical_form_writes_numbers_and_lists_like_python()
+    {
+        Assert.Equal("1.0", Fingerprints.PythonJson(1.0));
+        Assert.Equal("0.46", Fingerprints.PythonJson(0.46));
+        Assert.Equal("800", Fingerprints.PythonJson(800));
+        Assert.Equal("{\"a\": [1, \"x\"], \"b\": true}",
+                     Fingerprints.PythonJson(new Dictionary<string, object> { ["b"] = true, ["a"] = new object[] { 1, "x" } }));
+    }
+
+    /// <summary>Un service qui annonce un modèle et une dimension donnés : seuls ceux-ci entrent dans l'identifiant.</summary>
+    private sealed class FixedModelEmbedder(string model, int dimension) : IEmbedder
+    {
+        public EmbeddingBatch EmbedDocuments(IReadOnlyList<string> texts) =>
+            new(model, dimension, texts.Select(_ => Enumerable.Range(0, dimension).Select(i => i == 0 ? 1.0 : 0.0).ToArray()).ToList());
+
+        public EmbeddingBatch EmbedQuery(string text) => EmbedDocuments(new[] { text });
     }
 }
 
@@ -175,6 +305,45 @@ public class PromptAndSnapshotFilesTests
         }
     }
 
+    [Theory]
+    [InlineData("""{"system": "a", "user": "{question}"}""")]                   // sans version
+    [InlineData("""{"version": 2, "system": "a", "user": "{question}"}""")]     // version qui n'est pas un texte
+    [InlineData("""["version"]""")]                                             // pas un objet
+    public void An_incomplete_prompt_names_the_file(string content)
+    {
+        // Édité à la main : un champ oublié donne une erreur qui dit quoi corriger, pas une NullReferenceException.
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            File.WriteAllText(Path.Combine(dir.FullName, "casse.json"), content);
+            var error = Assert.Throws<FormatException>(() => new FilePromptRepository(dir.FullName).Get("casse"));
+            Assert.Contains("casse.json", error.Message);
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+
+    [Theory]
+    [InlineData("""{"name": "a", "created_at": "t"}""")]                                   // sans entries
+    [InlineData("""{"name": "a", "created_at": "t", "entries": [{"status": "answered"}]}""")]
+    [InlineData("""["a"]""")]
+    public void An_incomplete_snapshot_names_the_file(string content)
+    {
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            File.WriteAllText(Path.Combine(dir.FullName, "a.json"), content);
+            var error = Assert.Throws<FormatException>(() => new JsonSnapshotStore(dir.FullName).Load("a"));
+            Assert.Contains("a.json", error.Message);
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+
     [Fact]
     public void Snapshot_store_round_trip_and_names()
     {
@@ -197,6 +366,7 @@ public class PromptAndSnapshotFilesTests
             Assert.Equal(new[] { "ref" }, store.Names());
             Assert.Throws<SnapshotNotFoundException>(() => store.Load("absent"));
             Assert.Throws<InvalidSnapshotNameException>(() => store.Load("../autre"));
+            Assert.Throws<InvalidSnapshotNameException>(() => store.Load("ref\n"));   // « $ » laisserait passer un saut de ligne final
         }
         finally
         {
@@ -226,11 +396,19 @@ public class DecoratorTests
         }
     }
 
+    // Découpage partagé : deux manifestes construits ici sont égaux en valeur (record ==), comme deux
+    // index reconstruits à l'identique. Le cache doit pourtant voir deux index différents.
+    private static readonly Dictionary<string, object> Whole = new() { ["type"] = "whole" };
+
+    private static IndexManifest Manifest(string model = "fake-keywords", int dimension = 8) =>
+        new("idx", model, dimension, "empreinte", Whole, 1, 1, "2026-09-21T12:00:00");
+
     [Fact]
-    public void Cache_embeds_the_same_text_once()
+    public void Cache_embeds_the_same_question_once()
     {
         var inner = new KeywordEmbedder();
-        var cached = new CachedEmbedder(inner);
+        var index = Manifest();
+        var cached = new CachedEmbedder(inner, () => index);
         var first = cached.EmbedQuery("télétravail");
         Assert.Same(first, cached.EmbedQuery("télétravail"));
         Assert.Single(inner.Calls);
@@ -238,14 +416,58 @@ public class DecoratorTests
     }
 
     [Fact]
-    public void Cache_does_not_confuse_two_batches_with_the_same_joined_text()
+    public void Cache_never_stores_documents()
+    {
+        // Une réindexation doit refléter le modèle servi maintenant (S4.2).
+        var inner = new KeywordEmbedder();
+        var index = Manifest();
+        var cached = new CachedEmbedder(inner, () => index);
+        cached.EmbedDocuments(new[] { "a", "b" });
+        cached.EmbedDocuments(new[] { "a", "b" });
+        Assert.Equal(2, inner.Calls.Count);
+    }
+
+    [Fact]
+    public void A_new_index_empties_the_cache_even_with_the_same_model_name()
+    {
+        // Préfixes changés, moteur sans empreinte : les vecteurs changent, pas le nom du modèle.
+        var inner = new KeywordEmbedder();
+        var index = Manifest();
+        var cached = new CachedEmbedder(inner, () => index);
+        cached.EmbedQuery("télétravail");
+        var rebuilt = Manifest();   // réindexé : nouveau manifeste, mêmes valeurs
+        Assert.Equal(index, rebuilt);
+        index = rebuilt;
+        cached.EmbedQuery("télétravail");
+        Assert.Equal(2, inner.Calls.Count);
+    }
+
+    [Fact]
+    public void Cache_does_not_keep_vectors_that_do_not_match_the_index()
+    {
+        // Sinon, une question posée pendant que le service servait un autre modèle resterait
+        // en erreur après le retour du service au modèle de l'index.
+        var inner = new KeywordEmbedder("modele-b");
+        var index = Manifest("modele-a");
+        var cached = new CachedEmbedder(inner, () => index);
+        Assert.Equal("modele-b", cached.EmbedQuery("télétravail").Model);   // SearchPassages : erreur
+        inner.Model = "modele-a";                                           // le service revient
+        Assert.Equal("modele-a", cached.EmbedQuery("télétravail").Model);
+        cached.EmbedQuery("télétravail");
+        Assert.Equal((2, 1), (inner.Calls.Count, cached.Hits));
+    }
+
+    [Fact]
+    public void Cache_evicts_the_oldest_question_first()
     {
         var inner = new KeywordEmbedder();
-        var cached = new CachedEmbedder(inner);
-        cached.EmbedDocuments(new[] { "a b", "c" });
-        cached.EmbedDocuments(new[] { "a", "b c" });
-        Assert.Equal(2, inner.Calls.Count);
-        Assert.Equal((0, 2), (cached.Hits, cached.Misses));
+        var index = Manifest();
+        var cached = new CachedEmbedder(inner, () => index, maxEntries: 1);
+        foreach (var question in new[] { "télétravail", "congés", "télétravail" })
+        {
+            cached.EmbedQuery(question);
+        }
+        Assert.Equal(3, inner.Calls.Count);
     }
 
     [Fact]
@@ -300,6 +522,7 @@ public class HttpContractTests : IDisposable
     private readonly HttpListener _listener = new();
     private readonly string _url;
     private readonly List<(string Path, JsonObject Body)> _requests = new();
+    private readonly List<long> _contentLengths = new();
 
     public HttpContractTests()
     {
@@ -334,19 +557,29 @@ public class HttpContractTests : IDisposable
             lock (_requests)
             {
                 _requests.Add((context.Request.Url!.AbsolutePath, body));
+                _contentLengths.Add(context.Request.ContentLength64);
             }
             string response;
             var status = 200;
             if (context.Request.Url.AbsolutePath == "/v1/embeddings")
             {
                 var n = body["inputs"]!.AsArray().Count;
-                response = JsonSerializer.Serialize(new { model = "ollama:nomic-embed-text@0a109f422b47", alias = "nomic", dimension = 3,
+                var dimension = body["model"]!.GetValue<string>() == "dimension-fausse" ? 4 : 3;   // annonce 4, envoie 3
+                response = JsonSerializer.Serialize(new { model = "ollama:nomic-embed-text@0a109f422b47", alias = "nomic", dimension,
                                                          vectors = Enumerable.Repeat(new[] { 0.1, 0.2, 0.3 }, n) });
             }
             else if (body["model"]!.GetValue<string>() == "inconnu")
             {
                 status = 404;
                 response = """{"error": {"code": "unknown_model", "message": "modèle de génération inconnu : inconnu"}}""";
+            }
+            else if (body["model"]!.GetValue<string>() is "absent" or "surcharge")
+            {
+                status = 502;
+                response = JsonSerializer.Serialize(new
+                {
+                    error = new { code = "backend_error", message = "moteur en échec", retryable = body["model"]!.GetValue<string>() == "surcharge" },
+                });
             }
             else
             {
@@ -377,6 +610,23 @@ public class HttpContractTests : IDisposable
         Assert.Equal("/v1/embeddings", path);
         Assert.Equal("nomic", body["model"]!.GetValue<string>());
         Assert.Equal("query", body["input_type"]!.GetValue<string>());
+        Assert.True(_contentLengths.Single() > 0);   // le vrai service (Python) refuse les envois en morceaux
+    }
+
+    [Fact]
+    public void Vectors_that_do_not_match_the_announced_dimension_are_refused()
+    {
+        var error = Assert.Throws<AiServiceException>(() => new HttpEmbedder(_url, "dimension-fausse", Short).EmbedQuery("a"));
+        Assert.False(error.Transient);
+        Assert.Contains("incohérente", error.Message);
+    }
+
+    [Fact]
+    public void Documents_are_sent_as_documents()
+    {
+        var batch = new HttpEmbedder(_url, "nomic", Short).EmbedDocuments(new[] { "a", "b" });
+        Assert.Equal(2, batch.Vectors.Count);
+        Assert.Equal("document", _requests.Single().Body["input_type"]!.GetValue<string>());
     }
 
     [Fact]
@@ -401,6 +651,16 @@ public class HttpContractTests : IDisposable
         var error = Assert.Throws<AiServiceException>(() => new HttpGenerator(_url, "inconnu", Short).Generate(new GenerationRequest("s", "p", 0.2, 10)));
         Assert.Contains("HTTP 404", error.Message);
         Assert.False(error.Transient);
+    }
+
+    [Theory]
+    [InlineData("surcharge", true)]
+    [InlineData("absent", false)]
+    public void A_502_is_transient_unless_the_service_says_retrying_is_useless(string model, bool transient)
+    {
+        // Modèle absent : le service le signale (retryable = false), le client ne réessaie pas pour rien.
+        var error = Assert.Throws<AiServiceException>(() => new HttpGenerator(_url, model, Short).Generate(new GenerationRequest("s", "p", 0.2, 10)));
+        Assert.Equal(transient, error.Transient);
     }
 
     [Fact]
@@ -438,11 +698,15 @@ public class ArchitectureTests
                    name => Assert.Equal("Assistant.Domain", name));
 
     [Fact]
-    public void Infrastructure_does_not_reference_json_or_http_from_the_application_or_domain()
+    public void The_core_knows_neither_http_nor_json()
     {
-        // L'application ne connaît ni HTTP ni JSON : ce sont des détails de l'infrastructure.
-        Assert.DoesNotContain(References(typeof(AskQuestion)), n => n.StartsWith("System.Net", StringComparison.Ordinal));
-        Assert.DoesNotContain(References(typeof(Document)), n => n.StartsWith("System.Text.Json", StringComparison.Ordinal));
+        // HTTP et JSON sont des détails de l'infrastructure : les empreintes canoniques (index_id) sont
+        // écrites à la main (Fingerprints.PythonJson), pour avoir les mêmes octets que la version Python.
+        foreach (var core in new[] { typeof(AskQuestion), typeof(Document) })
+        {
+            Assert.DoesNotContain(References(core), n => n.StartsWith("System.Text.Json", StringComparison.Ordinal)
+                                                         || n.StartsWith("System.Net", StringComparison.Ordinal));
+        }
     }
 
     [Fact]
@@ -465,17 +729,64 @@ public class ArchitectureTests
         }
     }
 
+    /// <summary>
+    /// Fichiers qui font entrer l'infrastructure dans la couche interface ailleurs que par la racine de
+    /// composition : un fichier qui la nomme, ou un <c>global using</c> (dans un fichier ou un projet) qui
+    /// la ferait entrer dans tous les fichiers sans qu'ils la nomment — interdit partout, Composition.cs compris.
+    /// </summary>
+    internal static List<string> InfrastructureLeaks(string cli, params string[] projectFiles)
+    {
+        var separator = Path.DirectorySeparatorChar;
+        var sources = Directory.GetFiles(cli, "*.cs", SearchOption.AllDirectories)
+            .Where(f => !f.Contains($"{separator}obj{separator}") && !f.Contains($"{separator}bin{separator}"))
+            .ToList();
+        // Espaces autour du point et préfixe « global:: » compris : ce sont des écritures valides en C#.
+        var names = new System.Text.RegularExpressions.Regex(@"\bAssistant\s*\.\s*Infrastructure\b|\bInfrastructure\s*\.");
+        var globalUsing = new System.Text.RegularExpressions.Regex(
+            @"global\s+using\s+(static\s+)?(\w+\s*=\s*)?(global\s*::\s*)?Assistant\s*\.\s*Infrastructure\b");
+        var projectUsing = new System.Text.RegularExpressions.Regex(@"<Using\s+Include\s*=\s*""\s*Assistant\s*\.\s*Infrastructure");
+        return sources.Where(f => Path.GetFileName(f) != "Composition.cs" && names.IsMatch(File.ReadAllText(f)))
+            .Concat(sources.Where(f => globalUsing.IsMatch(File.ReadAllText(f))))
+            .Concat(projectFiles.Where(f => File.Exists(f) && projectUsing.IsMatch(File.ReadAllText(f))))
+            .Select(f => Path.GetRelativePath(cli, f))
+            .Distinct()
+            .ToList();
+    }
+
     [Fact]
     public void Only_the_composition_root_knows_the_infrastructure()
     {
         // Même règle que le test d'imports de la version Python : dans la couche interface (Assistant.Cli),
         // seule la racine de composition nomme l'infrastructure. Vérifié sur les sources, comme en Python.
         var cli = Path.Combine(AppConfig.ProjectRoot, "src", "Assistant.Cli");
-        var offenders = Directory.GetFiles(cli, "*.cs", SearchOption.TopDirectoryOnly)
-            .Where(f => Path.GetFileName(f) != "Composition.cs")
-            .Where(f => System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(f), @"\bAssistant\.Infrastructure\b|\bInfrastructure\."))
-            .Select(Path.GetFileName)
-            .ToList();
-        Assert.True(offenders.Count == 0, $"seule Composition.cs peut nommer l'infrastructure : {string.Join(", ", offenders)}");
+        // Le projet et tous les Directory.Build.* qui s'appliquent à lui (racine, src/, le dossier lui-même).
+        var projectFiles = new[] { AppConfig.ProjectRoot, Path.Combine(AppConfig.ProjectRoot, "src"), cli }
+            .SelectMany(dir => Directory.GetFiles(dir, "Directory.Build.*"))
+            .Append(Path.Combine(cli, "Assistant.Cli.csproj"))
+            .ToArray();
+        var leaks = InfrastructureLeaks(cli, projectFiles);
+        Assert.True(leaks.Count == 0, $"seule Composition.cs peut nommer l'infrastructure : {string.Join(", ", leaks)}");
+    }
+
+    [Fact]
+    public void The_rule_catches_a_global_using()
+    {
+        // Test du test : Outil.cs ne nomme rien, c'est le « global using » de Composition.cs qui le trahit.
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            // Composition.cs peut nommer l'infrastructure, mais pas la faire entrer ailleurs par un alias global.
+            File.WriteAllText(Path.Combine(dir.FullName, "Composition.cs"), "global using Idx = global::Assistant.Infrastructure.JsonVectorIndex;\n");
+            File.WriteAllText(Path.Combine(dir.FullName, "Outil.cs"), "class Outil { object Index = new Idx(\"p\"); }\n");
+            File.WriteAllText(Path.Combine(dir.FullName, "Api.cs"), "using Assistant . Infrastructure;\n");
+            var project = Path.Combine(dir.FullName, "Cli.csproj");
+            File.WriteAllText(project, "<Project><ItemGroup><Using Include=\"Assistant.Infrastructure\" /></ItemGroup></Project>");
+            Assert.Equal(new[] { "Api.cs", "Cli.csproj", "Composition.cs" },
+                         InfrastructureLeaks(dir.FullName, project).Order(StringComparer.Ordinal));
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
     }
 }

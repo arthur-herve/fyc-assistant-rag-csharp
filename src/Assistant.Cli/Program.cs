@@ -23,7 +23,7 @@ public static class Program
 
         Commandes :
           index                          indexer le corpus   (--if-stale : seulement si status dit « à refaire »)
-          ask "<question>"               poser une question   (--user alice, --json, -v)
+          ask "<question>"               poser une question   (--user <nom>, défaut : alice ; --json, -v)
           status                         l'index est-il cohérent avec le corpus, le découpage et le modèle servi ?   (--json)
           snapshot record <nom>          enregistrer un instantané   (--questions eval/questions.json, --limit N)
           snapshot compare <a> <b>       comparer deux instantanés
@@ -45,16 +45,15 @@ public static class Program
             return Run(args);
         }
         catch (Exception error) when (error is AssistantApplicationException or DomainException or UnknownUserException
-                                           or ArgumentException or InvalidOperationException
-                                           or FormatException or OverflowException or NotSupportedException)
+                                           or ConfigException or ArgumentException or FormatException)
         {
+            // Configuration, corpus, index ou questions mal formés : des messages qui nomment le fichier.
             Console.Error.WriteLine($"Erreur : {error.Message}");
             return 1;
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException
-                                           or NullReferenceException or KeyNotFoundException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
-            Console.Error.WriteLine($"Erreur : fichier illisible ou incomplet (configuration, questions, index) — {error.Message}");
+            Console.Error.WriteLine($"Erreur : fichier illisible (configuration, questions, index) — {error.Message}");
             return 1;
         }
         catch (System.Net.Http.HttpRequestException error)
@@ -72,11 +71,18 @@ public static class Program
     private static int Run(string[] argv)
     {
         var args = new Args(argv);
-        if (args.Positional.Count == 0 || args.Has("--help") || args.Has("-h"))
+        if (args.Has("--help") || args.Has("-h"))
         {
             Console.WriteLine(Usage);
-            return args.Positional.Count == 0 ? 1 : 0;
+            return 0;
         }
+        if (args.Positional.Count == 0)
+        {
+            Console.Error.WriteLine(Usage);
+            return 1;
+        }
+        // Une option mal tapée (« --usr bruno ») est une erreur, pas une option ignorée en silence.
+        args.EnsureOnly(args.Positional[0], KnownOptions.GetValueOrDefault(args.Positional[0], Array.Empty<string>()));
         var verbose = args.Has("-v") || args.Has("--verbose");
         Action<string> log = verbose || Environment.GetEnvironmentVariable("ASSISTANT_LOG") is "INFO" or "info"
             ? message => Console.Error.WriteLine($"[assistant] {message}")
@@ -85,6 +91,11 @@ public static class Program
         var config = AppConfig.Load(args.Value("--config"));
         var container = Composition.Build(config, args.Value("--embedding-model"), args.Value("--generation-model"),
                                           promptName: args.Value("--prompt"), log: log);
+        if (!config.HasThresholdFor(container.EmbeddingModel))
+        {
+            Console.Error.WriteLine($"Attention : aucun seuil de pertinence configuré pour « {container.EmbeddingModel} » : valeur `default` "
+                                    + $"{config.MinScoreFor(container.EmbeddingModel).ToString(System.Globalization.CultureInfo.InvariantCulture)} (ADR 0004 : lancer le banc d'essai)");
+        }
         switch (args.Positional[0])
         {
             case "index":
@@ -102,7 +113,7 @@ public static class Program
                     }
                     if (report.Unverified)
                     {
-                        Console.Error.WriteLine("Index non vérifié : le service IA est injoignable, impossible de réindexer.");
+                        Console.Error.WriteLine("Index non vérifié : le service IA n'a pas pu être interrogé, impossible de réindexer.");
                         return 3;
                     }
                     Console.WriteLine("Index à refaire :");
@@ -158,7 +169,7 @@ public static class Program
                     throw new ArgumentException($"experience attend un nom : {string.Join(", ", Experiments.Names)}");
                 }
                 var common = new Overrides(args.Value("--embedding-model"), args.Value("--generation-model"), PromptName: args.Value("--prompt"));
-                return Experiments.Run(args.Positional[1], args, config, common, args.Value("--config") ?? "config/app.json", log);
+                return Experiments.Run(args.Positional[1], args, config, common, Path.GetRelativePath(AppConfig.ProjectRoot, config.Source).Replace('\\', '/'), log);   // rapport identique sous Windows et Linux
             }
             default:
                 Console.Error.WriteLine($"Commande inconnue : {args.Positional[0]}");
@@ -166,6 +177,22 @@ public static class Program
                 return 1;
         }
     }
+
+    private static readonly string[] Common = { "--config", "--embedding-model", "--generation-model", "--prompt", "-v", "--verbose" };
+
+    /// <summary>Options acceptées par chaque commande, en plus des options communes.</summary>
+    private static readonly Dictionary<string, string[]> KnownOptions = new()
+    {
+        ["index"] = Common.Append("--if-stale").ToArray(),
+        ["ask"] = Common.Concat(new[] { "--user", "--json" }).ToArray(),
+        ["status"] = Common.Append("--json").ToArray(),
+        ["snapshot"] = Common.Concat(new[] { "--questions", "--limit" }).ToArray(),
+        ["serve"] = Common.Concat(new[] { "--host", "--port", "--quiet" }).ToArray(),
+        ["benchmark"] = Common.Concat(new[] { "--embedding", "--generation", "--questions", "--validate-with", "--runs", "--limit",
+                                              "--min-score", "--max-chars", "--overlap-chars", "--seed", "--out" }).ToArray(),
+        ["experience"] = Common.Concat(new[] { "--questions", "--limit", "--out", "--other", "--max-chars", "--overlap-chars",
+                                               "--runs", "--seed" }).ToArray(),
+    };
 
     private static int RunBenchmark(Args args, AppConfig config, Action<string> log)
     {
@@ -224,7 +251,7 @@ public static class Program
                 Console.WriteLine($"Instantané « {snapshot.Name} » : {snapshot.Entries.Count} réponses, enregistré dans {config.SnapshotsDir}");
                 foreach (var (key, value) in snapshot.Configuration)
                 {
-                    Console.WriteLine($"  {key} = {value}");
+                    Console.WriteLine($"  {key} = {SnapshotComparer.Canonical(value)}");
                 }
                 return 0;
             }
@@ -259,13 +286,13 @@ public static class AiService
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            using var response = http.GetAsync(baseUrl.TrimEnd('/') + "/health").Result;
+            using var response = http.GetAsync(baseUrl.TrimEnd('/') + "/health").GetAwaiter().GetResult();
             if (!response.IsSuccessStatusCode)
             {
                 throw new AiServiceException($"le service IA répond HTTP {(int)response.StatusCode} sur {baseUrl}/health", transient: false);
             }
         }
-        catch (Exception error) when (error is HttpRequestException or AggregateException or TaskCanceledException)
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException or InvalidOperationException)
         {
             throw new AiServiceException($"service IA injoignable ({baseUrl}). Lancez-le d'abord : python -m ai_service", transient: false);
         }
@@ -279,6 +306,7 @@ public sealed class Args
     private static readonly HashSet<string> MultiValued = new() { "--embedding", "--generation" };
     private readonly Dictionary<string, List<string>> _values = new();
     private readonly HashSet<string> _flags = new();
+    private readonly List<string> _seen = new();
 
     public List<string> Positional { get; } = new();
 
@@ -290,6 +318,7 @@ public sealed class Args
             if (Flags.Contains(arg))
             {
                 _flags.Add(arg);
+                _seen.Add(arg);
             }
             else if (arg.StartsWith("--", StringComparison.Ordinal))
             {
@@ -319,8 +348,20 @@ public sealed class Args
         }
     }
 
+    /// <summary>Refuse toute option que cette commande ne lit pas (faute de frappe, option d'une autre commande).</summary>
+    public void EnsureOnly(string command, IReadOnlyCollection<string> allowed)
+    {
+        var unknown = _seen.Where(o => !allowed.Contains(o) && o is not ("--help" or "-h")).Distinct().ToList();
+        if (unknown.Count > 0)
+        {
+            throw new ArgumentException($"option(s) inconnue(s) pour {command} : {string.Join(", ", unknown)} "
+                                        + $"(acceptées : {string.Join(", ", allowed.Order(StringComparer.Ordinal))})");
+        }
+    }
+
     private void Add(string option, string value)
     {
+        _seen.Add(option);
         if (!_values.TryGetValue(option, out var list))
         {
             _values[option] = list = new List<string>();

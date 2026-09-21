@@ -8,7 +8,10 @@
 //     Texte du document…
 //
 // Même format que la version Python : les deux applications partagent les corpus.
+// `groupes` est obligatoire (« tous » pour un document public) : un droit d'accès oublié ou
+// mal écrit est une erreur, jamais un document rendu public en silence.
 
+using System.Text.RegularExpressions;
 using Assistant.Application;
 using Assistant.Domain;
 
@@ -21,6 +24,7 @@ public sealed class CorpusFormatException : FormatException
 
 public sealed class MarkdownCorpus : IDocumentSource
 {
+    private static readonly Regex Group = new("^[a-z0-9][a-z0-9_-]*$", RegexOptions.CultureInvariant);
     private readonly string _directory;
 
     public MarkdownCorpus(string directory)
@@ -58,11 +62,17 @@ public sealed class MarkdownCorpus : IDocumentSource
         {
             throw new CorpusFormatException($"{origin} : champ 'id' obligatoire");
         }
-        var groups = (meta.GetValueOrDefault("groupes", AccessPolicy.PublicGroup))
+        var groups = meta.GetValueOrDefault("groupes", "")
             .Split(',').Select(g => g.Trim()).Where(g => g.Length > 0).ToHashSet();
         if (groups.Count == 0)
         {
-            groups.Add(AccessPolicy.PublicGroup);
+            throw new CorpusFormatException($"{origin} : champ 'groupes' obligatoire (« tous » pour un document public)");
+        }
+        var invalid = groups.Where(g => !Group.IsMatch(g)).Order(StringComparer.Ordinal).ToList();
+        if (invalid.Count > 0)
+        {
+            throw new CorpusFormatException(
+                $"{origin} : groupe(s) invalide(s) [{string.Join(", ", invalid)}] : des noms en minuscules séparés par des virgules, sans commentaire");
         }
         return new Document(id, meta.GetValueOrDefault("titre", id),
                             string.Join("\n", lines.Skip(end + 1)).Trim(), groups);

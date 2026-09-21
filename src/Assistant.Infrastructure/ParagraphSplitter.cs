@@ -1,6 +1,9 @@
 // Adaptateur : découpage des documents en morceaux. Les paramètres de découpage
 // changent les réponses (principe CACE, séquence 3.2) : ils sont donc enregistrés
 // dans le manifeste de l'index. Même algorithme que la version Python.
+//
+// MaxChars borne le texte du morceau ; avec IncludeTitle, le titre du document s'y ajoute
+// (il aide la recherche) : un morceau peut donc dépasser MaxChars de la longueur du titre.
 
 using System.Text.RegularExpressions;
 using Assistant.Application;

@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Assistant.Infrastructure/Assistant.Infrastructure.csproj" />
+    <InternalsVisibleTo Include="Assistant.Tests" />
   </ItemGroup>
 </Project>

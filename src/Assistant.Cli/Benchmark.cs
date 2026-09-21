@@ -34,6 +34,51 @@ public sealed record BenchmarkOptions(
 
 public sealed record RetrievalScore(EvalQuestion Question, double Top1, bool? Hit, bool? Hit1);
 
+/// <summary>Une réponse mesurée par le banc : une ligne de resultats.csv, mêmes colonnes que la version Python.</summary>
+public sealed record BenchmarkRow(
+    string Embedding,
+    string Generation,
+    int Run,
+    string QuestionId,
+    bool Answerable,
+    string Status,
+    int LatencyMs,
+    int? Attempts = null,
+    string GenerationModelId = "",
+    string CitedDocuments = "",
+    bool? SourceHit = null,
+    bool ForbiddenLeak = false,
+    double? KeywordCoverage = null,
+    string? Error = null,
+    string Text = "")
+{
+    public const string ErrorStatus = "error";
+
+    public static readonly string[] CsvFields =
+    {
+        "embedding", "generation", "run", "question_id", "answerable", "status", "attempts", "latency_ms",
+        "generation_model_id", "cited_documents", "source_hit", "forbidden_leak", "keyword_coverage", "error", "text",
+    };
+
+    /// <summary>Le modèle a-t-il été appelé ? Un refus sans passage pertinent n'en a pas besoin.</summary>
+    public bool Generated => Attempts > 0;
+
+    /// <summary>Valeurs écrites comme le module csv de Python : True/False, 1.0, champ vide pour « sans objet ».</summary>
+    public string CsvLine() => string.Join(",", new[]
+    {
+        Embedding, Generation, Int(Run), QuestionId, Bool(Answerable), Status, Attempts is null ? "" : Int(Attempts.Value),
+        Int(LatencyMs), GenerationModelId, CitedDocuments, SourceHit is null ? "" : Bool(SourceHit.Value), Bool(ForbiddenLeak),
+        KeywordCoverage is null ? "" : Number(KeywordCoverage.Value), Error ?? "", Text,
+    }.Select(Escape));
+
+    private static string Int(int value) => value.ToString(CultureInfo.InvariantCulture);
+    private static string Bool(bool value) => value ? "True" : "False";
+    private static string Number(double value) =>
+        value == Math.Floor(value) ? value.ToString("0.0", CultureInfo.InvariantCulture) : value.ToString("R", CultureInfo.InvariantCulture);
+    private static string Escape(string value) =>
+        value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0 ? $"\"{value.Replace("\"", "\"\"")}\"" : value;
+}
+
 public static class Benchmark
 {
     private static readonly JsonSerializerOptions Json = new()
@@ -42,11 +87,29 @@ public static class Benchmark
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
+    private static readonly string Answered = StatusNames.Of(AnswerStatus.Answered);
+    private static readonly string NoRelevantSource = StatusNames.Of(AnswerStatus.NoRelevantSource);
+    private static readonly string Unsourced = StatusNames.Of(AnswerStatus.Unsourced);
+
     public static JsonObject Run(AppConfig config, BenchmarkOptions options, Action<string> log)
     {
+        // Tout ce qui peut être faux dans les options l'est dit avant la première indexation.
+        foreach (var q in options.Questions.Concat(options.Validation ?? Array.Empty<EvalQuestion>()))
+        {
+            config.User(q.UserName);   // utilisateur inconnu : UnknownUserException tout de suite
+        }
         Directory.CreateDirectory(options.OutDir);
         var retrieval = new List<JsonObject>();
-        var rows = new List<JsonObject>();
+        var rows = new List<BenchmarkRow>();
+        // Chaque ligne est écrite dès qu'elle est connue : une coupure en fin de campagne ne perd rien.
+        using var csv = new StreamWriter(Path.Combine(options.OutDir, "resultats.csv"), false, new UTF8Encoding(false)) { NewLine = "\r\n" };
+        csv.WriteLine(string.Join(",", BenchmarkRow.CsvFields));
+        void Record(BenchmarkRow row)
+        {
+            rows.Add(row);
+            csv.WriteLine(row.CsvLine());
+            csv.Flush();
+        }
 
         foreach (var emb in options.EmbeddingModels)
         {
@@ -99,12 +162,14 @@ public static class Benchmark
                 ["top1_median_answerable"] = Median(answerable),
                 ["top1_median_unanswerable"] = Median(unanswerable),
                 ["configured_threshold"] = configured,
+                ["configured_threshold_is_default"] = !config.HasThresholdFor(emb),
                 ["suggested_threshold"] = suggested,
                 ["separation_accuracy"] = separation,
                 ["threshold_used"] = used,
             };
             retrieval.Add(summary);
-            log($"  hit@1={F(Mean(hits1))} · hit@{topK}={F(Mean(hits))} · seuil configuré={configured} · seuil suggéré={F(suggested)} · seuil utilisé={used}");
+            var byDefault = config.HasThresholdFor(emb) ? "" : " (default : aucun seuil pour cet alias)";
+            log($"  hit@1={F(Mean(hits1))} · hit@{topK}={F(Mean(hits))} · seuil configuré={configured}{byDefault} · seuil suggéré={F(suggested)} · seuil utilisé={used}");
 
             if (options.Validation is { Count: > 0 } validation)
             {
@@ -123,11 +188,6 @@ public static class Benchmark
                 {
                     foreach (var q in options.Questions)
                     {
-                        var row = new JsonObject
-                        {
-                            ["embedding"] = emb, ["generation"] = gen, ["run"] = run,
-                            ["question_id"] = q.Id, ["answerable"] = q.Answerable,
-                        };
                         var started = Stopwatch.StartNew();
                         Answer answer;
                         try
@@ -136,25 +196,22 @@ public static class Benchmark
                         }
                         catch (AssistantApplicationException error)
                         {
-                            row["status"] = "error";
-                            row["error"] = error.Message;
-                            row["latency_ms"] = (int)started.ElapsedMilliseconds;
-                            rows.Add(row);
+                            Record(new BenchmarkRow(emb, gen, run, q.Id, q.Answerable, BenchmarkRow.ErrorStatus,
+                                                    (int)started.ElapsedMilliseconds, Error: error.Message));
                             log($"    {q.Id} : erreur — {error.Message}");
                             continue;
                         }
                         var cited = answer.Sources.Select(s => s.DocumentId).Distinct().OrderBy(d => d, StringComparer.Ordinal).ToList();
                         var answered = answer.Status == AnswerStatus.Answered;
-                        row["status"] = StatusNames.Of(answer.Status);
-                        row["latency_ms"] = (int)started.ElapsedMilliseconds;
-                        row["attempts"] = answer.Trace.Attempts;
-                        row["generation_model_id"] = answer.Trace.GenerationModel ?? "";
-                        row["cited_documents"] = string.Join("|", cited);
-                        row["source_hit"] = answered && q.ExpectedDocuments.Count > 0 ? cited.Intersect(q.ExpectedDocuments).Any() : null;
-                        row["forbidden_leak"] = cited.Intersect(q.ForbiddenDocuments).Any();
-                        row["keyword_coverage"] = answered ? KeywordCoverage(answer.Text, q.ExpectedKeywords) : null;
-                        row["text"] = answer.Text.Replace("\n", " ");
-                        rows.Add(row);
+                        Record(new BenchmarkRow(
+                            emb, gen, run, q.Id, q.Answerable, StatusNames.Of(answer.Status), (int)started.ElapsedMilliseconds,
+                            Attempts: answer.Trace.Attempts,
+                            GenerationModelId: answer.Trace.GenerationModel ?? "",
+                            CitedDocuments: string.Join("|", cited),
+                            SourceHit: answered && q.ExpectedDocuments.Count > 0 ? cited.Intersect(q.ExpectedDocuments).Any() : null,
+                            ForbiddenLeak: cited.Intersect(q.ForbiddenDocuments).Any(),
+                            KeywordCoverage: answered ? KeywordCoverage(answer.Text, q.ExpectedKeywords) : null,
+                            Text: answer.Text.Replace("\n", " ")));
                     }
                     log($"    passage {run}/{options.Runs} terminé");
                 }
@@ -162,7 +219,6 @@ public static class Benchmark
         }
 
         var result = new JsonObject { ["retrieval"] = new JsonArray(retrieval.ToArray<JsonNode>()), ["generation"] = Summarize(rows) };
-        WriteCsv(rows, Path.Combine(options.OutDir, "resultats.csv"));
         File.WriteAllText(Path.Combine(options.OutDir, "synthese.json"), result.ToJsonString(Json) + "\n", new UTF8Encoding(false));
         var promptVersion = Composition.Build(config, new Overrides()).Prompts.Get(options.PromptName ?? config.PromptName).Version;
         var splitter = new Dictionary<string, object>
@@ -278,69 +334,43 @@ public static class Benchmark
     private const string Accents = "àáâãäåçèéêëìíîïñòóôõöùúûüýÿ";
     private const string Folded = "aaaaaaceeeeiiiinooooouuuuyy";
 
-    private static JsonArray Summarize(List<JsonObject> rows)
+    internal static JsonArray Summarize(List<BenchmarkRow> rows)
     {
         var generation = new JsonArray();
-        foreach (var group in rows.GroupBy(r => (Emb: S(r["embedding"]), Gen: S(r["generation"]))))
+        foreach (var group in rows.GroupBy(r => (r.Embedding, r.Generation)))
         {
             var all = group.ToList();
-            var answerable = all.Where(r => r["answerable"]!.GetValue<bool>()).ToList();
-            var unanswerable = all.Where(r => !r["answerable"]!.GetValue<bool>()).ToList();
-            var ok = all.Where(r => S(r["status"]) != "error").ToList();
-            var stability = ok.GroupBy(r => S(r["question_id"]))
-                .Select(g => g.Select(r => (S(r["status"]), S(r["cited_documents"]))).ToList())
+            var answerable = all.Where(r => r.Answerable).ToList();
+            var unanswerable = all.Where(r => !r.Answerable).ToList();
+            var ok = all.Where(r => r.Status != BenchmarkRow.ErrorStatus).ToList();
+            var stability = ok.GroupBy(r => r.QuestionId)
+                .Select(g => g.Select(r => (r.Status, r.CitedDocuments)).ToList())
                 .Where(outcomes => outcomes.Count > 1)
                 .Select(outcomes => (double)outcomes.GroupBy(o => o).Max(g => g.Count()) / outcomes.Count)
                 .ToList();
+            // Latence des seules réponses générées : un refus sans passage pertinent ne coûte presque
+            // rien et tirerait la médiane vers le bas.
+            var generated = ok.Where(r => r.Generated).Select(r => (double)r.LatencyMs).ToList();
             generation.Add(new JsonObject
             {
-                ["embedding"] = group.Key.Emb,
-                ["generation"] = group.Key.Gen,
+                ["embedding"] = group.Key.Embedding,
+                ["generation"] = group.Key.Generation,
                 ["calls"] = all.Count,
-                ["errors"] = all.Count(r => S(r["status"]) == "error"),
-                ["answer_rate"] = Mean(answerable.Select(r => S(r["status"]) == "answered" ? 1.0 : 0.0).ToList()),
-                ["source_hit_rate"] = Mean(answerable.Where(r => r["source_hit"] is not null).Select(r => r["source_hit"]!.GetValue<bool>() ? 1.0 : 0.0).ToList()),
-                ["keyword_coverage"] = Mean(answerable.Where(r => r["keyword_coverage"] is not null).Select(r => r["keyword_coverage"]!.GetValue<double>()).ToList()),
-                ["unsourced_rate"] = Mean(all.Select(r => S(r["status"]) == "unsourced" ? 1.0 : 0.0).ToList()),
-                ["correct_refusal_rate"] = Mean(unanswerable.Select(r => S(r["status"]) == "no_relevant_source" ? 1.0 : 0.0).ToList()),
-                ["forbidden_leaks"] = all.Count(r => r["forbidden_leak"]?.GetValue<bool>() == true),
+                ["errors"] = all.Count - ok.Count,
+                ["answer_rate"] = Mean(answerable.Select(r => r.Status == Answered ? 1.0 : 0.0).ToList()),
+                ["source_hit_rate"] = Mean(answerable.Where(r => r.SourceHit is not null).Select(r => r.SourceHit == true ? 1.0 : 0.0).ToList()),
+                ["keyword_coverage"] = Mean(answerable.Where(r => r.KeywordCoverage is not null).Select(r => r.KeywordCoverage!.Value).ToList()),
+                ["unsourced_rate"] = Mean(all.Select(r => r.Status == Unsourced ? 1.0 : 0.0).ToList()),
+                ["correct_refusal_rate"] = Mean(unanswerable.Select(r => r.Status == NoRelevantSource ? 1.0 : 0.0).ToList()),
+                ["forbidden_leaks"] = all.Count(r => r.ForbiddenLeak),
                 ["stability"] = Mean(stability),
-                ["mean_attempts"] = Mean(ok.Where(r => r["attempts"]?.GetValue<int>() > 0).Select(r => (double)r["attempts"]!.GetValue<int>()).ToList()),   // les refus (0 tentative) ne comptent pas
-                ["latency_median_ms"] = Median(ok.Select(r => (double)r["latency_ms"]!.GetValue<int>()).ToList()),
-                ["latency_p90_ms"] = P90(ok.Select(r => (double)r["latency_ms"]!.GetValue<int>()).ToList()),
+                ["mean_attempts"] = Mean(ok.Where(r => r.Generated).Select(r => (double)r.Attempts!.Value).ToList()),   // les refus (0 tentative) ne comptent pas
+                ["latency_median_ms"] = Median(generated),
+                ["latency_p90_ms"] = P90(generated),
+                ["refusals_without_generation"] = ok.Count(r => !r.Generated),
             });
         }
         return generation;
-    }
-
-    private static readonly string[] CsvFields =
-    {
-        "embedding", "generation", "run", "question_id", "answerable", "status", "attempts", "latency_ms",
-        "generation_model_id", "cited_documents", "source_hit", "forbidden_leak", "keyword_coverage", "error", "text",
-    };
-
-    private static void WriteCsv(List<JsonObject> rows, string path)
-    {
-        var lines = new StringBuilder();
-        lines.Append(string.Join(",", CsvFields)).Append("\r\n");
-        foreach (var row in rows)
-        {
-            lines.Append(string.Join(",", CsvFields.Select(f => Csv(row[f])))).Append("\r\n");
-        }
-        File.WriteAllText(path, lines.ToString(), new UTF8Encoding(false));
-    }
-
-    private static string Csv(JsonNode? node)
-    {
-        var value = node switch
-        {
-            null => "",
-            JsonValue v when v.TryGetValue<bool>(out var b) => b ? "True" : "False",
-            JsonValue v when v.TryGetValue<double>(out var d) => d.ToString(CultureInfo.InvariantCulture),
-            JsonValue v when v.TryGetValue<string>(out var s) => s,
-            _ => node.ToJsonString(),
-        };
-        return value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0 ? $"\"{value.Replace("\"", "\"\"")}\"" : value;
     }
 
     private static string Report(JsonObject summary, int runs, int questionCount, string promptVersion,
@@ -368,7 +398,8 @@ public static class Benchmark
             }
             lines.Add($"| {S(r["embedding"])} | `{S(r["model_id"])}` | {r["dimension"]} | {r["chunks"]} | {F(r["index_seconds"])} | "
                       + $"{F(r["hit@1"])} | {F(r["hit@k"])} | {F(r["top1_median_answerable"])} | {F(r["top1_median_unanswerable"])} | "
-                      + $"{F(r["configured_threshold"])} | {F(r["suggested_threshold"])} | {F(r["separation_accuracy"])} | {F(r["threshold_used"])} |");
+                      + $"{F(r["configured_threshold"])}{(r["configured_threshold_is_default"]?.GetValue<bool>() == true ? " (default)" : "")} | "
+                      + $"{F(r["suggested_threshold"])} | {F(r["separation_accuracy"])} | {F(r["threshold_used"])} |");
         }
         if (retrieval.Any(r => r["validation"] is not null))
         {
@@ -377,7 +408,7 @@ public static class Benchmark
                 "",
                 "## Validation du seuil sur des questions jamais vues",
                 "",
-                "| Embeddings | Seuil éprouvé | Questions | Hit@1 | Répondables retenues | Refus justes (hors corpus) |",
+                "| Embeddings | Seuil éprouvé | Questions | Hit@1 | Répondables retenues | Refus justes (sans réponse accessible) |",
                 "|---|---|---|---|---|---|",
             });
             foreach (var r in retrieval)
@@ -393,7 +424,7 @@ public static class Benchmark
             "",
             "## Réponses (avec génération)",
             "",
-            "| Embeddings | Génération | Répond (répondables) | Bonne source | Mots-clés | Non sourcé | Refus justes (hors corpus) | Fuites d'accès | Stabilité | Tentatives | Latence médiane (ms) | p90 (ms) | Erreurs |",
+            "| Embeddings | Génération | Répond (répondables) | Bonne source | Mots-clés | Non sourcé | Refus justes (sans réponse accessible) | Fuites d'accès | Stabilité | Tentatives | Latence médiane des réponses générées (ms) | p90 (ms) | Erreurs |",
             "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
         });
         foreach (var g in summary["generation"]!.AsArray().Select(n => n!.AsObject()))
@@ -410,7 +441,10 @@ public static class Benchmark
             "- **Hit@1 / Hit@k** : part des questions répondables dont un document attendu arrive en tête / figure dans les k passages retrouvés. Sur un petit corpus, Hit@k est vite saturé : regarder Hit@1.",
             "- **Seuil suggéré** : sépare au mieux les questions répondables des questions hors corpus. Calibré sur ces mêmes questions, il est optimiste : la section « Validation » l'éprouve sur des questions jamais vues.",
             "- **Bonne source** : parmi les réponses données, part qui cite un document attendu.",
+            "- **Répond** : statut « answered ». Une réponse qui dit « je ne sais pas » en citant une source compte comme une réponse : l'indicateur ne lit pas le texte.",
             "- **Mots-clés** : part des mots-clés attendus présents dans la réponse (indicateur grossier).",
+            "- **Refus justes** : questions sans réponse dans un document accessible (hors corpus ou accès refusé) auxquelles l'assistant n'a pas répondu.",
+            "- **Latence** : sur les seules réponses générées ; un refus sans passage pertinent est quasi immédiat.",
             "- **Non sourcé** : le modèle n'a pas cité correctement ses sources malgré les tentatives.",
             "- **Fuites d'accès** : doit toujours valoir 0, le filtrage est fait avant le modèle.",
             "- **Stabilité** : pour une même question, part des passages qui donnent le même statut et les mêmes documents cités (1 = parfaitement stable). Nécessite au moins 2 passages.",

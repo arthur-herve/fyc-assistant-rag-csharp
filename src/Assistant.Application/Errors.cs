@@ -17,6 +17,13 @@ public sealed class EmptyCorpusException : AssistantApplicationException
     public EmptyCorpusException() : base("Le corpus ne contient aucun texte à indexer.") { }
 }
 
+/// <summary>L'index a été reconstruit (par un autre processus) pendant la recherche, deux fois de suite.</summary>
+public sealed class IndexReplacedException : AssistantApplicationException
+{
+    public IndexReplacedException()
+        : base("L'index a été reconstruit pendant la recherche. Reposez la question.") { }
+}
+
 /// <summary>
 /// Le modèle d'embeddings a changé depuis la construction de l'index. C'est le cœur
 /// de la problématique : l'index est une donnée persistée qui dépend du modèle.
@@ -79,4 +86,11 @@ public sealed class InvalidSnapshotNameException : AssistantApplicationException
 {
     public InvalidSnapshotNameException(string name)
         : base($"nom d'instantané invalide : « {name} » (lettres, chiffres, . _ - ; 64 caractères au plus)") { }
+}
+
+/// <summary>Aucun instantané de ce nom : fait partie du contrat du port <see cref="ISnapshotStore"/>.</summary>
+public sealed class SnapshotNotFoundException : AssistantApplicationException
+{
+    public SnapshotNotFoundException(string name, IReadOnlyList<string> known)
+        : base($"instantané introuvable : {name} (connus : [{string.Join(", ", known)}])") { }
 }

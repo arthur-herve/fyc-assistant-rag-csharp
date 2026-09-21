@@ -80,8 +80,10 @@ public sealed record OutputCheck(IReadOnlyList<string> Problems)
 /// Règle métier n° 3 : à quoi doit ressembler une réponse avant d'être montrée.
 /// Complète les citations (la forme) par le fond : une réponse vide, trop longue,
 /// dans la mauvaise langue ou qui déverse un raisonnement n'est pas une réponse,
-/// même si elle contient « [1] ». Ces règles ne connaissent aucun modèle en
-/// particulier ; ce qui est propre à un modèle est neutralisé côté service IA.
+/// même si elle contient « [1] ». Ces règles ne nomment aucun modèle, mais leurs marqueurs
+/// de raisonnement viennent des modèles rencontrés (qwen3…) : une connaissance du modèle,
+/// assumée, datée et testée (ADR 0008), à revoir quand on en change. Ce qui est propre au
+/// moteur (balises, budget de réflexion) est neutralisé côté service IA.
 /// </summary>
 public static class OutputRules
 {
