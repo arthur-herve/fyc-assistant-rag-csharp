@@ -372,7 +372,7 @@ public class IndexCorpusTests
     }
 
     [Fact]
-    public void Fingerprint_separates_the_fields_and_matches_the_python_version()
+    public void Fingerprint_separates_the_fields_and_keeps_its_value()
     {
         var tous = new HashSet<string> { "tous" };
         Assert.NotEqual(Fingerprints.Corpus(new[] { new Document("a", "t", "bc", tous) }),
@@ -382,8 +382,45 @@ public class IndexCorpusTests
             new Document("b", "Congés", "Vingt-cinq jours.", tous),
             new Document("a", "Grille", "Salaire senior.", new HashSet<string> { "rh", "direction" }),
         };
-        // Même valeur attendue dans test_index_corpus.py : les deux versions calculent la même empreinte.
+        // Valeur fixée : l'empreinte est inscrite dans chaque index ; une formule changée ferait voir « corpus modifié »
+        // à tous les index déjà construits.
         Assert.Equal("ec3df17f9b790082ea28ee7ca48f688a23e23a893f3bce5ce89c61e9d9798db0", Fingerprints.Corpus(documents));
+    }
+
+    [Fact]
+    public void Index_id_changes_with_the_corpus_the_model_the_dimension_or_the_splitter_not_with_the_key_order()
+    {
+        var splitter = new Dictionary<string, object> { ["type"] = "paragraph", ["max_chars"] = 800, ["overlap_chars"] = 120, ["include_title"] = true };
+        var reordered = new Dictionary<string, object> { ["include_title"] = true, ["overlap_chars"] = 120, ["max_chars"] = 800, ["type"] = "paragraph" };
+        var id = Fingerprints.IndexId("fp", "m", 64, splitter);
+        Assert.Matches("^[0-9a-f]{12}$", id);
+        Assert.Equal(id, Fingerprints.IndexId("fp", "m", 64, reordered));   // mêmes valeurs, autre ordre des clés
+        var changed = new[]
+        {
+            Fingerprints.IndexId("fp2", "m", 64, splitter),   // corpus
+            Fingerprints.IndexId("fp", "m2", 64, splitter),   // modèle
+            Fingerprints.IndexId("fp", "m", 65, splitter),    // dimension
+            Fingerprints.IndexId("fp", "m", 64, new Dictionary<string, object>(splitter) { ["max_chars"] = 300 }),   // découpage
+        };
+        Assert.Equal(5, changed.Append(id).Distinct().Count());
+        // L'indexation s'en sert, et deux indexations du même corpus donnent le même identifiant.
+        static IndexManifest Run() => new IndexCorpus(new ListSource(Fakes.Doc("a", "télétravail")), new WholeDocumentSplitter(),
+                                                      new KeywordEmbedder(), new FakeIndex(), new FixedClock()).Execute();
+        var manifest = Run();
+        Assert.Equal(manifest.IndexId, Run().IndexId);
+        Assert.Equal(Fingerprints.IndexId(manifest.CorpusFingerprint, manifest.EmbeddingModel, manifest.Dimension, manifest.Splitter),
+                     manifest.IndexId);
+    }
+
+    [Fact]
+    public void Index_id_keeps_its_value()
+    {
+        // Valeur fixée : l'identifiant est inscrit dans chaque index ; une autre forme (ordre des champs, tri des clés,
+        // espaces ou échappements du JSON) ferait voir « à refaire » à tous les index déjà construits. Le second modèle a
+        // la forme d'un identifiant renvoyé par le service IA, avec un « + » que System.Text.Json échappe.
+        var splitter = new Dictionary<string, object> { ["type"] = "paragraph", ["max_chars"] = 800, ["overlap_chars"] = 120, ["include_title"] = true };
+        Assert.Equal("e3ac097f2b1d", Fingerprints.IndexId("fp", "m", 64, splitter));
+        Assert.Equal("c6ce05776677", Fingerprints.IndexId("fp", "ollama:nomic-embed-text@0a109f422b47+prefixes-03aa22a9", 768, splitter));
     }
 
     [Fact]
@@ -475,6 +512,20 @@ public class CheckStatusTests
     [Fact]
     public void Detects_that_the_ai_service_now_serves_another_model() =>
         Assert.Contains("fake-keywords-v2", Status(Build.Indexed(null, Docs), embedder: new KeywordEmbedder("fake-keywords-v2")).Issues[0]);
+
+    [Fact]
+    public void Detects_an_index_id_computed_otherwise_since_the_indexing()
+    {
+        // Même corpus, même découpage, même modèle, mais l'identifiant d'une version du code qui le calculait autrement :
+        // à refaire, que le service IA réponde ou non.
+        var index = Build.Indexed(null, Docs);
+        var current = index.Manifest()!.IndexId;
+        index.Replace(index.Manifest()! with { IndexId = "0123456789ab" }, index.Chunks.ToList(), index.Vectors.ToList());
+        Assert.Equal($"identifiant d'index calculé autrement depuis l'indexation (0123456789ab → {current}) : réindexer",
+                     Assert.Single(Status(index).Issues));
+        var unreachable = Status(index, embedder: new BrokenEmbedder());
+        Assert.Equal((false, false, 2), (unreachable.UpToDate, unreachable.Unverified, unreachable.Issues.Count));
+    }
 
     [Fact]
     public void Unreachable_ai_service_is_unverified_not_fatal()

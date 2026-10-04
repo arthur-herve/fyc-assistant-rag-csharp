@@ -1,6 +1,6 @@
 # ADR 0009 — Application en C#, modèles en Python : la frontière est le contrat, pas le langage
 
-**Date** : 11/09/2026 (décision), 12/09/2026 (rédaction) · **Statut** : acceptée · erratum du 21/09/2026 (en fin de document)
+**Date** : 11/09/2026 (décision), 12/09/2026 (rédaction) · **Statut** : acceptée · errata du 21/09/2026 et du 04/10/2026 (en fin de document)
 
 ## Contexte
 
@@ -67,3 +67,20 @@ réponse d'un assistant RAG vient de modèles identifiés, et la tracer est une 
 rencontrés (marqueurs de raisonnement de qwen3), assumée et datée (ADR 0008) : les règles du domaine
 ne dépendent d'aucune technologie d'IA, pas de toute connaissance des modèles. Les ports, eux,
 restent hors du domaine, comme décidé ici.
+
+## Erratum (04/10/2026)
+
+Le point « Le couplage par les données, lui, ne disparaît pas » des Conséquences affirme ce qui
+ne tient plus : le même `index_id` en C# et en Python (`JsonVectorIndexTests` sur une fixture
+produite par Python), et un instantané C# qui se compare à un instantané Python avec 0 % de dérive
+à configuration égale. Il n'y aura qu'une version du cours : cette comparaison ne sert plus.
+L'identifiant d'un index se calcule désormais sur un JSON écrit par System.Text.Json
+(`Fingerprints.IndexId` : empreinte du corpus, modèle d'embeddings, dimension, découpage aux clés
+triées) au lieu d'imiter `json.dumps` de Python ; il n'est donc plus celui de la version Python, et
+un index construit avant le 04/10/2026 est vu « à refaire » par `status`. La fixture et les tests
+qui comparaient les deux versions sont retirés.
+
+Ce qui tient toujours : la frontière est le contrat, pas le langage. L'application C# ne parle au
+service IA en Python que par le contrat HTTP, et le couplage par les données demeure : ce qui doit
+correspondre entre l'index et le service, c'est le modèle d'embeddings (vérifié à chaque question,
+ADR 0003), pas le langage.

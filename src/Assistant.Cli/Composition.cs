@@ -77,8 +77,7 @@ public static class Composition
         var checkStatus = new CheckStatus(source, splitter, rawEmbedder, index, prompts, settings.PromptName);
         var snapshots = new JsonSnapshotStore(overrides.SnapshotsDir ?? config.SnapshotsDir);
         // Empreinte de configuration d'un instantané : tout ce qui change les réponses côté application.
-        // Valeurs typées et mêmes clés que la version Python : un instantané C# se compare à un instantané
-        // Python. Les réglages propres au service IA (budget de réflexion…) n'y sont pas : ils vivent dans
+        // Les réglages propres au service IA (budget de réflexion…) n'y sont pas : ils vivent dans
         // l'autre déployable. C'est une limite à nommer (S4.2), pas un oubli.
         var configuration = new Dictionary<string, object?>
         {

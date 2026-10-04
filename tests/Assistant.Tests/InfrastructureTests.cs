@@ -232,57 +232,6 @@ public class JsonVectorIndexTests
             dir.Delete(true);
         }
     }
-
-    [Fact]
-    public void Reads_and_searches_an_index_written_by_the_python_version()
-    {
-        // Même format JSON : la fixture a été produite par fyc-assistant-rag-python-full (Python, moteur hashing 64 dim.)
-        // sur le corpus Solvéo. Le modèle d'embeddings doit correspondre, pas le langage de l'application.
-        var index = new JsonVectorIndex(Path.Combine(AppConfig.ProjectRoot, "tests", "Assistant.Tests", "fixtures", "index-python-hashing.json"));
-        var manifest = index.Manifest();
-        Assert.NotNull(manifest);
-        Assert.Equal("hashing-64-stem6", manifest!.EmbeddingModel);
-        Assert.Equal(15, manifest.ChunkCount);
-        Assert.Equal(800, manifest.Splitter["max_chars"]);
-        // Le vecteur du morceau « télétravail » retrouve ce morceau en tête : les vecteurs sont lus et normalisés.
-        var teletravail = index.Search(new double[64], 1, _ => true);   // vecteur nul : aucun score, mais aucune erreur
-        Assert.Single(teletravail);
-        var root = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(AppConfig.ProjectRoot, "tests", "Assistant.Tests", "fixtures", "index-python-hashing.json")))!;
-        var vector = root["vectors"]![0]!.AsArray().Select(x => x!.GetValue<double>()).ToArray();
-        var hits = index.Search(vector, 1, _ => true);
-        Assert.Equal(root["chunks"]![0]!["id"]!.GetValue<string>(), hits[0].Chunk.Id);
-        Assert.InRange(hits[0].Score, 0.999, 1.001);
-    }
-
-    [Fact]
-    public void Same_corpus_same_model_same_splitter_gives_the_index_id_of_the_python_version()
-    {
-        // On indexe ici le même corpus Solvéo, avec le même découpage, qu'a indexé la version Python pour
-        // produire la fixture : l'identifiant et l'empreinte du corpus doivent être identiques.
-        var fixture = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(AppConfig.ProjectRoot, "tests", "Assistant.Tests", "fixtures", "index-python-hashing.json")))!["manifest"]!;
-        var manifest = new IndexCorpus(new MarkdownCorpus(Path.Combine(AppConfig.ProjectRoot, "corpus", "solveo")), new ParagraphSplitter(800, 120, true),
-                                       new FixedModelEmbedder("hashing-64-stem6", 64), new InMemoryVectorIndex(), new FixedClock()).Execute();
-        Assert.Equal(fixture["corpus_fingerprint"]!.GetValue<string>(), manifest.CorpusFingerprint);
-        Assert.Equal(fixture["index_id"]!.GetValue<string>(), manifest.IndexId);
-    }
-
-    [Fact]
-    public void Index_id_matches_the_python_formula()
-    {
-        // Même corpus, même modèle, même découpage → même identifiant que json.dumps(sort_keys=True) en Python.
-        var splitter = new Dictionary<string, object> { ["type"] = "paragraph", ["max_chars"] = 800, ["overlap_chars"] = 120, ["include_title"] = true };
-        var identity = $"[{Fingerprints.PythonJson("fp")}, {Fingerprints.PythonJson("m")}, {64}, {Fingerprints.PythonJson(splitter)}]";
-        Assert.Equal("[\"fp\", \"m\", 64, {\"include_title\": true, \"max_chars\": 800, \"overlap_chars\": 120, \"type\": \"paragraph\"}]", identity);
-    }
-
-    /// <summary>Un service qui annonce un modèle et une dimension donnés : seuls ceux-ci entrent dans l'identifiant.</summary>
-    private sealed class FixedModelEmbedder(string model, int dimension) : IEmbedder
-    {
-        public EmbeddingBatch EmbedDocuments(IReadOnlyList<string> texts) =>
-            new(model, dimension, texts.Select(_ => Enumerable.Range(0, dimension).Select(i => i == 0 ? 1.0 : 0.0).ToArray()).ToList());
-
-        public EmbeddingBatch EmbedQuery(string text) => EmbedDocuments(new[] { text });
-    }
 }
 
 public class PromptAndSnapshotFilesTests
@@ -297,10 +246,10 @@ public class PromptAndSnapshotFilesTests
     }
 
     [Fact]
-    public void Prompt_version_is_the_same_as_in_the_python_version()
+    public void Prompt_versions_of_the_repository_keep_their_value()
     {
-        // Valeurs calculées par prompt_files.py sur assistant/prompts/answer*.toml (même contenu) :
-        // l'empreinte porte sur le contenu canonique, pas sur le format du fichier.
+        // Valeurs fixées, celles que tracent les réponses et les instantanés (eval/resultats/README.md les cite) : la
+        // formule de l'empreinte ne change pas d'une version du code à l'autre.
         var prompts = new FilePromptRepository(Composition.PromptsDir);
         Assert.Equal("v1+085b70e7", prompts.Get("answer").Version);
         Assert.Equal("v2+1708960b", prompts.Get("answer-v2").Version);

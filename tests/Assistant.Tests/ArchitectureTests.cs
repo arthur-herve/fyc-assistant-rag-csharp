@@ -42,10 +42,8 @@ public class ArchitectureTests
     [Fact]
     public void The_core_does_not_touch_the_network()
     {
-        // Le réseau est un détail de l'infrastructure. JSON, lui, est permis au cœur : c'est la bibliothèque standard. Si
-        // l'identité de l'index passe par Fingerprints.PythonJson, c'est pour écrire à la main ce que System.Text.Json
-        // n'écrit pas comme json.dumps(sort_keys=True) : les séparateurs « , » et « : » suivis d'une espace, et les clés
-        // triées.
+        // Le réseau est un détail de l'infrastructure. JSON, lui, est permis au cœur : c'est la bibliothèque standard
+        // (System.Text.Json écrit l'identité de l'index, Fingerprints.IndexId).
         foreach (var core in new[] { typeof(AskQuestion), typeof(Document) })
         {
             Assert.DoesNotContain(References(core), n => n.StartsWith("System.Net", StringComparison.Ordinal));

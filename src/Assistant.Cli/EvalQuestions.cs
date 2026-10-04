@@ -1,4 +1,4 @@
-// Jeux de questions d'évaluation (eval/questions*.json), partagés avec la version Python.
+// Jeux de questions d'évaluation (eval/questions*.json).
 //
 // Une question dit ce qu'on attend d'elle : les documents qui devraient répondre, des
 // mots-clés grossiers, si elle est répondable, et les documents que l'utilisateur n'a

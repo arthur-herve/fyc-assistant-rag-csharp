@@ -1,6 +1,6 @@
 // Adaptateur : découpage des documents en morceaux. Les paramètres de découpage
 // changent les réponses (principe CACE, séquence 3.2) : ils sont donc enregistrés
-// dans le manifeste de l'index. Même algorithme que la version Python.
+// dans le manifeste de l'index.
 //
 // MaxChars borne le texte du morceau, en unités UTF-16 (string.Length : un emoji en compte deux) ; avec
 // IncludeTitle, le titre du document s'y ajoute (il aide la recherche) : un morceau peut donc dépasser MaxChars

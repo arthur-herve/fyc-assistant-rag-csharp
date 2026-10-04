@@ -64,7 +64,7 @@ public static class Messages
 
 public static class StatusNames
 {
-    /// <summary>Le nom sérialisé d'un statut, identique à celui de la version Python.</summary>
+    /// <summary>Le nom sérialisé d'un statut.</summary>
     public static string Of(AnswerStatus status) => status switch
     {
         AnswerStatus.Answered => "answered",

@@ -7,7 +7,6 @@
 //     ---
 //     Texte du document…
 //
-// Même format que la version Python : les deux applications partagent les corpus.
 // `groupes` est obligatoire (« tous » pour un document public) : un droit d'accès oublié ou
 // mal écrit est une erreur, jamais un document rendu public en silence.
 

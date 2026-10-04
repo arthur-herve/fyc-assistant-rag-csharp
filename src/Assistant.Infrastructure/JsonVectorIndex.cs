@@ -1,9 +1,7 @@
 // Adaptateurs : index vectoriel en mémoire et index persisté en JSON.
 // Volontairement simple (quelques milliers de morceaux) : la recherche est une
 // similarité cosinus exhaustive. Une vraie base vectorielle se brancherait derrière
-// le même port. Le format JSON est celui de la version Python : un index construit
-// par l'une se lit par l'autre — c'est le modèle d'embeddings qui doit correspondre,
-// pas le langage de l'application.
+// le même port.
 
 using System.Text.Json;
 using System.Text.Json.Nodes;

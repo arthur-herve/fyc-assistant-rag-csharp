@@ -62,4 +62,4 @@ oui ; sans conséquence, non.
 
 **Prompt v2 (S3.3).** Même index, même générateur : réponses de 357 à 41 caractères en moyenne,
 74 % de dérive, 2 changements de statut, et la version tracée passe de `v1+085b70e7` à
-`v2+1708960b` — identique à ce que trace la version Python pour les mêmes fichiers.
+`v2+1708960b`.

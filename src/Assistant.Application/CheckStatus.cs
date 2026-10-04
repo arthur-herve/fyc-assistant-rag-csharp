@@ -85,6 +85,13 @@ public sealed class CheckStatus
                 issues.Add($"le service IA sert « {model} » ({dimension} dim.) mais l'index a été construit "
                            + $"avec « {manifest.EmbeddingModel} » ({manifest.Dimension} dim.) : réindexer");
             }
+            // Rien d'autre n'a changé, mais l'identifiant n'est pas celui que l'indexation calculerait aujourd'hui (même
+            // fonction) : l'index vient d'une version du code qui le calculait autrement.
+            var expected = Fingerprints.IndexId(fingerprint, manifest.EmbeddingModel, manifest.Dimension, splitter);
+            if (issues.Count == 0 && expected != manifest.IndexId)
+            {
+                issues.Add($"identifiant d'index calculé autrement depuis l'indexation ({manifest.IndexId} → {expected}) : réindexer");
+            }
         }
         if (serviceError is not null)
         {

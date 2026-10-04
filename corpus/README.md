@@ -1,6 +1,6 @@
 # Corpus documentaires
 
-Trois corpus, choisis par `"corpus": {"directory": …}` dans `config/app*.json` (fichiers, licence et simulation des droits identiques à la version Python).
+Trois corpus, choisis par `"corpus": {"directory": …}` dans `config/app*.json`.
 
 | Dossier | Contenu | Usage |
 |---|---|---|

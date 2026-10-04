@@ -12,7 +12,6 @@ public static class Fingerprints
     /// <summary>
     /// Empreinte du corpus : change dès qu'un texte ou un droit d'accès change. Chaque champ est précédé de
     /// sa longueur en octets : sans séparateur, « a » + « bc » et « ab » + « c » donneraient la même empreinte.
-    /// Même formule que la version Python.
     /// </summary>
     public static string Corpus(IReadOnlyList<Document> documents)
     {
@@ -34,20 +33,17 @@ public static class Fingerprints
     }
 
     /// <summary>
-    /// Sérialisation à la manière de Python (`json.dumps(sort_keys=True)`) pour les valeurs simples : les mêmes octets
-    /// pour les valeurs du cours (textes en ASCII imprimable, entiers, booléens, dictionnaires de ces valeurs dont les
-    /// clés, écrites telles quelles, sont en ASCII imprimable sans « " » ni « \ ») ; un accent, un réel ou une liste
-    /// peuvent s'écrire autrement (json.dumps échappe « é » et écrit 1.0, ici « 1 »).
+    /// Identifiant d'un index : ce qui le définit (empreinte du corpus, modèle d'embeddings, dimension, découpage), écrit
+    /// en JSON par System.Text.Json, clés du découpage triées, puis haché (SHA-256, 12 premiers caractères hexadécimaux).
+    /// Les mêmes valeurs donnent le même identifiant, quel que soit l'ordre des clés ; une seule qui change le change.
     /// </summary>
-    public static string PythonJson(object? value) => value switch
+    public static string IndexId(string corpusFingerprint, string embeddingModel, int dimension,
+                                 IReadOnlyDictionary<string, object> splitter)
     {
-        null => "null",
-        bool b => b ? "true" : "false",
-        string s => JsonSerializer.Serialize(s, new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }),
-        IReadOnlyDictionary<string, object> d => "{" + string.Join(", ", d.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"\"{kv.Key}\": {PythonJson(kv.Value)}")) + "}",
-        IFormattable f => f.ToString(null, CultureInfo.InvariantCulture)!,
-        _ => JsonSerializer.Serialize(value),
-    };
+        var sortedSplitter = new SortedDictionary<string, object>(splitter.ToDictionary(kv => kv.Key, kv => kv.Value), StringComparer.Ordinal);
+        var identity = JsonSerializer.Serialize(new object[] { corpusFingerprint, embeddingModel, dimension, sortedSplitter });
+        return Sha256Hex(identity)[..12];
+    }
 
     private static void Feed(SHA256 sha, string text)
     {
@@ -113,11 +109,8 @@ public sealed class IndexCorpus
 
         var fingerprint = Fingerprints.Corpus(documents);
         var splitter = _splitter.Describe();
-        // Même sérialisation que `json.dumps([...], sort_keys=True)` en Python : un même corpus, un même
-        // modèle et un même découpage donnent le même identifiant d'index dans les deux versions.
-        var identity = $"[{Fingerprints.PythonJson(fingerprint)}, {Fingerprints.PythonJson(model!)}, {dimension}, {Fingerprints.PythonJson(splitter)}]";
         var manifest = new IndexManifest(
-            IndexId: Fingerprints.Sha256Hex(identity)[..12],
+            IndexId: Fingerprints.IndexId(fingerprint, model!, dimension, splitter),
             EmbeddingModel: model!,
             Dimension: dimension,
             CorpusFingerprint: fingerprint,

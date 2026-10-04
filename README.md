@@ -72,7 +72,7 @@ config/app.json                 hors-ligne, corpus Solvéo · app-ollama.json : 
 prompts/answer.json             prompt versionné (answer-v2.json : la variante de la séquence 3.3)
 corpus/                         solveo/ (9 documents fictifs) · service-public-reduit/ (50 fiches réelles, le corpus du cours) ·
                                 service-public/ (322 fiches, Licence Ouverte 2.0, pour les expériences à l'échelle)
-eval/questions*.json            jeux de questions partagés avec la version Python · eval/resultats/ : rapports du banc et des expériences
+eval/questions*.json            jeux de questions · eval/resultats/ : rapports du banc et des expériences
 docs/contrat-http.md            le contrat entre les deux programmes — la seule chose qu'ils partagent
 docs/adr/                       dix décisions d'architecture · docs/artefacts.md : les sept artefacts à versionner ensemble
 ```
@@ -246,17 +246,14 @@ python -m unittest discover -s tests_python -t .         # 56 tests du service I
 |---|---|---|
 | La règle de dépendance | vérifiée par un test qui analyse les `import` | **imposée par le compilateur** (références de projets) et vérifiée par un test |
 | Le service IA | même langage que l'application : on *pourrait* tricher en important `ai_service` | **autre langage** : tricher est impossible, seul le contrat HTTP existe |
-| L'index JSON | écrit et lu par Python | **le même fichier se lit des deux côtés** (`JsonVectorIndexTests`, sur une fixture produite par Python) : c'est le modèle d'embeddings qui doit correspondre, pas le langage |
+| L'index JSON | écrit et lu par Python | **écrit et lu en C#, avec les vecteurs du service Python** : c'est le modèle d'embeddings qui doit correspondre, pas le langage |
 | Les ports | `Protocol` (typage structurel) | `interface` (typage nominal) : un adaptateur *déclare* qu'il implémente le port |
 | Les décorateurs | classes qui imitent le port | classes qui implémentent l'interface : le compilateur garantit la substituabilité |
 
-Ce que les deux versions partagent : les corpus, les jeux de questions, les prompts (même texte, même version
-déclarée, même empreinte : elle porte sur le contenu, pas sur le format du fichier), la configuration (mêmes
-clés, JSON d'un côté, TOML de l'autre), le format des index et des instantanés (mêmes champs, dans le même ordre,
-sauf les clés des dictionnaires, découpage et configuration, triées en C# ; en JSON UTF-8, relus en JSON strict
-de part et d'autre), le corps des requêtes au service IA (mêmes champs, mêmes valeurs, en JSON UTF-8), le format
-des rapports du banc et des expériences, le service IA, et surtout **les mêmes frontières aux mêmes endroits**.
-Détail : ADR 0009.
+Ce que les deux versions partagent : les corpus, les jeux de questions, le texte des prompts, la configuration
+(mêmes clés, JSON d'un côté, TOML de l'autre), le corps des requêtes au service IA (mêmes champs, mêmes valeurs, en
+JSON UTF-8), le format des rapports du banc et des expériences, le service IA, et surtout **les mêmes frontières
+aux mêmes endroits**. Détail : ADR 0009.
 
 Et ce que ce dépôt ne fait pas, par choix : pas de service IA en C# (il effacerait l'argument), pas de base
 vectorielle (l'index JSON *est* la base vectorielle locale du cours, en un fichier — ADR 0007), pas de
@@ -278,16 +275,12 @@ réentraînement (un RAG n'entraîne rien : il se réindexe, `docs/artefacts.md`
 | 4.2 — versionner ensemble | `IndexManifest` · `AnswerTrace` · `status` (`CheckStatus`) · `index --if-stale` · `snapshot record/compare` · port `IClock` · `docs/artefacts.md` (sept artefacts) |
 | 4.3 — les limites | index JSON à recherche exhaustive, aucune base vectorielle, aucun paquet tiers (ADR 0007) ; quatre projets .NET et un service Python pour une ligne de commande : est-ce trop ? |
 | 5.1 / 5.2 — le cas pratique | `cas-pratique/` : programme de départ mal structuré (`depart/Program.cs`), énoncé, grille d'évaluation, corrigé de référence (ce dépôt) |
-| 5.3 — la réponse | la frontière est le contrat, pas le langage : même `index_id` et instantanés comparables entre C# et Python (ADR 0009) |
+| 5.3 — la réponse | la frontière est le contrat, pas le langage : l'application C# ne parle au service IA en Python que par le contrat HTTP (`docs/contrat-http.md`, ADR 0009) |
 
 ## Limites connues
 
 - Le dépôt de départ de l'exercice S4.1 (branche sans le décorateur) attend le découpage du cours en étiquettes Git.
 - Les temps sans carte graphique ne sont pas mesurés (voir `docs/installation.md`).
-- Vérifié le 21/09/2026 : pour le corpus Solvéo et le moteur `hashing`, les deux versions produisent le
-  **même identifiant d'index** (`d5276d0355c9`) et la **même `prompt_version`** (`v1+085b70e7`) ; un
-  instantané C# comparé à un instantané Python enregistré par la version courante des deux dépôts donne 0 % de
-  dérive et aucune différence de configuration.
 - L'API HTTP traite les requêtes une à la fois : une génération longue retarde `/health`, et un client qui annonce
   un corps sans l'envoyer bloque toute l'API (environ 2 minutes sous Windows, où http.sys finit par couper la
   connexion ; sans limite sous Linux). Suffisant pour le cours, à savoir pour un déploiement.

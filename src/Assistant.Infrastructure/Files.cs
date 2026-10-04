@@ -14,8 +14,7 @@ namespace Assistant.Infrastructure;
 /// version déclarée et une empreinte du contenu : modifier un prompt sans changer
 /// sa version reste détectable dans les traces.
 /// L'empreinte porte sur le contenu canonique (version, system, user), pas sur le
-/// fichier : un même prompt en JSON ici et en TOML dans la version Python porte la
-/// même version, et les instantanés des deux versions se comparent sans écart.
+/// fichier : un commentaire (clé « _… ») ou une autre mise en forme ne la change pas.
 /// </summary>
 public sealed class FilePromptRepository : IPromptRepository
 {
@@ -63,13 +62,12 @@ public sealed class FilePromptRepository : IPromptRepository
     /// <summary>
     /// Empreinte canonique d'un prompt : SHA-256 de « version, system, user » séparés par
     /// des sauts de ligne (fins de ligne normalisées), 8 premiers caractères hexadécimaux.
-    /// Même formule que <c>prompt_files.py</c> dans la version Python.
     /// </summary>
     public static string Fingerprint(string version, string system, string user) =>
         Fingerprints.Sha256Hex($"{version}\n{system}\n{user}".Replace("\r\n", "\n"))[..8];
 }
 
-/// <summary>Instantanés conservés en fichiers JSON lisibles, un par nom. Même format que la version Python.</summary>
+/// <summary>Instantanés conservés en fichiers JSON lisibles, un par nom.</summary>
 public sealed class JsonSnapshotStore : ISnapshotStore
 {
     private static readonly JsonSerializerOptions Options = new()

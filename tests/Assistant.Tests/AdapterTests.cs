@@ -203,8 +203,7 @@ public class SnapshotFileTests
 }
 
 /// <summary>
-/// L'index se lit strictement (JsonText) ; un index construit par la version Python se lit ici, et inversement. Écrit
-/// ici par System.Text.Json, il se relit à l'identique.
+/// L'index se lit strictement (JsonText). Écrit par System.Text.Json, il se relit à l'identique.
 /// </summary>
 public class IndexFileTests
 {
@@ -413,7 +412,7 @@ public class CorpusFileTests
     [InlineData("\u001d")]
     [InlineData("\u001e")]
     public void Only_lf_and_crlf_end_a_line_the_rest_stays_in_the_text(string separator) =>
-        // En Python, str.splitlines() en fait des sauts de ligne : deux textes, deux index_id.
+        // Le texte lu est celui qu'on indexe et dont on prend l'empreinte : aucun autre séparateur n'y devient un saut de ligne.
         Assert.Equal($"Un.{separator}Deux.", MarkdownCorpus.Parse($"---\nid: a\ngroupes: tous\n---\nUn.{separator}Deux.").Text);
 
     [Theory]
