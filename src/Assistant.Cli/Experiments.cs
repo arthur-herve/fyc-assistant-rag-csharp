@@ -235,7 +235,7 @@ public static class Experiments
         {
             throw new ArgumentException("--runs doit valoir au moins 2 : il faut deux passages pour mesurer une dérive");
         }
-        var questionsPath = args.Value("--questions") ?? "eval/questions.json";
+        var questionsPath = args.NonEmpty("--questions") ?? "eval/questions.json";
         var questions = EvalQuestions.Limit(EvalQuestions.Load(EvalQuestions.Resolve(questionsPath)), args.Int("--limit"));
         foreach (var q in questions)
         {

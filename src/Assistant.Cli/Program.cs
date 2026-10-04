@@ -286,8 +286,8 @@ public static class Program
         var maxChars = args.Int("--max-chars");
         var overlap = args.Int("--overlap-chars");
         var seed = args.Int("--seed");
-        var questions = EvalQuestions.Limit(EvalQuestions.Load(EvalQuestions.Resolve(args.Value("--questions") ?? "eval/questions.json")), limit);
-        var validation = args.Value("--validate-with") is { } path ? EvalQuestions.Load(EvalQuestions.Resolve(path)) : null;
+        var questions = EvalQuestions.Limit(EvalQuestions.Load(EvalQuestions.Resolve(args.NonEmpty("--questions") ?? "eval/questions.json")), limit);
+        var validation = args.NonEmpty("--validate-with") is { } path ? EvalQuestions.Load(EvalQuestions.Resolve(path)) : null;
         var options = new BenchmarkOptions(
             embeddings, generations, questions, validation,
             Runs: runs,
@@ -310,7 +310,7 @@ public static class Program
             {
                 // Les N premières questions, puis leurs utilisateurs : une question écartée par --limit
                 // n'a pas à nommer un utilisateur connu.
-                var questions = EvalQuestions.Limit(EvalQuestions.Load(EvalQuestions.Resolve(args.Value("--questions") ?? "eval/questions.json")),
+                var questions = EvalQuestions.Limit(EvalQuestions.Load(EvalQuestions.Resolve(args.NonEmpty("--questions") ?? "eval/questions.json")),
                                                     args.Int("--limit"));
                 var snapshot = container.RecordSnapshot.Execute(args.Positional[2], questions.Select(q => q.ToSnapshotQuestion(config)).ToList());
                 Console.WriteLine($"Instantané « {snapshot.Name} » : {snapshot.Entries.Count} réponses, enregistré dans {Display(config.SnapshotsDir)}");

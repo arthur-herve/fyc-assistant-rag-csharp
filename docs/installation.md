@@ -50,8 +50,8 @@ dotnet test --nologo                                   # l'application
 python -m unittest discover -s tests_python -t .       # le service IA
 ```
 
-Attendu : `Réussi! … total : 651` (`Passed! … Total: 651` avec un SDK en anglais ; hors de Windows, 1 test
-propre à http.sys est ignoré, `Passed: 650, Skipped: 1` en anglais ; le premier `dotnet test` compile tout : 30
+Attendu : `Réussi! … total : 655` (`Passed! … Total: 655` avec un SDK en anglais ; hors de Windows, 1 test
+propre à http.sys est ignoré, `Passed: 654, Skipped: 1` en anglais ; le premier `dotnet test` compile tout : 30
 à 60 secondes, ensuite une quinzaine de secondes) et `Ran 56 tests … OK`.
 Si les deux sont verts, votre poste est prêt pour les séquences 1 à 2.2.
 
@@ -75,8 +75,9 @@ dotnet run --project src/Assistant.Cli -- status
 
 Attendu : une réponse citée `[1]` avec la source `teletravail`, puis un verdict « à jour ». Les
 modèles `hashing` (embeddings hachés) et `extractive` (recopie de la phrase la plus proche) sont
-déterministes et sans réseau : ce sont ceux des tests. `dotnet run` recompile si besoin (une
-seconde) ; pour aller plus vite, `dotnet build` une fois puis `dotnet run … --no-build`.
+déterministes et sans réseau : ce sont ceux des tests. `dotnet run` vérifie la compilation à chaque
+lancement et prend quelques secondes, même sans rien à recompiler ; pour aller plus vite, `dotnet build`
+une fois puis `dotnet run … --no-build`.
 
 Sous Windows, si les accents du service IA s'affichent mal dans le terminal 1 :
 `set PYTHONIOENCODING=utf-8` (cmd) ou `$env:PYTHONIOENCODING = "utf-8"` (PowerShell).

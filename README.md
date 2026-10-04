@@ -16,6 +16,8 @@ applicatifs hébergent l'application, et les deux équipes n'écrivent pas forc�
 
 **Par où commencer** : [`docs/installation.md`](docs/installation.md) (20 minutes hors-ligne), puis le démarrage rapide ci-dessous, puis
 [`exemples/s1.3-transfert-naif/`](exemples/s1.3-transfert-naif/README.md) pour voir le transfert naïf marcher… et casser.
+Les exercices des séquences sont dans [`exercices/`](exercices/README.md) (S2.2, S3.1, S4.1), et le cas pratique de fin de
+cours dans [`cas-pratique/`](cas-pratique/README.md) (S5.1).
 
 ## Architecture
 
@@ -57,10 +59,12 @@ src/Assistant.Cli/              Program (index, ask, status, snapshot, benchmark
 src/Shared/                     TextFiles (lecture UTF-8 stricte), JsonText (lecture JSON stricte) : ni un projet ni une
                                 couche, un même source compilé dans Assistant.Infrastructure et Assistant.Cli, chacun sa
                                 copie interne
-tests/Assistant.Tests/          651 tests xUnit : domaine, cas d'usage avec doubles, adaptateurs, contrat HTTP contre un faux
+tests/Assistant.Tests/          655 tests xUnit : domaine, cas d'usage avec doubles, adaptateurs, contrat HTTP contre un faux
                                 service, API HTTP contre des doubles, règle de dépendance, test statistique (S3.1), calculs du banc,
                                 noms de tests cités par la documentation
 exemples/s1.3-transfert-naif/   le transfert naïf en moins de 300 lignes : port dans le domaine, substitution, puis panne silencieuse
+exercices/                      exercices de code : énoncés et corrigés (S2.2 avec son kit de départ autonome, S3.1, S4.1)
+cas-pratique/                   S5.1 : une version mal structurée du fil rouge à rendre maintenable, énoncé, grille, corrigé
 ai_service/                     service IA en Python, copié de la version Python (registre, backends Ollama / hors-ligne)
 tests_python/                   ses tests (bibliothèque standard)
 config/app.json                 hors-ligne, corpus Solvéo · app-ollama.json : vrais modèles, corpus réduit (50 fiches) ·
@@ -107,8 +111,9 @@ vérifié. Variables d'environnement : `ASSISTANT_CONFIG` (fichier de configurat
 (adresse du service IA, pour un déploiement sur deux machines ; elle remplace `base_url`, qui reste obligatoire et
 vérifiée dans le fichier), `ASSISTANT_LOG=INFO` ou `info` (journal des décorateurs, aussi avec `-v` ; toute autre
 valeur est ignorée ; ni la variable ni `-v` ne valent pour le banc, mais la commande `experience` lit la variable).
-`--config`, `--embedding-model`, `--generation-model` ou `--prompt` donnés vides (`""`) valent la configuration, et
-`--out ""` le dossier daté, comme absents.
+`--config`, `--embedding-model`, `--generation-model` ou `--prompt` donnés vides (`""`) valent la configuration,
+`--out ""` le dossier daté, `--questions ""` le jeu par défaut et `--validate-with ""` l'absence de validation, comme
+absents.
 
 La configuration (`config/*.json`) est en UTF-8 (une marque d'ordre des octets est acceptée ; sinon le message donne
 l'octet fautif et sa position) et en JSON strict : une clé en double, un `\ud800` isolé, `NaN`, un entier de plus
@@ -212,10 +217,26 @@ Les mesures de référence (corpus réduit, `bge-m3` + `llama3.2:3b`, RTX 3070 8
 [`eval/resultats/`](eval/resultats/README.md). Le temps est passé dans le service IA, pas dans l'application :
 le langage de celle-ci ne change rien aux ordres de grandeur.
 
+### Quels modèles pour quelle machine ?
+
+Ordres de grandeur, à confirmer avec le banc d'essai sur vos machines.
+
+| Machine | Embeddings | Génération | Temps de réponse attendu |
+|---|---|---|---|
+| 8 Go de RAM, sans GPU | `all-minilm`, `nomic` | `gemma3-1b`, `qwen3-1b7` | quelques secondes à ~20 s |
+| 16 Go de RAM, sans GPU | `nomic`, `mxbai`, `bge-m3` | `llama3-2-3b`, `qwen3-4b`, `gemma3-4b` | ~10 à 40 s |
+| GPU de 6 Go et plus | tous | `mistral-7b` et au-delà | quelques secondes |
+
+Les alias disponibles et leur description sont dans `config/ai_service.toml` (ou `GET http://127.0.0.1:8100/v1/models`).
+Ajouter un modèle = ajouter un bloc dans ce fichier, sans toucher au code.
+
+Les modèles `st-*` (sentence-transformers) sont optionnels : `pip install -r requirements-ai-optional.txt` sur la machine
+du service IA.
+
 ## Tests
 
 ```bash
-dotnet test                                              # 651 tests C#, sans IA ni réseau (dont un test statistique, S3.1)
+dotnet test                                              # 655 tests C#, sans IA ni réseau (dont un test statistique, S3.1)
 python -m unittest discover -s tests_python -t .         # 56 tests du service IA
 ```
 
@@ -248,14 +269,15 @@ réentraînement (un RAG n'entraîne rien : il se réindexe, `docs/artefacts.md`
 | 1.3 — le transfert naïf | `exemples/s1.3-transfert-naif/` : port **dans le domaine**, substitution du générateur (marche), substitution des embeddings (casse en silence) |
 | 1.3 / 2.3 — le modèle derrière un port | `src/Assistant.Application/Ports.cs` (`IEmbedder`, `IGenerator`, dans la couche application) · `src/Assistant.Infrastructure/HttpAiClient.cs` · ADR 0001, 0009 |
 | 2.1 — le cahier des charges | règles métier dans `src/Assistant.Domain/Rules.cs` (droits, citations, forme) · corpus du cours `corpus/service-public-reduit/` (50 fiches) |
-| 2.2 — un cœur testable sans IA | `tests/Assistant.Tests/UseCaseTests.cs` avec les doubles de `tests/Assistant.Tests/Fakes.cs` · `ArchitectureTests` |
+| 2.2 — un cœur testable sans IA | `tests/Assistant.Tests/UseCaseTests.cs` avec les doubles de `tests/Assistant.Tests/Fakes.cs` · `ArchitectureTests` · exercice : `exercices/s2.2-coeur-metier/` (kit de départ autonome, 20 tests fournis) |
 | 2.3 — substituer le générateur | `--generation-model` : même index, rien d'autre à changer · `experience changement-generateur` |
-| 3.1 — non-déterminisme | vérification déterministe des citations (`src/Assistant.Domain/Rules.cs`) · tentatives · `tests/Assistant.Tests/StatisticalTests.cs` (tolérance et faux échec calculés) · `benchmark` (stabilité, `--validate-with`) · `experience stabilite` |
+| 3.1 — non-déterminisme | vérification déterministe des citations (`src/Assistant.Domain/Rules.cs`) · tentatives · `tests/Assistant.Tests/StatisticalTests.cs` (tolérance et faux échec calculés) · `benchmark` (stabilité, `--validate-with`) · `experience stabilite` · exercice : `exercices/s3.1-evaluation-statistique/` |
 | 3.2 — les données sont du code | `IndexModelMismatchException` (`SearchPassages`) · découpage dans le manifeste · seuil par modèle **et par corpus** (`config/app-ollama*.json`) · `experience cace-decoupage`, `experience changement-embeddings` |
 | 3.3 — le prompt | `prompts/answer.json`, version + empreinte du contenu dans chaque trace · `--prompt answer-v2` · `experience prompt-v2` · ADR 0005 |
-| 4.1 — isoler l'incertitude | droits filtrés **avant** le prompt · `Composition.Decorate()` : cache, journal, tentatives, validation de forme (`src/Assistant.Application/Guards.cs`) · ADR 0006, 0008 |
+| 4.1 — isoler l'incertitude | droits filtrés **avant** le prompt · `Composition.Decorate()` : cache, journal, tentatives, validation de forme (`src/Assistant.Application/Guards.cs`) · ADR 0006, 0008 · exercice : `exercices/s4.1-decorateur-de-validation/` |
 | 4.2 — versionner ensemble | `IndexManifest` · `AnswerTrace` · `status` (`CheckStatus`) · `index --if-stale` · `snapshot record/compare` · port `IClock` · `docs/artefacts.md` (sept artefacts) |
 | 4.3 — les limites | index JSON à recherche exhaustive, aucune base vectorielle, aucun paquet tiers (ADR 0007) ; quatre projets .NET et un service Python pour une ligne de commande : est-ce trop ? |
+| 5.1 / 5.2 — le cas pratique | `cas-pratique/` : programme de départ mal structuré (`depart/Program.cs`), énoncé, grille d'évaluation, corrigé de référence (ce dépôt) |
 | 5.3 — la réponse | la frontière est le contrat, pas le langage : même `index_id` et instantanés comparables entre C# et Python (ADR 0009) |
 
 ## Limites connues
@@ -266,5 +288,6 @@ réentraînement (un RAG n'entraîne rien : il se réindexe, `docs/artefacts.md`
   **même identifiant d'index** (`d5276d0355c9`) et la **même `prompt_version`** (`v1+085b70e7`) ; un
   instantané C# comparé à un instantané Python enregistré par la version courante des deux dépôts donne 0 % de
   dérive et aucune différence de configuration.
-- L'API HTTP traite les requêtes une à la fois : une génération longue retarde `/health`. Suffisant pour le
-  cours, à savoir pour un déploiement.
+- L'API HTTP traite les requêtes une à la fois : une génération longue retarde `/health`, et un client qui annonce
+  un corps sans l'envoyer bloque toute l'API (environ 2 minutes sous Windows, où http.sys finit par couper la
+  connexion ; sans limite sous Linux). Suffisant pour le cours, à savoir pour un déploiement.

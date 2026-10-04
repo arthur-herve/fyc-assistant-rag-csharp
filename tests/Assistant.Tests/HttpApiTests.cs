@@ -138,6 +138,26 @@ public sealed class HttpApiTests : IDisposable
                      (latin1.StatusCode, Code(JsonSerializer.Deserialize<JsonElement>(await latin1.Content.ReadAsStringAsync()))));
     }
 
+    // Le corps est du JSON en UTF-8 : la marque d'ordre des octets UTF-8 est acceptée ; un autre encodage, même annoncé
+    // par sa propre marque (UTF-16, UTF-32), est refusé comme le latin-1, avec la position de l'octet fautif.
+    [Theory]
+    [InlineData("utf-8", HttpStatusCode.OK, null)]
+    [InlineData("utf-16", HttpStatusCode.BadRequest, "pas en UTF-8 (octet 0xff à la position 0)")]
+    [InlineData("utf-32", HttpStatusCode.BadRequest, "pas en UTF-8 (octet 0xff à la position 0)")]
+    public async Task A_body_is_utf8_its_byte_order_mark_accepted_other_encodings_refused(string name, HttpStatusCode expected, string? message)
+    {
+        Post("/v1/index", "");
+        var encoding = Encoding.GetEncoding(name);
+        var bytes = encoding.GetPreamble().Concat(encoding.GetBytes(Question)).ToArray();
+        var response = await _client.PostAsync(_api.Url + "/v1/ask", new ByteArrayContent(bytes));
+        var body = JsonSerializer.Deserialize<JsonElement>(await response.Content.ReadAsStringAsync());
+        Assert.Equal(expected, response.StatusCode);
+        if (message is not null)
+        {
+            Assert.Equal(("invalid_json", message), (Code(body), body.GetProperty("error").GetProperty("message").GetString()));
+        }
+    }
+
     [Fact]
     public void A_separator_alone_is_a_question()
     {

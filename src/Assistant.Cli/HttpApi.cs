@@ -265,19 +265,27 @@ public sealed class HttpApi : IDisposable
                 ? $"corps de requête incomplet : {bytes.Length} octets reçus sur {request.ContentLength64} annoncés (Content-Length)"
                 : "envoi en morceaux mal formé ou interrompu (Transfer-Encoding: chunked)");
         }
-        bytes.Position = 0;
+        string text;
         try
         {
-            using var reader = new StreamReader(bytes, new UTF8Encoding(false, throwOnInvalidBytes: true));
-            var text = reader.ReadToEnd();
-            if (text.Length == 0)   // pas de corps ; des espaces seuls ne sont pas du JSON (400)
-            {
-                return new JsonObject();
-            }
+            // UTF-8 strict, comme les fichiers : la marque d'ordre des octets UTF-8 est acceptée ; tout autre encodage
+            // (latin-1, ou UTF-16 et UTF-32 même annoncés par leur marque) est refusé, avec l'octet fautif.
+            text = TextFiles.DecodeUtf8(bytes.ToArray());
+        }
+        catch (FormatException error)
+        {
+            throw new InvalidRequestException("invalid_json", error.Message);
+        }
+        if (text.Length == 0)   // pas de corps ; des espaces seuls ne sont pas du JSON (400)
+        {
+            return new JsonObject();
+        }
+        try
+        {
             CheckJson(text);
             return JsonNode.Parse(text) as JsonObject ?? throw new InvalidRequestException("invalid_json", "le corps doit être un objet JSON");
         }
-        catch (Exception error) when (error is JsonException or DecoderFallbackException)
+        catch (JsonException error)
         {
             throw new InvalidRequestException("invalid_json", error.Message);
         }

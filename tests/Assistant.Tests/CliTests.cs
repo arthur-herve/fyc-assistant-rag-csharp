@@ -557,6 +557,25 @@ public sealed class CliTests : IDisposable
     }
 
     [Fact]
+    public void An_empty_questions_or_validation_file_is_no_value()
+    {
+        // La même règle pour les jeux de questions : --questions "" vaut le jeu par défaut (eval/questions.json, depuis la
+        // racine du projet), --validate-with "" l'absence de validation. Ils étaient pris pour un chemin, avec un message
+        // anglais (« The value cannot be an empty string »).
+        using var ai = new FakeAiService();
+        var config = WriteConfig(ai.Url);
+        Assert.Equal(0, Run("index", "--config", config).Code);
+        var (code, output, errors) = Run("snapshot", "record", "vide", "--questions", "", "--limit", "1", "--config", config);
+        Assert.True(code == 0, errors);
+        Assert.StartsWith("Instantané « vide » : 1 réponses", output);
+        var outDir = Path.Combine(_dir, "banc");
+        (code, output, errors) = Run("benchmark", "--runs", "1", "--questions", WriteQuestions(), "--validate-with", "", "--out", outDir,
+                                     "--config", config);
+        Assert.True(code == 0, errors);
+        Assert.EndsWith($"\nRapport : {Path.Combine(outDir, "rapport.md").Replace('\\', '/')}\n", output);
+    }
+
+    [Fact]
     public void An_unreachable_ai_service_stops_the_benchmark_and_the_experiments_before_any_folder()
     {
         // Banc et expériences : « Erreur : », le message « injoignable », code 1, avant tout dossier.
