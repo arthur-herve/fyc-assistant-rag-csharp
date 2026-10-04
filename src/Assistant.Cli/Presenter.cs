@@ -21,7 +21,11 @@ public static class Presenter
 
     /// <summary>Le découpage (valeurs typées) en JSON : la couche interface n'a pas besoin de l'infrastructure pour cela.</summary>
     public static JsonObject Splitter(IReadOnlyDictionary<string, object> splitter) =>
-        JsonSerializer.SerializeToNode(splitter, Json)!.AsObject();
+        JsonSerializer.SerializeToNode(splitter)!.AsObject();
+
+    // Clés du découpage triées : la même sortie, quel que soit l'ordre des clés dans le fichier d'index.
+    private static JsonObject SortedSplitter(IReadOnlyDictionary<string, object> splitter) =>
+        Splitter(new SortedDictionary<string, object>(splitter.ToDictionary(kv => kv.Key, kv => kv.Value), StringComparer.Ordinal));
 
     public static JsonObject ManifestToJson(IndexManifest m) => new()
     {
@@ -29,7 +33,7 @@ public static class Presenter
         ["embedding_model"] = m.EmbeddingModel,
         ["dimension"] = m.Dimension,
         ["corpus_fingerprint"] = m.CorpusFingerprint,
-        ["splitter"] = Splitter(m.Splitter),
+        ["splitter"] = SortedSplitter(m.Splitter),
         ["document_count"] = m.DocumentCount,
         ["chunk_count"] = m.ChunkCount,
         ["created_at"] = m.CreatedAt,
@@ -65,6 +69,10 @@ public static class Presenter
         };
     }
 
+    /// <summary>
+    /// Le JSON affiché par index, ask --json et status --json, et le corps des réponses de l'API HTTP : indenté,
+    /// accents tels quels.
+    /// </summary>
     public static string ToJson(JsonNode node) => node.ToJsonString(Json);
 
     public static string AnswerToText(Answer answer, bool verbose = false)
@@ -92,7 +100,8 @@ public static class Presenter
             }
             for (var i = 0; i < t.RawOutputs.Count; i++)
             {
-                lines.AppendLine($"  sortie brute {i + 1} : \"{t.RawOutputs[i]}\"");
+                // Une chaîne JSON : entre guillemets, sauts de ligne échappés, une sortie par ligne.
+                lines.AppendLine($"  sortie brute {i + 1} : {JsonSerializer.Serialize(t.RawOutputs[i], Json)}");
             }
         }
         return lines.ToString().TrimEnd();
@@ -105,7 +114,7 @@ public static class Presenter
         ["issues"] = new JsonArray(r.Issues.Select(i => (JsonNode)i).ToArray()),
         ["index"] = r.Index is null ? null : ManifestToJson(r.Index),
         ["corpus"] = new JsonObject { ["documents"] = r.CorpusDocuments, ["fingerprint"] = r.CorpusFingerprint },
-        ["splitter"] = Splitter(r.Splitter),
+        ["splitter"] = SortedSplitter(r.Splitter),
         ["ai_service"] = new JsonObject { ["embedding_model"] = r.EmbeddingModel, ["dimension"] = r.EmbeddingDimension, ["error"] = r.AiServiceError },
         ["prompt_version"] = r.PromptVersion,
     };
@@ -146,27 +155,36 @@ public static class Presenter
         return lines.ToString().TrimEnd();
     }
 
-    public static string ComparisonToText(SnapshotComparison c, bool showChanges = true)
+    /// <summary>La comparaison pour la console : <see cref="ComparisonLines"/>, avec les fins de ligne du système.</summary>
+    public static string ComparisonToText(SnapshotComparison c, bool showChanges = true) =>
+        string.Join(Environment.NewLine, ComparisonLines(c, showChanges));
+
+    /// <summary>
+    /// Les lignes de la comparaison : un rapport les écrit avec des « \n », sous Windows aussi, et un texte de réponse
+    /// y reste tel quel.
+    /// </summary>
+    public static List<string> ComparisonLines(SnapshotComparison c, bool showChanges = true)
     {
-        var lines = new StringBuilder();
-        lines.AppendLine($"Comparaison : {c.Baseline} → {c.Candidate}").AppendLine();
-        lines.AppendLine("Différences de configuration");
+        var lines = new List<string> { $"Comparaison : {c.Baseline} → {c.Candidate}", "", "Différences de configuration" };
         if (c.ConfigurationDifferences.Count > 0)
         {
             foreach (var d in c.ConfigurationDifferences)
             {
-                lines.AppendLine($"  - {d.Key} : {SnapshotComparer.Canonical(d.Before)} → {SnapshotComparer.Canonical(d.After)}");
+                lines.Add($"  - {d.Key} : {SnapshotComparer.Canonical(d.Before)} → {SnapshotComparer.Canonical(d.After)}");
             }
         }
         else
         {
-            lines.AppendLine("  (aucune : même configuration des deux côtés)");
+            lines.Add("  (aucune : même configuration des deux côtés)");
         }
-        lines.AppendLine().AppendLine("Dérive");
-        lines.AppendLine($"  questions comparées : {c.Compared}");
-        lines.AppendLine($"  réponses modifiées  : {c.Changed}");
-        lines.AppendLine($"  taux de dérive      : {(c.DriftRate is null ? "—" : c.DriftRate.Value.ToString("P0", CultureInfo.InvariantCulture))}").AppendLine();
-        lines.AppendLine("| Nature | Nombre | Lecture |").AppendLine("|---|---|---|");
+        lines.Add("");
+        lines.Add("Dérive");
+        lines.Add($"  questions comparées : {c.Compared}");
+        lines.Add($"  réponses modifiées  : {c.Changed}");
+        lines.Add($"  taux de dérive      : {(c.DriftRate is null ? "—" : c.DriftRate.Value.ToString("P0", CultureInfo.InvariantCulture))}");
+        lines.Add("");
+        lines.Add("| Nature | Nombre | Lecture |");
+        lines.Add("|---|---|---|");
         var readings = new (string Kind, string Reading)[]
         {
             (DifferenceKind.StatusChanged, "changement de comportement : refus devenu réponse, ou l'inverse"),
@@ -177,24 +195,36 @@ public static class Presenter
         };
         foreach (var (kind, reading) in readings)
         {
-            lines.AppendLine($"| {kind} | {c.Count(kind)} | {reading} |");
+            lines.Add($"| {kind} | {c.Count(kind)} | {reading} |");
         }
         if (showChanges)
         {
             var changes = c.Differences.Where(d => d.Kind != DifferenceKind.Identical && d.Kind != DifferenceKind.Missing).ToList();
             if (changes.Count > 0)
             {
-                lines.AppendLine();
+                lines.Add("");
                 foreach (var d in changes)
                 {
-                    lines.AppendLine($"{d.QuestionId} [{d.Kind}]");
-                    lines.AppendLine($"  avant : {d.Before!.Status} [{string.Join(", ", d.Before.CitedDocuments)}] « {Head(d.Before.Text)} »");
-                    lines.AppendLine($"  après : {d.After!.Status} [{string.Join(", ", d.After.CitedDocuments)}] « {Head(d.After.Text)} »");
+                    lines.Add($"{d.QuestionId} [{d.Kind}]");
+                    lines.Add($"  avant : {d.Before!.Status} [{string.Join(", ", d.Before.CitedDocuments)}] « {Head(d.Before.Text)} »");
+                    lines.Add($"  après : {d.After!.Status} [{string.Join(", ", d.After.CitedDocuments)}] « {Head(d.After.Text)} »");
                 }
             }
         }
-        return lines.ToString().TrimEnd();
+        return lines;
     }
 
-    private static string Head(string text) => text.Length <= 90 ? text : text[..90];
+    /// <summary>
+    /// Les 90 premiers caractères Unicode (points de code), et non 90 unités UTF-16 : un emoji compte pour un et n'est
+    /// jamais coupé en deux (sa moitié s'écrivait « � ») ; une moitié de paire isolée compte pour un et reste telle quelle.
+    /// </summary>
+    private static string Head(string text)
+    {
+        var end = 0;
+        for (var count = 0; count < 90 && end < text.Length; count++)
+        {
+            end += char.IsSurrogatePair(text, end) ? 2 : 1;
+        }
+        return text[..end];
+    }
 }

@@ -22,6 +22,9 @@ Ajouter une vérification **déterministe** de la forme de la sortie, **sans mod
 1. Écrire la règle dans le domaine : `src/Assistant.Domain/Rules.cs`, classe statique
    `OutputRules` avec `Check(string text, int maxChars) → OutputCheck`, qui signale une réponse
    vide, trop longue, dans une autre langue que le français, ou qui contient un raisonnement déversé.
+   La longueur se compte en caractères Unicode (points de code, `EnumerateRunes()`), comme `len()`
+   dans la version Python : un emoji compte pour un (test
+   `The_length_is_counted_in_code_points_like_in_python`).
 2. Écrire un **décorateur** du port `IGenerator` : `src/Assistant.Application/Guards.cs`, classe
    `OutputValidatingGenerator(IGenerator inner, int maxChars) : IGenerator`. Il appelle le
    générateur enveloppé, vérifie sa sortie et lève `ModelOutputRejectedException` (à ajouter dans
@@ -65,7 +68,7 @@ Le corrigé est le code du dépôt :
 | 2 | `src/Assistant.Application/Errors.cs` | `ModelOutputRejectedException : AssistantApplicationException` avec `Model`, `Text`, `Problems` |
 | 3 | `src/Assistant.Application/AskQuestion.cs` | dans la boucle des tentatives : `catch (ModelOutputRejectedException rejected)` → `rawOutputs.Add("<rejetée : …> " + texte)`, `continue` |
 | 4 | `src/Assistant.Cli/Composition.cs` | `Decorate()` : `if (config.Decorator("validate_output", true)) generator = new OutputValidatingGenerator(generator, maxChars)` ; ordre : tentatives → journal → cache → validation → journal des générations |
-| 5 | `tests/Assistant.Tests/InfrastructureTests.cs` | `ArchitectureTests.Application_depends_only_on_the_domain`, `Adapters_are_assembled_only_by_the_composition_root` |
+| 5 | `tests/Assistant.Tests/ArchitectureTests.cs` | `ArchitectureTests.Application_depends_only_on_the_domain`, `Adapters_are_assembled_only_by_the_composition_root` |
 
 Réponses aux questions :
 

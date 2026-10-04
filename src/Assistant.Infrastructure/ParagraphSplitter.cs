@@ -2,8 +2,9 @@
 // changent les réponses (principe CACE, séquence 3.2) : ils sont donc enregistrés
 // dans le manifeste de l'index. Même algorithme que la version Python.
 //
-// MaxChars borne le texte du morceau ; avec IncludeTitle, le titre du document s'y ajoute
-// (il aide la recherche) : un morceau peut donc dépasser MaxChars de la longueur du titre.
+// MaxChars borne le texte du morceau, en unités UTF-16 (string.Length : un emoji en compte deux) ; avec
+// IncludeTitle, le titre du document s'y ajoute (il aide la recherche) : un morceau peut donc dépasser MaxChars
+// de la longueur du titre.
 
 using System.Text.RegularExpressions;
 using Assistant.Application;
@@ -21,13 +22,15 @@ public sealed class ParagraphSplitter : ITextSplitter
 
     public ParagraphSplitter(int maxChars = 800, int overlapChars = 120, bool includeTitle = true)
     {
+        // Sans nom de paramètre : .NET l'ajouterait au message (« … (Parameter 'maxChars') »), que l'utilisateur lit
+        // quand --max-chars ou --overlap-chars (banc, expériences) sort des bornes.
         if (maxChars < 100)
         {
-            throw new ArgumentException("max_chars doit valoir au moins 100", nameof(maxChars));
+            throw new ArgumentException("max_chars doit valoir au moins 100");
         }
         if (overlapChars < 0 || overlapChars >= maxChars / 2)
         {
-            throw new ArgumentException("overlap_chars doit être compris entre 0 et max_chars / 2", nameof(overlapChars));
+            throw new ArgumentException("overlap_chars doit être compris entre 0 et max_chars / 2");
         }
         MaxChars = maxChars;
         OverlapChars = overlapChars;
@@ -77,6 +80,8 @@ public sealed class ParagraphSplitter : ITextSplitter
             {
                 var cut = paragraph.LastIndexOf(' ', budget - 1, budget);
                 cut = cut > budget / 2 ? cut : budget;
+                // Jamais entre les deux moitiés d'une paire de substitution (un emoji) : la coupure passe avant lui.
+                cut = char.IsSurrogatePair(paragraph, cut - 1) ? cut - 1 : cut;
                 yield return paragraph[..cut].Trim();
                 paragraph = paragraph[cut..].Trim();
             }
@@ -93,7 +98,10 @@ public sealed class ParagraphSplitter : ITextSplitter
         {
             return "";
         }
-        var tail = text.Length <= OverlapChars ? text : text[^OverlapChars..];
+        var start = Math.Max(0, text.Length - OverlapChars);
+        // Même garde : un recouvrement qui commencerait par la seconde moitié d'un emoji commence après lui.
+        start = start > 0 && char.IsSurrogatePair(text, start - 1) ? start + 1 : start;
+        var tail = text[start..];
         var space = tail.IndexOf(' ');
         return space >= 0 && space < tail.Length - 1 ? tail[(space + 1)..] : tail;
     }

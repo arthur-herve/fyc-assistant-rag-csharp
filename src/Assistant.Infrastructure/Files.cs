@@ -1,4 +1,6 @@
-// Adaptateurs de fichiers : prompts versionnés, instantanés JSON, horloge système.
+// Adaptateurs de fichiers : prompts versionnés, instantanés JSON, horloge système. Lecture UTF-8 stricte
+// (TextFiles), JSON lu strictement (JsonText) : src/Shared, partagés avec le corpus, l'index, le client du
+// service IA et la ligne de commande.
 
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -27,21 +29,36 @@ public sealed class FilePromptRepository : IPromptRepository
     public PromptTemplate Get(string name)
     {
         var path = Path.Combine(_directory, name + ".json");
-        var text = File.ReadAllText(path);
         try
         {
-            var data = JsonNode.Parse(text)!.AsObject();
-            var version = data["version"]!.GetValue<string>();
-            var system = data["system"]!.GetValue<string>().Trim();
-            var user = data["user"]!.GetValue<string>().Trim();
+            var data = JsonText.Parse(TextFiles.ReadUtf8(path)) as JsonObject;
+            if (JsonFiles.Text(data, "version") is not { } version || JsonFiles.Text(data, "system") is not { } system
+                || JsonFiles.Text(data, "user") is not { } user)
+            {
+                // Les prompts sont édités à la main (docs/artefacts.md) : dire quoi corriger, et où.
+                throw new FormatException("il faut trois textes, version, system et user");
+            }
+            (system, user) = (system.Trim(), user.Trim());
             return new PromptTemplate(name, $"{version}+{Fingerprint(version, system, user)}", system, user);
+        }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // Fichier ou dossier absent : le nom, le dossier et les prompts connus, plutôt que « Could not find file … ».
+            throw new PromptNotFoundException(name, _directory, Names());
         }
         catch (Exception error) when (JsonFiles.IsMalformed(error))
         {
-            // Les prompts sont édités à la main (docs/artefacts.md) : dire quoi corriger, et où.
-            throw new FormatException($"prompt illisible ({path}) : il faut trois textes, version, system et user — {JsonFiles.Describe(error)}", error);
+            // Le fichier, puis ce qui ne va pas (syntaxe, encodage, champ manquant).
+            throw new FormatException($"prompt illisible ({path}) : {error.Message}", error);
         }
     }
+
+    /// <summary>Les noms des prompts du dossier, triés comme ceux des instantanés (<see cref="JsonSnapshotStore.Names"/>).</summary>
+    private IReadOnlyList<string> Names() =>
+        !Directory.Exists(_directory)
+            ? Array.Empty<string>()
+            : Directory.GetFiles(_directory, "*.json").Select(p => Path.GetFileNameWithoutExtension(p))
+                       .OrderBy(n => n, StringComparer.Ordinal).ToList();
 
     /// <summary>
     /// Empreinte canonique d'un prompt : SHA-256 de « version, system, user » séparés par
@@ -107,26 +124,43 @@ public sealed class JsonSnapshotStore : ISnapshotStore
         {
             throw new SnapshotNotFoundException(name, Names());
         }
-        var text = File.ReadAllText(path);
         try
         {
-            var root = JsonNode.Parse(text)!.AsObject();
-            var configuration = root["configuration"]?.AsObject()
-                .ToDictionary(kv => kv.Key, kv => JsonValues.ToObjectOrNull(kv.Value), StringComparer.Ordinal)
-                ?? new Dictionary<string, object?>();
-            // Les champs inconnus (instantané écrit par une version plus récente) sont ignorés.
-            var entries = root["entries"]!.AsArray().Select(e => new SnapshotEntry(
-                e!["question_id"]!.GetValue<string>(), e["user_id"]!.GetValue<string>(), e["question"]!.GetValue<string>(),
-                e["status"]!.GetValue<string>(),
-                e["cited_documents"]!.AsArray().Select(d => d!.GetValue<string>()).ToList(),
-                e["text"]!.GetValue<string>(), e["attempts"]?.GetValue<int>() ?? 0)).ToList();
-            return new Snapshot(root["name"]!.GetValue<string>(), root["created_at"]!.GetValue<string>(), configuration, entries);
+            // JSON strict, chaînes comprises ; puis types vérifiés champ par champ : le message nomme le champ en faute.
+            var root = JsonText.Parse(TextFiles.ReadUtf8(path), strings: true) as JsonObject
+                       ?? throw new FormatException("un objet JSON est attendu");
+            var configuration = !root.ContainsKey("configuration") ? new Dictionary<string, object?>()
+                : root["configuration"] is JsonObject values
+                    ? values.ToDictionary(kv => kv.Key, kv => JsonValues.ToObjectOrNull(kv.Value), StringComparer.Ordinal)
+                    : throw new FormatException("« configuration » doit être un objet");
+            var entries = root["entries"] as JsonArray ?? throw new FormatException("champ « entries » manquant ou qui n'est pas une liste");
+            return new Snapshot(Text(root, "name"), Text(root, "created_at"), configuration, entries.Select(Entry).ToList());
         }
         catch (Exception error) when (JsonFiles.IsMalformed(error))
         {
-            throw new FormatException($"instantané illisible ({path}) : {JsonFiles.Describe(error)}", error);
+            throw new FormatException($"instantané illisible ({path}) : {error.Message}", error);
         }
     }
+
+    /// <summary>
+    /// Une réponse relue, types vérifiés : « abc » n'est pas une liste de documents, null n'est pas un nombre
+    /// de tentatives. Les champs inconnus (instantané écrit par une version plus récente) sont ignorés.
+    /// </summary>
+    private static SnapshotEntry Entry(JsonNode? node)
+    {
+        var values = node as JsonObject ?? throw new FormatException("chaque réponse doit être un objet JSON");
+        var cited = values["cited_documents"] is JsonArray documents && documents.All(JsonFiles.IsText)
+            ? documents.Select(d => d!.GetValue<string>()).ToList()
+            : throw new FormatException("« cited_documents » doit être une liste de textes");
+        var attempts = !values.ContainsKey("attempts") ? 0
+            : values["attempts"] is JsonValue value && value.TryGetValue<int>(out var count) ? count
+            : throw new FormatException("« attempts » doit être un entier");
+        return new SnapshotEntry(Text(values, "question_id"), Text(values, "user_id"), Text(values, "question"),
+                                 Text(values, "status"), cited, Text(values, "text"), attempts);
+    }
+
+    private static string Text(JsonObject values, string key) =>
+        JsonFiles.Text(values, key) ?? throw new FormatException($"champ « {key} » manquant ou non textuel");
 
     public IReadOnlyList<string> Names() =>
         !Directory.Exists(_directory)
@@ -148,6 +182,12 @@ internal static class JsonFiles
     /// <summary>Le message d'une NullReferenceException ne dit rien d'utile : c'est un champ obligatoire absent.</summary>
     public static string Describe(Exception error) =>
         error is NullReferenceException ? "champ obligatoire manquant" : error.Message;
+
+    public static bool IsText(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out _);
+
+    /// <summary>Le champ texte <paramref name="key"/>, ou null s'il manque ou n'est pas un texte.</summary>
+    public static string? Text(JsonObject? values, string key) =>
+        values?[key] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 }
 
 public sealed class SystemClock : IClock

@@ -83,7 +83,7 @@ correction commentée (vidéo S5.2) parcourt le tableau suivant, défaut par dé
 | `PROMPT` constante, ni versionnée ni tracée | absence de traçabilité | `prompts/answer.json`, version + empreinte dans `AnswerTrace` ; ADR 0005 |
 | `EMBED_MODEL`, `GEN_MODEL`, `USERS`, `AI_URL` en champs statiques globaux, dont deux réassignés par `Main` ; `INDEX` global ; `Environment.Exit` dans la logique | absence de frontière | `Composition.cs` (seul endroit qui connaît tout), `AppConfig`, exceptions typées attrapées dans `Program.Main` |
 | `index.bin` sans manifeste : l'index ne sait pas de quoi il est dérivé | absence de traçabilité | `JsonVectorIndex` (JSON lisible + manifeste) ; `docs/artefacts.md` |
-| Corpus parsé, découpé, vectorisé, recherché et généré dans la même classe statique ; aucun test possible sans service IA ; `TreatWarningsAsErrors` et `Nullable` désactivés dans le `.csproj` | absence de frontière | ports `IDocumentSource`, `ITextSplitter`, `IEmbedder`, `IVectorIndex`, `IGenerator` ; doubles dans `tests/Assistant.Tests/Fakes.cs` ; 147 tests sans réseau ; `Directory.Build.props` |
+| Corpus parsé, découpé, vectorisé, recherché et généré dans la même classe statique ; aucun test possible sans service IA ; `TreatWarningsAsErrors` et `Nullable` désactivés dans le `.csproj` | absence de frontière | ports `IDocumentSource`, `ITextSplitter`, `IEmbedder`, `IVectorIndex`, `IGenerator` ; doubles dans `tests/Assistant.Tests/Fakes.cs` ; 651 tests sans réseau ; `Directory.Build.props` |
 
 Les trois demandes, après refonte : (1) changer d'embeddings = changer un alias dans la
 configuration, réindexer, et l'application refuse tant que ce n'est pas fait ; (2) la

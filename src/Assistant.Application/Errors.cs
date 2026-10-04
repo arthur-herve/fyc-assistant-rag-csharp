@@ -4,6 +4,8 @@ namespace Assistant.Application;
 public class AssistantApplicationException : Exception
 {
     public AssistantApplicationException(string message) : base(message) { }
+
+    public AssistantApplicationException(string message, Exception? inner) : base(message, inner) { }
 }
 
 public sealed class IndexNotBuiltException : AssistantApplicationException
@@ -17,11 +19,25 @@ public sealed class EmptyCorpusException : AssistantApplicationException
     public EmptyCorpusException() : base("Le corpus ne contient aucun texte à indexer.") { }
 }
 
-/// <summary>L'index a été reconstruit (par un autre processus) pendant la recherche, deux fois de suite.</summary>
+/// <summary>
+/// L'index a été reconstruit (par un autre processus) entre le contrôle du modèle et la recherche.
+/// Fait partie du contrat du port <see cref="IVectorIndex"/> : la recherche la lève au lieu de chercher
+/// dans un autre index que celui contrôlé. <see cref="SearchPassages"/> recommence une fois, puis la laisse passer.
+/// </summary>
 public sealed class IndexReplacedException : AssistantApplicationException
 {
     public IndexReplacedException()
         : base("L'index a été reconstruit pendant la recherche. Reposez la question.") { }
+}
+
+/// <summary>
+/// L'index n'a pas pu être écrit : fait partie du contrat du port <see cref="IVectorIndex"/>.
+/// L'index en service reste le précédent, en mémoire comme sur le disque.
+/// </summary>
+public sealed class IndexWriteException : AssistantApplicationException
+{
+    public IndexWriteException(string location, string detail, Exception? inner = null)
+        : base($"écriture impossible de l'index ({location}) : {detail}", inner) { }
 }
 
 /// <summary>
@@ -88,9 +104,23 @@ public sealed class InvalidSnapshotNameException : AssistantApplicationException
         : base($"nom d'instantané invalide : « {name} » (lettres, chiffres, . _ - ; 64 caractères au plus)") { }
 }
 
-/// <summary>Aucun instantané de ce nom : fait partie du contrat du port <see cref="ISnapshotStore"/>.</summary>
+/// <summary>
+/// Aucun instantané de ce nom : fait partie du contrat du port <see cref="ISnapshotStore"/>. Les noms connus sans
+/// crochets, « aucun » s'il n'y en a pas.
+/// </summary>
 public sealed class SnapshotNotFoundException : AssistantApplicationException
 {
     public SnapshotNotFoundException(string name, IReadOnlyList<string> known)
-        : base($"instantané introuvable : {name} (connus : [{string.Join(", ", known)}])") { }
+        : base($"instantané introuvable : {name} (connus : {(known.Count > 0 ? string.Join(", ", known) : "aucun")})") { }
+}
+
+/// <summary>
+/// Aucun prompt de ce nom : fait partie du contrat du port <see cref="IPromptRepository"/>. Le message nomme le prompt,
+/// l'endroit où il a été cherché et les prompts connus (« aucun » s'il n'y en a pas) : un nom mal tapé se corrige d'un
+/// coup d'œil.
+/// </summary>
+public sealed class PromptNotFoundException : AssistantApplicationException
+{
+    public PromptNotFoundException(string name, string location, IReadOnlyList<string> known)
+        : base($"prompt introuvable : {name} dans {location} (connus : {(known.Count > 0 ? string.Join(", ", known) : "aucun")})") { }
 }

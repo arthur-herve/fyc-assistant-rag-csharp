@@ -99,7 +99,6 @@ public sealed class CheckStatus
         "{" + string.Join(", ", splitter.OrderBy(kv => kv.Key, StringComparer.Ordinal)
                                        .Select(kv => $"{kv.Key}: {SnapshotComparer.Canonical(kv.Value)}")) + "}";
 
-    // Par valeur, comme l'égalité de dictionnaires de Python (800 et 800.0 sont le même découpage).
     private static bool SameSplitter(IReadOnlyDictionary<string, object> a, IReadOnlyDictionary<string, object> b) =>
-        SnapshotComparer.Canonical(a) == SnapshotComparer.Canonical(b);
+        Describe(a) == Describe(b);
 }

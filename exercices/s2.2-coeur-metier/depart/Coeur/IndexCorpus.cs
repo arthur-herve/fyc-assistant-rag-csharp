@@ -9,7 +9,11 @@ namespace Coeur;
 
 public static class Fingerprints
 {
-    /// <summary>Empreinte du corpus : change dès qu'un texte ou un droit d'accès change.</summary>
+    /// <summary>
+    /// Empreinte du corpus : change dès qu'un texte ou un droit d'accès change. Chaque champ est précédé de
+    /// sa longueur en octets : sans séparateur, « a » + « bc » et « ab » + « c » donneraient la même empreinte.
+    /// Même formule que la version Python.
+    /// </summary>
     public static string Corpus(IReadOnlyList<Document> documents)
     {
         using var sha = SHA256.Create();
@@ -29,7 +33,12 @@ public static class Fingerprints
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))).ToLowerInvariant();
     }
 
-    /// <summary>Sérialisation à la manière de Python (`json.dumps(sort_keys=True)`) pour les valeurs simples.</summary>
+    /// <summary>
+    /// Sérialisation à la manière de Python (`json.dumps(sort_keys=True)`) pour les valeurs simples : les mêmes octets
+    /// pour les valeurs du cours (textes en ASCII imprimable, entiers, booléens, dictionnaires de ces valeurs dont les
+    /// clés, écrites telles quelles, sont en ASCII imprimable sans « " » ni « \ ») ; un accent, un réel ou une liste
+    /// peuvent s'écrire autrement (json.dumps échappe « é » et écrit 1.0, ici « 1 »).
+    /// </summary>
     public static string PythonJson(object? value) => value switch
     {
         null => "null",
@@ -43,6 +52,8 @@ public static class Fingerprints
     private static void Feed(SHA256 sha, string text)
     {
         var bytes = Encoding.UTF8.GetBytes(text);
+        var length = Encoding.ASCII.GetBytes($"{bytes.Length.ToString(CultureInfo.InvariantCulture)}:");
+        sha.TransformBlock(length, 0, length.Length, null, 0);
         sha.TransformBlock(bytes, 0, bytes.Length, null, 0);
     }
 }

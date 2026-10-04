@@ -8,8 +8,6 @@
 //     assistant experience changement-generateur --other qwen3-4b
 //     assistant experience prompt-v2             [--other answer-v2]
 //     assistant experience stabilite             [--runs 3] [--seed 42]
-//
-// Mêmes sections de rapport que tools/experiences/ de la version Python : les deux se lisent côte à côte.
 
 using System.Diagnostics;
 using System.Globalization;
@@ -29,23 +27,48 @@ public sealed class Experiment
     private readonly Action<string> _log;
     private readonly Overrides _common;
 
-    public Experiment(string name, AppConfig config, IReadOnlyList<EvalQuestion> questions, string? outDir, string questionsPath, string configPath,
-                      Action<string> log, Overrides? common = null)
+    /// <summary>
+    /// Crée le dossier de sortie <paramref name="outDir"/>. Avec <paramref name="newOutDir"/> (le dossier par défaut, daté
+    /// à la seconde), jamais un dossier qui existe déjà : « -2 », « -3 »… (<see cref="AppConfig.CreateNewDir"/>) ; --out,
+    /// lui, peut exister.
+    /// </summary>
+    public Experiment(string name, AppConfig config, IReadOnlyList<EvalQuestion> questions, string outDir, string questionsPath, string configPath,
+                      Action<string> log, Overrides? common = null, bool newOutDir = false)
     {
         Name = name;
         Config = config;
         Questions = questions;
         _log = log;
         _common = common ?? new Overrides();
-        OutDir = outDir ?? Path.Combine(AppConfig.ProjectRoot, "eval", "resultats", $"exp-{name}-{DateTime.Now:yyyyMMdd-HHmmss}");
-        Directory.CreateDirectory(OutDir);
         if (questions.Count == 0)
         {
             throw new ArgumentException($"aucune question dans {questionsPath}");
         }
+        OutDir = newOutDir ? AppConfig.CreateNewDir(outDir) : outDir;
+        Directory.CreateDirectory(OutDir);
         Log($"# Expérience « {name} » — {DateTime.Now:yyyy-MM-dd HH:mm}");
         Log("");
-        Log($"Configuration `{configPath}` · {questions.Count} questions de `{questionsPath}` · corpus `{Path.GetFileName(config.CorpusDir.TrimEnd('/', '\\'))}`.");
+        // Les chemins tels qu'ils ont été donnés, avec des « / » : le même rapport sous Windows et Linux.
+        Log($"Configuration `{configPath.Replace('\\', '/')}` · {questions.Count} questions de `{questionsPath.Replace('\\', '/')}` · "
+            + $"corpus `{Path.GetFileName(config.CorpusDir.TrimEnd('/', '\\'))}`.");
+        Log("");
+        WarnIfDefaultThreshold(EmbeddingModel);
+    }
+
+    /// <summary>
+    /// Aucun seuil configuré pour cet alias : la valeur `default` s'applique, et on le dit (console et
+    /// rapport), comme la ligne de commande et le banc d'essai (ADR 0004).
+    /// </summary>
+    public void WarnIfDefaultThreshold(string embeddingModel)
+    {
+        if (Config.HasThresholdFor(embeddingModel))
+        {
+            return;
+        }
+        var message = $"Attention : aucun seuil de pertinence configuré pour « {embeddingModel} » : valeur `default` "
+                      + $"{Config.MinScoreFor(embeddingModel).ToString(CultureInfo.InvariantCulture)} (ADR 0004 : lancer le banc d'essai)";
+        Console.Error.WriteLine(message);
+        Log($"> {message}");
         Log("");
     }
 
@@ -72,26 +95,32 @@ public sealed class Experiment
         }, _log);
     }
 
+    /// <summary>Indexe le corpus ; en console, une ligne de progression, comme <see cref="Record"/>.</summary>
     public (Container Container, IndexManifest Manifest, double Seconds) Index(string indexName, Overrides? overrides = null)
     {
         var container = Build(indexName, overrides);
         var clock = Stopwatch.StartNew();
         var manifest = container.IndexCorpus.Execute();
-        return (container, manifest, clock.Elapsed.TotalSeconds);
+        var seconds = clock.Elapsed.TotalSeconds;
+        Console.WriteLine($"  index « {indexName} » : {manifest.ChunkCount} morceaux, {manifest.EmbeddingModel}, {manifest.Dimension} dim., "
+                          + $"{seconds.ToString("0.0", CultureInfo.InvariantCulture)} s");
+        return (container, manifest, seconds);
     }
 
     public (Snapshot Snapshot, double Seconds) Record(string snapshotName, Container container)
     {
         var clock = Stopwatch.StartNew();
         var snapshot = container.RecordSnapshot.Execute(snapshotName, Questions.Select(q => q.ToSnapshotQuestion(Config)).ToList());
-        return (snapshot, clock.Elapsed.TotalSeconds);
+        var seconds = clock.Elapsed.TotalSeconds;
+        Console.WriteLine($"  instantané « {snapshotName} » : {snapshot.Entries.Count} réponses en {seconds.ToString("0.0", CultureInfo.InvariantCulture)} s");
+        return (snapshot, seconds);
     }
 
     /// <summary>Noms des statuts dans les instantanés : ceux du domaine, pas des chaînes recopiées.</summary>
     public static readonly string Answered = StatusNames.Of(AnswerStatus.Answered),
         NoRelevantSource = StatusNames.Of(AnswerStatus.NoRelevantSource), Unsourced = StatusNames.Of(AnswerStatus.Unsourced);
 
-    /// <summary>Cinq mesures lues dans un instantané, à partir de ce que les questions attendent.</summary>
+    /// <summary>Six mesures lues dans un instantané, à partir de ce que les questions attendent.</summary>
     public Dictionary<string, object?> Stats(Snapshot snapshot)
     {
         var byId = Questions.ToDictionary(q => q.Id);
@@ -148,7 +177,11 @@ public sealed class Experiment
         Log($"## {title}");
         Log("");
         Log("```");
-        Log(Presenter.ComparisonToText(comparison));
+        // Ligne à ligne : le rapport s'écrit avec des « \n », même sous Windows (ComparisonToText y mettrait des « \r\n »).
+        foreach (var line in Presenter.ComparisonLines(comparison))
+        {
+            Log(line);
+        }
         Log("```");
         Log("");
     }
@@ -160,6 +193,7 @@ public sealed class Experiment
         return path;
     }
 
+    /// <summary>Une valeur du rapport : « — » pour null, un réel à deux décimales, toute autre valeur telle quelle.</summary>
     public static string Fmt(object? value) => value switch
     {
         null => "—",
@@ -188,7 +222,11 @@ public static class Experiments
         {
             throw new ArgumentException($"expérience inconnue : {name} (connues : {string.Join(", ", Names)})");
         }
-        // Tout est validé avant de créer le dossier de sortie : pas de dossier vide en cas de faute de frappe.
+        // Les options, toutes ici : la configuration est lue, et rien n'est encore fait. --other, --runs, les questions
+        // (--limit, utilisateurs), puis ce que l'expérience utilisera, monté sans rien calculer : un découpage hors
+        // bornes ou un prompt introuvable est dit avant l'indexation et l'instantané « avant ». Une faute de frappe ne
+        // coûte ni dossier, ni index, ni appel au service IA. Puis le service IA, qui doit servir l'alias --other avec
+        // le bon type ; le seuil `default` n'est annoncé qu'ensuite (Experiment).
         if (name is "changement-embeddings" or "changement-generateur" && args.Value("--other") is null)
         {
             throw new ArgumentException($"{name} attend --other <alias du second modèle>");
@@ -197,22 +235,36 @@ public static class Experiments
         {
             throw new ArgumentException("--runs doit valoir au moins 2 : il faut deux passages pour mesurer une dérive");
         }
-        foreach (var option in new[] { "--limit", "--max-chars", "--overlap-chars", "--seed" })
-        {
-            args.Int(option);
-        }
         var questionsPath = args.Value("--questions") ?? "eval/questions.json";
-        var questions = EvalQuestions.Load(EvalQuestions.Resolve(questionsPath));
-        if (args.Int("--limit") is > 0 and var n)
+        var questions = EvalQuestions.Limit(EvalQuestions.Load(EvalQuestions.Resolve(questionsPath)), args.Int("--limit"));
+        foreach (var q in questions)
         {
-            questions = questions.Take(n).ToList();
+            config.User(q.UserName);   // utilisateur inconnu : UnknownUserException avant tout travail
         }
-        if (questions.Count == 0)
+        Check(config, common);
+        if (name == "cace-decoupage")
         {
-            throw new ArgumentException($"aucune question dans {questionsPath}");
+            var (maxChars, overlap) = CaceSplitter(args);
+            Check(config, common with { SplitterMaxChars = maxChars, SplitterOverlapChars = overlap });
+        }
+        if (name == "prompt-v2")
+        {
+            Check(config, common with { PromptName = OtherPrompt(args) });
         }
         AiService.Require(config.AiBaseUrl);
-        var exp = new Experiment(name, config, questions, args.Value("--out"), questionsPath, configPath, log, common);
+        switch (name)
+        {
+            case "changement-embeddings":
+                AiService.RequireModel(config.AiBaseUrl, "embedding", args.Value("--other")!);
+                break;
+            case "changement-generateur":
+                AiService.RequireModel(config.AiBaseUrl, "generation", args.Value("--other")!);
+                break;
+        }
+        // Sans --out : sous la racine du projet, et jamais un dossier qui existe déjà (newOutDir).
+        var outDir = args.NonEmpty("--out");
+        var exp = new Experiment(name, config, questions, outDir ?? AppConfig.ResultsDir($"exp-{name}-", DateTime.Now), questionsPath, configPath,
+                                 log, common, newOutDir: outDir is null);
         switch (name)
         {
             case "cace-decoupage": CaceDecoupage(exp, args); break;
@@ -222,14 +274,34 @@ public static class Experiments
             case "stabilite": Stabilite(exp, args); break;
             default: throw new ArgumentException($"expérience inconnue : {name} (connues : {string.Join(", ", Names)})");
         }
-        Console.WriteLine($"Rapport : {exp.Write()}");
+        // Le rapport écrit, une ligne vide puis son chemin avec des « / » : le même chemin sous Windows et Linux. La
+        // ligne vide est un WriteLine, pas un « \n » dans la chaîne : la fin de ligne de la plateforme.
+        var report = exp.Write().Replace('\\', '/');
+        Console.WriteLine();
+        Console.WriteLine($"Rapport : {report}");
         return 0;
     }
 
+    /// <summary>
+    /// Monte la configuration que l'expérience utilisera, sans rien calculer : un découpage hors bornes (celui de
+    /// cace-decoupage) ou un prompt introuvable (celui de la configuration, ou le second de prompt-v2) est dit avant
+    /// l'indexation et l'instantané « avant ».
+    /// </summary>
+    private static void Check(AppConfig config, Overrides overrides)
+    {
+        var container = Composition.Build(config, overrides);
+        container.Prompts.Get(container.Settings.PromptName);
+    }
+
+    /// <summary>Le découpage « après » de cace-decoupage : --max-chars (défaut 300) et --overlap-chars (défaut 50).</summary>
+    private static (int MaxChars, int Overlap) CaceSplitter(Args args) => (args.Int("--max-chars") ?? 300, args.Int("--overlap-chars") ?? 50);
+
+    /// <summary>Le second prompt de prompt-v2 : --other (défaut answer-v2).</summary>
+    private static string OtherPrompt(Args args) => args.Value("--other") ?? "answer-v2";
+
     private static void CaceDecoupage(Experiment exp, Args args)
     {
-        var maxChars = args.Int("--max-chars") ?? 300;
-        var overlap = args.Int("--overlap-chars") ?? 50;
+        var (maxChars, overlap) = CaceSplitter(args);
         var before = (exp.Config.SplitterMaxChars, exp.Config.SplitterOverlapChars);
 
         Console.WriteLine($"Avant : {before.SplitterMaxChars} / {before.SplitterOverlapChars}");
@@ -266,6 +338,7 @@ public static class Experiments
     private static void ChangementEmbeddings(Experiment exp, Args args)
     {
         var other = args.Value("--other")!;
+        exp.WarnIfDefaultThreshold(other);
         var first = exp.EmbeddingModel;
 
         Console.WriteLine($"Avant : {first}");
@@ -369,7 +442,7 @@ public static class Experiments
 
     private static void PromptV2(Experiment exp, Args args)
     {
-        var other = args.Value("--other") ?? "answer-v2";
+        var other = OtherPrompt(args);
         var first = exp.PromptName;
 
         var (containerA, manifest, _) = exp.Index("partage");
@@ -378,12 +451,6 @@ public static class Experiments
         Console.WriteLine($"Après : prompt {other}");
         var containerB = exp.Build("partage", new Overrides(PromptName: other));
         var (snapshotB, _) = exp.Record("apres", containerB);
-
-        static object? MeanLength(Snapshot snapshot)
-        {
-            var answered = snapshot.Entries.Where(e => e.Status == Experiment.Answered).Select(e => e.Text.Length).ToList();
-            return answered.Count == 0 ? null : (int)Math.Round(answered.Average());
-        }
 
         var comparison = SnapshotComparer.Compare(snapshotA, snapshotB);
         exp.Log($"Une seule chose change : le prompt, `{first}` → `{other}` (versions `{snapshotA.Configuration.GetValueOrDefault("prompt_version")}` → "
@@ -410,6 +477,17 @@ public static class Experiments
         exp.Log("- Avec `extractive` (hors-ligne), 0 % de dérive : ce générateur ignore les consignes. Un modèle qui ignore le prompt produit exactement cette signature.");
     }
 
+    /// <summary>
+    /// La longueur moyenne des réponses données, en caractères Unicode (points de code), et non en unités UTF-16
+    /// (string.Length) : un emoji compte pour un. Arrondie à l'entier (Math.Round : à égalité, vers le pair) ; null sans
+    /// réponse donnée.
+    /// </summary>
+    public static int? MeanLength(Snapshot snapshot)
+    {
+        var answered = snapshot.Entries.Where(e => e.Status == Experiment.Answered).Select(e => e.Text.EnumerateRunes().Count()).ToList();
+        return answered.Count == 0 ? null : (int)Math.Round(answered.Average());
+    }
+
     private static void Stabilite(Experiment exp, Args args)
     {
         var runs = args.Int("--runs") ?? 3;
@@ -428,9 +506,9 @@ public static class Experiments
             .Select(i => ($"passage 1 → {i}", SnapshotComparer.Compare(snapshots[0], snapshots[i - 1]))).ToList();
         exp.Table(comparisons.Select(c => (c.Item1, (IReadOnlyDictionary<string, object?>)Experiment.DriftSummary(c.Item2))).ToList());
         var drifts = comparisons.Select(c => c.Item2.DriftRate).OfType<double>().ToList();
-        var meanDrift = drifts.Count == 0 ? (double?)null : Math.Round(drifts.Average(), 3);
+        var meanDrift = drifts.Count == 0 ? "—" : Math.Round(drifts.Average(), 3).ToString("0.###", CultureInfo.InvariantCulture);
         var statuses = comparisons.Sum(c => c.Item2.Count(DifferenceKind.StatusChanged));
-        exp.Log($"**Dérive moyenne à configuration constante : {(meanDrift is null ? "—" : meanDrift.Value.ToString("0.###", CultureInfo.InvariantCulture))}** "
+        exp.Log($"**Dérive moyenne à configuration constante : {meanDrift}** "
                 + $"({statuses} changement(s) de statut sur {comparisons.Count} comparaison(s)).");
         exp.Log("");
         exp.Log("## Indicateurs par passage");

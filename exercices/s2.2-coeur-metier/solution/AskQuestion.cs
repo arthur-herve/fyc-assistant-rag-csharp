@@ -14,7 +14,10 @@ namespace Coeur;
 
 public sealed record AskSettings(
     int TopK = 4,
-    // Attention : ce seuil n'a de sens que pour UN modèle d'embeddings et UN corpus donnés.
+    // Attention : ce seuil n'a de sens que pour UN modèle d'embeddings et UN corpus donnés. La
+    // composition fixe toujours celui que la configuration donne pour l'alias utilisé, ou `default` :
+    // la ligne de commande, le banc d'essai et les expériences le signalent alors (ADR 0004). 0,35 ne
+    // sert qu'aux tests.
     double MinScore = 0.35,
     int MaxAttempts = 2,
     double Temperature = 0.2,
@@ -44,6 +47,11 @@ public sealed class AskQuestion
 
     public AskSettings Settings => _settings;
 
+    /// <summary>
+    /// Numérote les passages pour les citations. Quand le découpage inclut déjà le titre dans le morceau,
+    /// le titre apparaît deux fois : redondance assumée (quelques mots), pour que les prompts restent ceux
+    /// des mesures de référence (eval/resultats).
+    /// </summary>
     public static string FormatPassages(IReadOnlyList<Passage> passages)
     {
         var blocks = new StringBuilder();

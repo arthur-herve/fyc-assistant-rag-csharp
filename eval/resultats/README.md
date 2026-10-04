@@ -15,6 +15,20 @@ versionnés (`.gitignore`), les rapports et les instantanés le sont.
 | `exp-changement-generateur-2026-09-12-reduit/` | `experience changement-generateur --other qwen3-4b --limit 12` | premier verdict : même index, autres réponses, autre latence |
 | `exp-prompt-v2-2026-09-12-reduit/` | `experience prompt-v2` | le prompt : configuration surveillée comme du métier |
 
+Ces rapports gardent leur forme d'origine ; ceux que produit aujourd'hui le dépôt ne s'y comparent
+pas ligne à ligne. Correspondance des intitulés :
+
+- « reformulations » (dérive des expériences) s'appelle « textes modifiés (à relire) », et la
+  comparaison d'instantanés ne lit plus un texte modifié comme « reformulation, la dérive la plus
+  bénigne » mais « à relire, le sens a pu changer (Oui devenu Non…) » : les « 26 reformulations »
+  citées plus bas sont des textes modifiés, à relire ;
+- « refus justes (hors corpus) » s'appelle « refus justes (sans réponse accessible) » : hors corpus
+  ou accès refusé (banc et expériences) ;
+- les indicateurs des expériences ont une ligne de plus, « mots-clés (réponses données) » ;
+- au banc, « Latence médiane (ms) » devient « Latence médiane des réponses générées (ms) » : la
+  médiane et le p90 ne comptent plus les refus sans appel au modèle, quasi immédiats ; la latence
+  médiane citée plus bas suit l'ancien calcul.
+
 ## Lecture
 
 **Calibration.** `bge-m3` : hit@1 0,97, seuil suggéré 0,64 pour 0,65 configuré — conservé ;
@@ -49,10 +63,3 @@ oui ; sans conséquence, non.
 **Prompt v2 (S3.3).** Même index, même générateur : réponses de 357 à 41 caractères en moyenne,
 74 % de dérive, 2 changements de statut, et la version tracée passe de `v1+085b70e7` à
 `v2+1708960b` — identique à ce que trace la version Python pour les mêmes fichiers.
-
-## Comparaison avec la version Python
-
-Mêmes ordres de grandeur que `eval/resultats/` du dépôt Python sur le corpus complet (dérive de
-base ≈ 70 %, prompt v2 qui divise la longueur par 6 à 9 (338 → 52 en Python, 357 → 41 ici), qwen ×20 en latence, nomic moins bon que
-bge-m3 sur les refus). Le temps est passé dans le service IA : le langage de l'application ne
-change rien aux mesures, seul le corpus (50 contre 322 fiches) change les durées d'indexation.

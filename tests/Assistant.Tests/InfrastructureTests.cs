@@ -1,7 +1,6 @@
-// Adaptateurs, décorateurs, contrat HTTP (contre un faux service) et règle de dépendance.
+// Adaptateurs, décorateurs et contrat HTTP (contre un faux service). La règle de dépendance : ArchitectureTests.cs.
 
 using System.Net;
-using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -83,6 +82,39 @@ public class SplitterTests
         var describe = new ParagraphSplitter(300, 50).Describe();
         Assert.Equal(300, describe["max_chars"]);
         Assert.Equal("paragraph", describe["type"]);
+    }
+
+    [Fact]
+    public void The_splitter_turns_crlf_into_lf_and_keeps_a_lone_cr()
+    {
+        // Les lecteurs de corpus ramènent les fins de ligne à « \n », pas forcément un Document construit dans le
+        // code : le découpage le fait aussi. Un « \r » seul reste tel quel.
+        static IEnumerable<string> Texts(string text) =>
+            new ParagraphSplitter(100, 0, includeTitle: false).Split(Fakes.Doc("a", text)).Select(c => c.Text);
+
+        Assert.Equal(new[] { "Un.\nDeux.\n\nTrois.\rQuatre." }, Texts("Un.\r\nDeux.\r\n\r\nTrois.\rQuatre."));
+        // 40 lignes d'un caractère : 79 caractères avec « \n », sous la limite (98) ; 118 avec « \r\n ».
+        var lines = Enumerable.Repeat("x", 40).ToList();
+        Assert.Equal(new[] { string.Join("\n", lines) }, Texts(string.Join("\r\n", lines)));
+    }
+
+    [Fact]
+    public void An_emoji_at_a_boundary_is_never_cut_in_two()
+    {
+        // Les longueurs sont des string.Length : un emoji y compte pour deux unités UTF-16, une paire de substitution.
+        // À la limite d'un morceau, ou au début du recouvrement, la coupure passe avant ou après lui, jamais entre ses
+        // deux moitiés : coupé là, le texte ne serait plus de l'Unicode valide.
+        const string emoji = "\U0001F600";
+        static string[] Texts(string text, int overlap) =>
+            new ParagraphSplitter(100, overlap, includeTitle: false).Split(Fakes.Doc("a", text)).Select(c => c.Text).ToArray();
+
+        // Sans espace, un paragraphe de plus de 98 unités est coupé après la 98e : l'emoji occupe les 98e et 99e.
+        Assert.Equal(new[] { new string('x', 97), emoji + new string('y', 10) },
+                     Texts(new string('x', 97) + emoji + new string('y', 10), 0));
+        // Le recouvrement reprend les 20 dernières unités du morceau : la première est la seconde moitié de l'emoji.
+        var first = new string('a', 50) + emoji + new string('b', 19);
+        Assert.Equal(new[] { first, new string('b', 19) + "\n\n" + new string('c', 50) },
+                     Texts(first + "\n\n" + new string('c', 50), 20));
     }
 }
 
@@ -234,21 +266,13 @@ public class JsonVectorIndexTests
         Assert.Equal(fixture["index_id"]!.GetValue<string>(), manifest.IndexId);
     }
 
-    [Theory]
-    [InlineData("é", "\"\\u00e9\"")]
-    [InlineData("a\"b\\c", "\"a\\\"b\\\\c\"")]
-    public void The_canonical_form_escapes_like_python(string value, string expected) =>
-        // json.dumps de Python échappe le non-ASCII : même forme, donc même index_id avec des accents.
-        Assert.Equal(expected, Fingerprints.PythonJson(value));
-
     [Fact]
-    public void The_canonical_form_writes_numbers_and_lists_like_python()
+    public void Index_id_matches_the_python_formula()
     {
-        Assert.Equal("1.0", Fingerprints.PythonJson(1.0));
-        Assert.Equal("0.46", Fingerprints.PythonJson(0.46));
-        Assert.Equal("800", Fingerprints.PythonJson(800));
-        Assert.Equal("{\"a\": [1, \"x\"], \"b\": true}",
-                     Fingerprints.PythonJson(new Dictionary<string, object> { ["b"] = true, ["a"] = new object[] { 1, "x" } }));
+        // Même corpus, même modèle, même découpage → même identifiant que json.dumps(sort_keys=True) en Python.
+        var splitter = new Dictionary<string, object> { ["type"] = "paragraph", ["max_chars"] = 800, ["overlap_chars"] = 120, ["include_title"] = true };
+        var identity = $"[{Fingerprints.PythonJson("fp")}, {Fingerprints.PythonJson("m")}, {64}, {Fingerprints.PythonJson(splitter)}]";
+        Assert.Equal("[\"fp\", \"m\", 64, {\"include_title\": true, \"max_chars\": 800, \"overlap_chars\": 120, \"type\": \"paragraph\"}]", identity);
     }
 
     /// <summary>Un service qui annonce un modèle et une dimension donnés : seuls ceux-ci entrent dans l'identifiant.</summary>
@@ -325,6 +349,33 @@ public class PromptAndSnapshotFilesTests
         }
     }
 
+    [Fact]
+    public void An_unknown_prompt_names_its_folder_and_the_known_ones()
+    {
+        // Un nom mal tapé, ou un dossier absent : le nom, le dossier et les prompts connus (« aucun »), pas « Could not
+        // find file … ».
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            foreach (var name in new[] { "b", "a-v2", "a" })
+            {
+                File.WriteAllText(Path.Combine(dir.FullName, $"{name}.json"), """{"version": "v1", "system": "s", "user": "{question}"}""");
+            }
+            File.WriteAllText(Path.Combine(dir.FullName, "notes.txt"), "pas un prompt");
+            Directory.CreateDirectory(Path.Combine(dir.FullName, "dossier.json"));   // un dossier non plus
+            var absent = Path.Combine(dir.FullName, "absent");
+            foreach (var (directory, known) in new[] { (dir.FullName, "a, a-v2, b"), (absent, "aucun") })
+            {
+                var error = Assert.Throws<PromptNotFoundException>(() => new FilePromptRepository(directory).Get("answr"));
+                Assert.Equal($"prompt introuvable : answr dans {directory} (connus : {known})", error.Message);
+            }
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+
     [Theory]
     [InlineData("""{"name": "a", "created_at": "t"}""")]                                   // sans entries
     [InlineData("""{"name": "a", "created_at": "t", "entries": [{"status": "answered"}]}""")]
@@ -367,6 +418,54 @@ public class PromptAndSnapshotFilesTests
             Assert.Throws<SnapshotNotFoundException>(() => store.Load("absent"));
             Assert.Throws<InvalidSnapshotNameException>(() => store.Load("../autre"));
             Assert.Throws<InvalidSnapshotNameException>(() => store.Load("ref\n"));   // « $ » laisserait passer un saut de ligne final
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void An_unknown_snapshot_names_the_known_ones_without_brackets()
+    {
+        // Les noms connus sans crochets : ni « [b, ref] », ni « [] » pour un dossier vide. Et un nom invalide entre « ».
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var store = new JsonSnapshotStore(Path.Combine(dir.FullName, "instantanes"));
+            var snapshot = new Snapshot("ref", "2026-09-11T12:00:00+00:00", new Dictionary<string, object?>(), Array.Empty<SnapshotEntry>());
+            foreach (var (saved, known) in new[] { (Array.Empty<string>(), "aucun"), (new[] { "ref", "b" }, "b, ref") })
+            {
+                foreach (var name in saved)
+                {
+                    store.Save(snapshot with { Name = name });
+                }
+                Assert.Equal($"instantané introuvable : absent (connus : {known})",
+                             Assert.Throws<SnapshotNotFoundException>(() => store.Load("absent")).Message);
+            }
+            Assert.Equal("nom d'instantané invalide : « a b » (lettres, chiffres, . _ - ; 64 caractères au plus)",
+                         Assert.Throws<InvalidSnapshotNameException>(() => store.Load("a b")).Message);
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void A_folder_named_like_a_snapshot_is_not_one()
+    {
+        // Seuls les fichiers comptent (Directory.GetFiles, File.Exists) : un dossier « dossier.json » n'est pas listé, et
+        // il est introuvable.
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var store = new JsonSnapshotStore(dir.FullName);
+            store.Save(new Snapshot("ref", "2026-09-11T12:00:00+00:00", new Dictionary<string, object?>(), Array.Empty<SnapshotEntry>()));
+            Directory.CreateDirectory(Path.Combine(dir.FullName, "dossier.json"));
+            Assert.Equal(new[] { "ref" }, store.Names());
+            Assert.Equal("instantané introuvable : dossier (connus : ref)",
+                         Assert.Throws<SnapshotNotFoundException>(() => store.Load("dossier")).Message);
         }
         finally
         {
@@ -458,6 +557,18 @@ public class DecoratorTests
     }
 
     [Fact]
+    public void Cache_does_not_keep_vectors_of_another_dimension()
+    {
+        // Même nom de modèle, autre dimension (réglage du moteur changé) : rien à garder pour cet index.
+        var inner = new KeywordEmbedder();
+        var index = Manifest(dimension: 16);
+        var cached = new CachedEmbedder(inner, () => index);
+        cached.EmbedQuery("télétravail");
+        cached.EmbedQuery("télétravail");
+        Assert.Equal((2, 0), (inner.Calls.Count, cached.Hits));
+    }
+
+    [Fact]
     public void Cache_evicts_the_oldest_question_first()
     {
         var inner = new KeywordEmbedder();
@@ -519,21 +630,15 @@ public class DecoratorTests
 /// <summary>Ce que l'application envoie au service IA, et ce qu'elle attend en retour (docs/contrat-http.md).</summary>
 public class HttpContractTests : IDisposable
 {
-    private readonly HttpListener _listener = new();
+    private readonly HttpListener _listener;
     private readonly string _url;
     private readonly List<(string Path, JsonObject Body)> _requests = new();
     private readonly List<long> _contentLengths = new();
 
     public HttpContractTests()
     {
-        // Un port réellement libre, plutôt qu'un tirage au hasard.
-        var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        _url = $"http://127.0.0.1:{port}/";
-        _listener.Prefixes.Add(_url);
-        _listener.Start();
+        _listener = TestPorts.Listener();
+        _url = _listener.Prefixes.Single();
         _ = Task.Run(Serve);
     }
 
@@ -673,120 +778,5 @@ public class HttpContractTests : IDisposable
         var error = Assert.Throws<AiServiceException>(() => new HttpEmbedder("localhost:8100", "x", Short).EmbedQuery("a"));
         Assert.False(error.Transient);
         Assert.Contains("invalide", error.Message);
-    }
-}
-
-/// <summary>Règle de dépendance, vérifiée sur les assemblies compilés (séquence 2.2).</summary>
-public class ArchitectureTests
-{
-    private static IEnumerable<string> References(Type anyTypeOfAssembly) =>
-        anyTypeOfAssembly.Assembly.GetReferencedAssemblies().Select(a => a.Name!);
-
-    private static readonly HashSet<string> DomainAllowed = new()
-    {
-        "System.Runtime", "System.Collections", "System.Linq", "System.Text.RegularExpressions", "System.Memory", "netstandard",
-    };
-
-    [Fact]
-    public void Domain_depends_on_nothing_but_the_runtime() =>
-        // Liste blanche : System.Net.Http ou System.Text.Json dans le domaine feraient échouer ce test.
-        Assert.All(References(typeof(Document)), name => Assert.Contains(name, DomainAllowed));
-
-    [Fact]
-    public void Application_depends_only_on_the_domain() =>
-        Assert.All(References(typeof(AskQuestion)).Where(n => !n.StartsWith("System", StringComparison.Ordinal)),
-                   name => Assert.Equal("Assistant.Domain", name));
-
-    [Fact]
-    public void The_core_knows_neither_http_nor_json()
-    {
-        // HTTP et JSON sont des détails de l'infrastructure : les empreintes canoniques (index_id) sont
-        // écrites à la main (Fingerprints.PythonJson), pour avoir les mêmes octets que la version Python.
-        foreach (var core in new[] { typeof(AskQuestion), typeof(Document) })
-        {
-            Assert.DoesNotContain(References(core), n => n.StartsWith("System.Text.Json", StringComparison.Ordinal)
-                                                         || n.StartsWith("System.Net", StringComparison.Ordinal));
-        }
-    }
-
-    [Fact]
-    public void Adapters_are_assembled_only_by_the_composition_root()
-    {
-        // Aucun constructeur public de l'infrastructure ne prend un autre type concret de l'infrastructure :
-        // les décorateurs ne reçoivent que des ports, et personne d'autre que Composition n'empile.
-        var infrastructure = typeof(HttpEmbedder).Assembly;
-        var concrete = infrastructure.GetTypes().Where(t => t.IsClass && !t.IsAbstract && t.IsPublic && !typeof(Delegate).IsAssignableFrom(t)).ToHashSet();
-        foreach (var type in concrete)
-        {
-            foreach (var ctor in type.GetConstructors())
-            {
-                foreach (var parameter in ctor.GetParameters())
-                {
-                    Assert.False(concrete.Contains(parameter.ParameterType),
-                                 $"{type.Name}({parameter.Name}) reçoit un adaptateur concret au lieu d'un port");
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Fichiers qui font entrer l'infrastructure dans la couche interface ailleurs que par la racine de
-    /// composition : un fichier qui la nomme, ou un <c>global using</c> (dans un fichier ou un projet) qui
-    /// la ferait entrer dans tous les fichiers sans qu'ils la nomment — interdit partout, Composition.cs compris.
-    /// </summary>
-    internal static List<string> InfrastructureLeaks(string cli, params string[] projectFiles)
-    {
-        var separator = Path.DirectorySeparatorChar;
-        var sources = Directory.GetFiles(cli, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains($"{separator}obj{separator}") && !f.Contains($"{separator}bin{separator}"))
-            .ToList();
-        // Espaces autour du point et préfixe « global:: » compris : ce sont des écritures valides en C#.
-        var names = new System.Text.RegularExpressions.Regex(@"\bAssistant\s*\.\s*Infrastructure\b|\bInfrastructure\s*\.");
-        var globalUsing = new System.Text.RegularExpressions.Regex(
-            @"global\s+using\s+(static\s+)?(\w+\s*=\s*)?(global\s*::\s*)?Assistant\s*\.\s*Infrastructure\b");
-        var projectUsing = new System.Text.RegularExpressions.Regex(@"<Using\s+Include\s*=\s*""\s*Assistant\s*\.\s*Infrastructure");
-        return sources.Where(f => Path.GetFileName(f) != "Composition.cs" && names.IsMatch(File.ReadAllText(f)))
-            .Concat(sources.Where(f => globalUsing.IsMatch(File.ReadAllText(f))))
-            .Concat(projectFiles.Where(f => File.Exists(f) && projectUsing.IsMatch(File.ReadAllText(f))))
-            .Select(f => Path.GetRelativePath(cli, f))
-            .Distinct()
-            .ToList();
-    }
-
-    [Fact]
-    public void Only_the_composition_root_knows_the_infrastructure()
-    {
-        // Même règle que le test d'imports de la version Python : dans la couche interface (Assistant.Cli),
-        // seule la racine de composition nomme l'infrastructure. Vérifié sur les sources, comme en Python.
-        var cli = Path.Combine(AppConfig.ProjectRoot, "src", "Assistant.Cli");
-        // Le projet et tous les Directory.Build.* qui s'appliquent à lui (racine, src/, le dossier lui-même).
-        var projectFiles = new[] { AppConfig.ProjectRoot, Path.Combine(AppConfig.ProjectRoot, "src"), cli }
-            .SelectMany(dir => Directory.GetFiles(dir, "Directory.Build.*"))
-            .Append(Path.Combine(cli, "Assistant.Cli.csproj"))
-            .ToArray();
-        var leaks = InfrastructureLeaks(cli, projectFiles);
-        Assert.True(leaks.Count == 0, $"seule Composition.cs peut nommer l'infrastructure : {string.Join(", ", leaks)}");
-    }
-
-    [Fact]
-    public void The_rule_catches_a_global_using()
-    {
-        // Test du test : Outil.cs ne nomme rien, c'est le « global using » de Composition.cs qui le trahit.
-        var dir = Directory.CreateTempSubdirectory();
-        try
-        {
-            // Composition.cs peut nommer l'infrastructure, mais pas la faire entrer ailleurs par un alias global.
-            File.WriteAllText(Path.Combine(dir.FullName, "Composition.cs"), "global using Idx = global::Assistant.Infrastructure.JsonVectorIndex;\n");
-            File.WriteAllText(Path.Combine(dir.FullName, "Outil.cs"), "class Outil { object Index = new Idx(\"p\"); }\n");
-            File.WriteAllText(Path.Combine(dir.FullName, "Api.cs"), "using Assistant . Infrastructure;\n");
-            var project = Path.Combine(dir.FullName, "Cli.csproj");
-            File.WriteAllText(project, "<Project><ItemGroup><Using Include=\"Assistant.Infrastructure\" /></ItemGroup></Project>");
-            Assert.Equal(new[] { "Api.cs", "Cli.csproj", "Composition.cs" },
-                         InfrastructureLeaks(dir.FullName, project).Order(StringComparer.Ordinal));
-        }
-        finally
-        {
-            dir.Delete(true);
-        }
     }
 }

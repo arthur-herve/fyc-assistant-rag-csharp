@@ -1,6 +1,7 @@
 // Entités du domaine de l'assistant documentaire.
-// Ce projet ne connaît ni l'IA, ni HTTP, ni le stockage : il décrit ce que
-// manipule le métier (documents, utilisateurs, réponses sourcées).
+// Ce projet ne dépend d'aucune technologie d'IA, ni de HTTP, ni du stockage : il décrit ce
+// que manipule le métier (documents, utilisateurs, réponses sourcées). Il sait seulement qu'une
+// réponse vient de modèles identifiés (AnswerTrace) : c'est voulu, c'est ce qui la rend explicable (S4.2).
 
 namespace Coeur;
 

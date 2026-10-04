@@ -143,7 +143,9 @@ public static class SnapshotComparer
 
     /// <summary>
     /// Forme de comparaison (et d'affichage) d'une valeur de configuration : par valeur, pas par type — 4 et 4.0
-    /// sont égaux, comme l'égalité de Python. Les empreintes, elles, passent par <see cref="Fingerprints.PythonJson"/>.
+    /// sont égaux (un réel entier s'écrit sans « .0 » et se relit entier). Limite : un texte et le nombre ou le
+    /// booléen qui s'écrit pareil (« 4 » et 4, « true » et true) sont confondus. L'identifiant de l'index, lui,
+    /// passe par <see cref="Fingerprints.PythonJson"/>.
     /// </summary>
     public static string Canonical(object? value) => value switch
     {

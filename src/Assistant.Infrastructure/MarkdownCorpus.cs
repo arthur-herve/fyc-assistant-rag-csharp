@@ -78,6 +78,19 @@ public sealed class MarkdownCorpus : IDocumentSource
                             string.Join("\n", lines.Skip(end + 1)).Trim(), groups);
     }
 
+    private static string Read(string path)
+    {
+        try
+        {
+            return TextFiles.ReadUtf8(path);
+        }
+        catch (FormatException error)
+        {
+            // Un document enregistré en latin-1 n'est pas lu de travers : on dit lequel.
+            throw new CorpusFormatException($"{path} : {error.Message}");
+        }
+    }
+
     public IReadOnlyList<Document> Load()
     {
         if (!Directory.Exists(_directory))
@@ -86,7 +99,7 @@ public sealed class MarkdownCorpus : IDocumentSource
         }
         var documents = Directory.GetFiles(_directory, "*.md")
             .OrderBy(p => Path.GetFileName(p), StringComparer.Ordinal)
-            .Select(p => Parse(File.ReadAllText(p), p))
+            .Select(p => Parse(Read(p), p))
             .ToList();
         var duplicates = documents.GroupBy(d => d.Id).Where(g => g.Count() > 1).Select(g => g.Key).OrderBy(x => x).ToList();
         if (duplicates.Count > 0)

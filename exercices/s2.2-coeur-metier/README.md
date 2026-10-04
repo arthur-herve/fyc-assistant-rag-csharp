@@ -68,9 +68,10 @@ Ordre conseillé : 1, 2, puis 3 en faisant passer les tests un par un, dans l'or
 ## Corrigé
 
 `solution/` contient les trois fichiers. Copiez-les dans `depart/Coeur/` pour vérifier : 20 tests
-verts. Ils sont identiques, au namespace près, à `src/Assistant.Domain/Rules.cs` et
-`src/Assistant.Application/AskQuestion.cs` du dépôt (le fil rouge délègue en plus la recherche à
-un cas d'usage `SearchPassages`, réutilisé par le banc d'essai) : ce que vous venez d'écrire est
+verts. Leur code est, au namespace près, celui du dépôt : `AccessPolicy`, `CitationCheck` et
+`Citations` de `src/Assistant.Domain/Rules.cs`, `AskSettings` et `AskQuestion` de
+`src/Assistant.Application/AskQuestion.cs` (le fil rouge délègue en plus la recherche à un cas
+d'usage `SearchPassages`, réutilisé par le banc d'essai) : ce que vous venez d'écrire est
 **le cœur réel** de l'assistant, celui qui tourne en séquence 2.3 derrière de vrais modèles.
 
 Réponses aux questions :

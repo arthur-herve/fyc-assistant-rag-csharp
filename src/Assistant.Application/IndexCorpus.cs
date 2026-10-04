@@ -3,6 +3,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Assistant.Domain;
 
 namespace Assistant.Application;
@@ -34,43 +35,20 @@ public static class Fingerprints
     }
 
     /// <summary>
-    /// La forme canonique d'une valeur : les mêmes caractères que <c>json.dumps(sort_keys=True)</c> de Python
-    /// (non-ASCII échappé en <c>\uXXXX</c>, <c>1.0</c> pour un réel entier). Elle sert à l'index_id, qui doit
-    /// avoir les mêmes octets que la version Python ; les comparaisons de configuration, elles, comparent des
-    /// valeurs (<see cref="SnapshotComparer.Canonical"/>).
+    /// Sérialisation à la manière de Python (`json.dumps(sort_keys=True)`) pour les valeurs simples : les mêmes octets
+    /// pour les valeurs du cours (textes en ASCII imprimable, entiers, booléens, dictionnaires de ces valeurs dont les
+    /// clés, écrites telles quelles, sont en ASCII imprimable sans « " » ni « \ ») ; un accent, un réel ou une liste
+    /// peuvent s'écrire autrement (json.dumps échappe « é » et écrit 1.0, ici « 1 »).
     /// </summary>
     public static string PythonJson(object? value) => value switch
     {
         null => "null",
         bool b => b ? "true" : "false",
-        string s => PythonString(s),
-        double d => d == Math.Floor(d) && Math.Abs(d) < 1e16 ? d.ToString("0.0", CultureInfo.InvariantCulture) : d.ToString("R", CultureInfo.InvariantCulture),
-        IReadOnlyDictionary<string, object> d => "{" + string.Join(", ", d.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{PythonString(kv.Key)}: {PythonJson(kv.Value)}")) + "}",
+        string s => JsonSerializer.Serialize(s, new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }),
+        IReadOnlyDictionary<string, object> d => "{" + string.Join(", ", d.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"\"{kv.Key}\": {PythonJson(kv.Value)}")) + "}",
         IFormattable f => f.ToString(null, CultureInfo.InvariantCulture)!,
-        System.Collections.IEnumerable items => "[" + string.Join(", ", items.Cast<object?>().Select(PythonJson)) + "]",
-        _ => throw new ArgumentException($"valeur sans forme canonique : {value.GetType().Name}"),
+        _ => JsonSerializer.Serialize(value),
     };
-
-    private static string PythonString(string text)
-    {
-        var builder = new StringBuilder("\"");
-        foreach (var c in text)
-        {
-            builder.Append(c switch
-            {
-                '"' => "\\\"",
-                '\\' => "\\\\",
-                '\n' => "\\n",
-                '\r' => "\\r",
-                '\t' => "\\t",
-                '\b' => "\\b",
-                '\f' => "\\f",
-                < ' ' or > '~' => $"\\u{(int)c:x4}",
-                _ => c.ToString(),
-            });
-        }
-        return builder.Append('"').ToString();
-    }
 
     private static void Feed(SHA256 sha, string text)
     {

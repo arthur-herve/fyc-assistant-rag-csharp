@@ -11,7 +11,7 @@ applicatifs hébergent l'application, et les deux équipes n'écrivent pas forc�
 - Application : **.NET 8**, C# 12, aucun paquet tiers (`System.Text.Json`, `HttpClient`) ; xUnit pour les tests.
 - Service IA : **Python 3.11+**, bibliothèque standard, code identique à celui de la version Python (copié tel quel) ; sa configuration ajoute seulement l'alias `hashing-stem4` pour l'exemple S1.3.
 - Mode hors-ligne intégré (embeddings hachés, générateur extractif) : tout fonctionne sans modèle ni GPU.
-- Vrais modèles via [Ollama](https://ollama.com) : `bge-m3` + `llama3.2:3b` dans la configuration `config/app-ollama.json`, comme la version Python.
+- Vrais modèles via [Ollama](https://ollama.com) : `bge-m3` + `llama3.2:3b` dans la configuration `config/app-ollama.json`.
 - Banc d'essai, cinq expériences reproductibles, test statistique, exemple jouet de la séquence 1.3, dix ADR : tout ce que le cours promet est dans ce dépôt (voir « Où la problématique apparaît dans le code »).
 
 **Par où commencer** : [`docs/installation.md`](docs/installation.md) (20 minutes hors-ligne), puis le démarrage rapide ci-dessous, puis
@@ -38,7 +38,13 @@ flowchart LR
 
 La règle de dépendance est vérifiée par **les références de projets** (un `.csproj` ne peut pas
 importer ce qu'il ne référence pas) **et par un test** (`ArchitectureTests`, réflexion sur les
-assemblies compilés).
+assemblies compilés jusqu'au code IL : hors de `Composition`, aucun type de `Assistant.Cli` ne touche à
+l'infrastructure, quelle que soit l'écriture des sources). Ce test attrape les erreurs, pas la malveillance :
+il ne suit ni le corps des méthodes de `Composition` (une fabrique qui renvoie un adaptateur typé `object`
+passe), ni une constante (`const`) d'un adaptateur, recopiée à la compilation, ni un chargement par
+réflexion (`Type.GetType("…")`), ni un argument d'attribut de type énuméré, ni un pointeur de fonction
+(détail dans `ArchitectureTests.InfrastructureLeaks`). La ligne de commande lit le JSON avec sa propre
+copie des fichiers de `src/Shared/` : elle ne nomme pas l'infrastructure.
 
 ```
 src/Assistant.Domain/           entités, AccessPolicy, Citations, OutputRules — ne référence rien
@@ -48,8 +54,12 @@ src/Assistant.Infrastructure/   HttpEmbedder/HttpGenerator, MarkdownCorpus, Para
                                 FilePromptRepository, JsonSnapshotStore, SystemClock, décorateurs (cache, journal, tentatives)
 src/Assistant.Cli/              Program (index, ask, status, snapshot, benchmark, experience, serve), HttpApi (API HTTP de
                                 l'application), Composition (le seul endroit qui connaît tout), AppConfig, Benchmark, Experiments
-tests/Assistant.Tests/          147 tests xUnit : domaine, cas d'usage avec doubles, adaptateurs, contrat HTTP contre un faux
-                                service, API HTTP contre des doubles, règle de dépendance, test statistique (S3.1), calculs du banc
+src/Shared/                     TextFiles (lecture UTF-8 stricte), JsonText (lecture JSON stricte) : ni un projet ni une
+                                couche, un même source compilé dans Assistant.Infrastructure et Assistant.Cli, chacun sa
+                                copie interne
+tests/Assistant.Tests/          651 tests xUnit : domaine, cas d'usage avec doubles, adaptateurs, contrat HTTP contre un faux
+                                service, API HTTP contre des doubles, règle de dépendance, test statistique (S3.1), calculs du banc,
+                                noms de tests cités par la documentation
 exemples/s1.3-transfert-naif/   le transfert naïf en moins de 300 lignes : port dans le domaine, substitution, puis panne silencieuse
 ai_service/                     service IA en Python, copié de la version Python (registre, backends Ollama / hors-ligne)
 tests_python/                   ses tests (bibliothèque standard)
@@ -85,10 +95,26 @@ dotnet run --project src/Assistant.Cli -- status
 dotnet run --project src/Assistant.Cli -- index --if-stale     # réindexe seulement si status dit « à refaire »
 ```
 
-Toutes les commandes se lancent depuis la racine du dépôt. Options utiles : `--json` (sortie JSON de `ask` et
-`status`), `--questions <fichier>` et `--limit N` pour `snapshot record` ; `snapshot list` ne prend aucune option. Variables d'environnement :
-`ASSISTANT_CONFIG` (fichier de configuration), `AI_SERVICE_URL` (adresse du service IA, pour un déploiement sur deux
-machines), `ASSISTANT_LOG=INFO` (journal des décorateurs, aussi avec `-v`).
+Toutes les commandes se lancent depuis la racine du dépôt. La commande vient d'abord, puis ses options : une option
+inconnue, abrégée (`--us` pour `--user`), d'une autre commande ou placée avant la commande est refusée, jamais ignorée.
+`--` termine les options : ce qui suit est un argument, même un mot qui commence par un tiret (`ask -- -télétravail`) ;
+sans `--`, un tel mot n'est un argument que s'il est `-`, un nombre négatif, ou si son nom (ce qui précède un éventuel
+`=`) contient une espace (`ask "-vingt degrés ?"`).
+Options utiles : `--json` (sortie JSON de `ask` et `status`), `--questions <fichier>` et `--limit N` (au moins 1, comme
+pour le banc et les expériences) pour `snapshot record` ; `snapshot list` n'a que les options communes (`--config`…).
+Codes de retour : 0 ok · 1 erreur, saisie comprise · `status` : 2 à refaire, 3 non vérifié · `index --if-stale` : 3 non
+vérifié. Variables d'environnement : `ASSISTANT_CONFIG` (fichier de configuration, sans `--config`), `AI_SERVICE_URL`
+(adresse du service IA, pour un déploiement sur deux machines ; elle remplace `base_url`, qui reste obligatoire et
+vérifiée dans le fichier), `ASSISTANT_LOG=INFO` ou `info` (journal des décorateurs, aussi avec `-v` ; toute autre
+valeur est ignorée ; ni la variable ni `-v` ne valent pour le banc, mais la commande `experience` lit la variable).
+`--config`, `--embedding-model`, `--generation-model` ou `--prompt` donnés vides (`""`) valent la configuration, et
+`--out ""` le dossier daté, comme absents.
+
+La configuration (`config/*.json`) est en UTF-8 (une marque d'ordre des octets est acceptée ; sinon le message donne
+l'octet fautif et sa position) et en JSON strict : une clé en double, un `\ud800` isolé, `NaN`, un entier de plus
+de 4300 chiffres ou plus de 64 niveaux d'imbrication sont refusés au chargement, avec le nom du fichier. JSON n'a
+pas de commentaires : une clé qui commence par `_` en tient lieu, à tous les niveaux (y compris `decorators`,
+`retrieval.min_score` et `users`).
 
 **Les deux verdicts de la problématique :**
 
@@ -119,9 +145,28 @@ dotnet run --project src/Assistant.Cli -- experience prompt-v2
 dotnet run --project src/Assistant.Cli -- experience stabilite --runs 3
 ```
 
-Chaque expérience change une seule chose, enregistre deux instantanés et écrit `eval/resultats/exp-<nom>-<date>/rapport.md`.
+Chaque expérience change une seule chose, enregistre deux instantanés et écrit `eval/resultats/exp-<nom>-<AAAAMMJJ-HHMMSS>/rapport.md`
+(sous la racine du projet quel que soit le dossier courant ; le chemin affiché part du dossier courant ; le banc, lui,
+écrit dans `eval/resultats/<AAAAMMJJ-HHMMSS>/` ; dans les deux cas, si ce dossier existe déjà, par exemple pour deux
+commandes lancées dans la même seconde, le nom reçoit `-2`, `-3`…).
+Un modèle d'embeddings sans seuil configuré reçoit la valeur `default` : l'expérience le signale en console et dans son
+rapport (ADR 0004). Pour `changement-embeddings` et `changement-generateur`, l'alias `--other` est vérifié auprès du
+service IA (GET /v1/models : servi, et du bon type ; une réponse hors contrat est refusée : octets qui ne sont pas de
+l'UTF-8 (une marque d'ordre des octets est acceptée), alias non textuel, ou JSON qui n'est pas strict — clé en double,
+même là où rien n'est lu, `NaN`, entier de plus de 4300 chiffres, plus de 64 niveaux, chaîne qui n'est pas du texte)
+avant tout index.
 
-L'application peut aussi être servie en HTTP (mêmes routes et mêmes codes que la version Python) :
+Un jeu de questions (banc, expériences, `snapshot record`) est lu strictement : seules les clés `id`, `user`, `question`,
+`answerable`, `expected_documents`, `forbidden_documents` et `expected_keywords` sont permises, plus celles qui
+commencent par `_` : des commentaires, sans effet, comme dans la configuration. `answerable` vaut `true` ou `false`,
+chaque identifiant est unique. Le fichier est en UTF-8 (une marque d'ordre des octets est acceptée ; un fichier en
+latin-1 est refusé avec l'octet fautif et sa position) et en JSON strict : une clé en double, `NaN` ou `Infinity`
+(une erreur de syntaxe pour System.Text.Json), plus de 64 niveaux d'imbrication, une chaîne qui n'est pas du texte (un
+`\ud800` isolé, même dans un commentaire) sont refusés. Une erreur nomme le fichier et ce qui est en faute : la
+question (son numéro) et, s'il y a lieu, le champ ; pour un défaut du JSON lui-même, repéré dès sa lecture, seulement
+ce défaut (et la clé, pour une clé en double).
+
+L'application peut aussi être servie en HTTP :
 
 ```bash
 dotnet run --project src/Assistant.Cli -- serve                      # port 8000
@@ -131,7 +176,27 @@ curl http://127.0.0.1:8000/v1/status                                 # 200 à jo
 curl -X POST http://127.0.0.1:8000/v1/index -d '{}'                  # reconstruit l'index
 ```
 
-Erreurs : `400 invalid_json` / `invalid_request` / `invalid_question`, `403 unknown_user`, `404 not_found`, `405 method_not_allowed`, `409 index_unusable`, `500 unreadable_state` / `internal_error`, `502 ai_service_error`.
+Erreurs, en JSON (`{"error": {"code": …, "message": …}}`) :
+
+| HTTP | `code` | Cause |
+|---|---|---|
+| 400 | `invalid_json` | corps qui n'est pas un objet JSON strict en UTF-8 : octets qui ne sont pas de l'UTF-8, clé en double, chaîne avec un surrogate UTF-16 isolé, `NaN` ou `Infinity` (une erreur de syntaxe, avec le message de System.Text.Json), plus de 64 niveaux d'imbrication |
+| 400 | `invalid_request` | `user` ou `question` présent mais pas une chaîne (absent ou `null`, il vaut `""` : 403 `unknown_user` pour `user`, 400 `invalid_question` pour `question`) ; codage de transfert qui n'est pas `chunked` seul (`gzip, chunked`, sous Windows ; sous Linux, `HttpListener` le refuse lui-même : 501) ; corps lu plus court que son `Content-Length` (sous Linux ; sous Windows, http.sys répond lui-même) |
+| 400 | `invalid_question` | question vide |
+| 403 | `unknown_user` | utilisateur absent de la configuration |
+| 404 | `not_found` | route inconnue, quelle que soit la méthode |
+| 405 | `method_not_allowed` | route connue, autre méthode : l'en-tête `Allow` donne celles permises (`GET, HEAD` pour `/health` et `/v1/status`, `POST` pour `/v1/index` et `/v1/ask`) ; HEAD est accepté partout où GET l'est (mêmes statut et en-têtes, sans corps) |
+| 409 | `index_unusable` | aucun index, index construit avec un autre modèle d'embeddings, ou remplacé pendant la question deux fois de suite (« Reposez la question ») |
+| 413 | `payload_too_large` | corps de plus de 16 Mio (16 777 216 octets) sur `/v1/index` ou `/v1/ask` : refusé sans être lu quand `Content-Length` l'annonce, dès que la limite est franchie pour un envoi en morceaux (dont le `Content-Length` ne compte pas) |
+| 500 | `unreadable_state` | corpus mal formé ou vide, prompt ou index illisible |
+| 500 | `index_write_failed` | index impossible à écrire (l'index en service reste alors le précédent) |
+| 500 | `internal_error` | erreur imprévue |
+| 502 | `ai_service_error` | service IA injoignable, en erreur, ou réponse hors contrat |
+
+`HttpListener` refuse lui-même certaines requêtes mal formées, avant l'application : il répond alors par une page
+HTML (et non par le JSON de l'application), avec son propre statut (400, 411, 413, 414, 501, 505). Par exemple, un
+POST sans corps reçoit 411 (« Length Required »), d'où le `-d '{}'` des exemples. Le détail varie entre Windows
+(http.sys) et Linux.
 
 ## Avec de vrais modèles
 
@@ -150,8 +215,8 @@ le langage de celle-ci ne change rien aux ordres de grandeur.
 ## Tests
 
 ```bash
-dotnet test                                              # 147 tests C#, sans IA ni réseau (dont un test statistique, S3.1)
-python -m unittest discover -s tests_python -t .         # 33 tests du service IA
+dotnet test                                              # 651 tests C#, sans IA ni réseau (dont un test statistique, S3.1)
+python -m unittest discover -s tests_python -t .         # 56 tests du service IA
 ```
 
 ## Ce que la version C# montre que la version Python ne peut pas montrer
@@ -166,8 +231,11 @@ python -m unittest discover -s tests_python -t .         # 33 tests du service I
 
 Ce que les deux versions partagent : les corpus, les jeux de questions, les prompts (même texte, même version
 déclarée, même empreinte : elle porte sur le contenu, pas sur le format du fichier), la configuration (mêmes
-clés, JSON d'un côté, TOML de l'autre), le format des index et des instantanés, le format des rapports du banc
-et des expériences, le service IA, et surtout **les mêmes frontières aux mêmes endroits**. Détail : ADR 0009.
+clés, JSON d'un côté, TOML de l'autre), le format des index et des instantanés (mêmes champs, dans le même ordre,
+sauf les clés des dictionnaires, découpage et configuration, triées en C# ; en JSON UTF-8, relus en JSON strict
+de part et d'autre), le corps des requêtes au service IA (mêmes champs, mêmes valeurs, en JSON UTF-8), le format
+des rapports du banc et des expériences, le service IA, et surtout **les mêmes frontières aux mêmes endroits**.
+Détail : ADR 0009.
 
 Et ce que ce dépôt ne fait pas, par choix : pas de service IA en C# (il effacerait l'argument), pas de base
 vectorielle (l'index JSON *est* la base vectorielle locale du cours, en un fichier — ADR 0007), pas de
@@ -198,5 +266,5 @@ réentraînement (un RAG n'entraîne rien : il se réindexe, `docs/artefacts.md`
   **même identifiant d'index** (`d5276d0355c9`) et la **même `prompt_version`** (`v1+085b70e7`) ; un
   instantané C# comparé à un instantané Python enregistré par la version courante des deux dépôts donne 0 % de
   dérive et aucune différence de configuration.
-- L'API HTTP traite les requêtes une à la fois (la version Python les traite en parallèle, sauf l'indexation) :
-  une génération longue retarde `/health`. Suffisant pour le cours, à savoir pour un déploiement.
+- L'API HTTP traite les requêtes une à la fois : une génération longue retarde `/health`. Suffisant pour le
+  cours, à savoir pour un déploiement.

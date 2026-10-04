@@ -45,11 +45,18 @@ public sealed record IndexManifest(
     int ChunkCount,
     string CreatedAt);
 
+/// <summary>
+/// Un index peut être reconstruit par un autre processus à tout moment. <c>Search(…, indexId)</c> ne
+/// cherche que dans l'index qui porte cet identifiant (celui dont le cas d'usage a contrôlé le modèle) :
+/// s'il a été remplacé entre-temps, elle lève <see cref="IndexReplacedException"/> au lieu de chercher
+/// dans un autre. <c>Replace</c> lève <see cref="IndexWriteException"/> si l'index ne peut pas être écrit ;
+/// l'index en service reste alors le précédent.
+/// </summary>
 public interface IVectorIndex
 {
     IndexManifest? Manifest();
     void Replace(IndexManifest manifest, IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> vectors);
-    IReadOnlyList<Passage> Search(double[] vector, int topK, Func<Chunk, bool> predicate);
+    IReadOnlyList<Passage> Search(double[] vector, int topK, Func<Chunk, bool> predicate, string? indexId = null);
 }
 
 // --- Corpus et découpage ---------------------------------------------------

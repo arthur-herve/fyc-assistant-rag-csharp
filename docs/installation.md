@@ -50,9 +50,10 @@ dotnet test --nologo                                   # l'application
 python -m unittest discover -s tests_python -t .       # le service IA
 ```
 
-Attendu : `Réussi! … total : 147` (le premier `dotnet test` compile tout : 30 à 60 secondes,
-ensuite quelques secondes) et `Ran 33 tests … OK`. Si les deux sont verts, votre poste est prêt
-pour les séquences 1 à 2.2.
+Attendu : `Réussi! … total : 651` (`Passed! … Total: 651` avec un SDK en anglais ; hors de Windows, 1 test
+propre à http.sys est ignoré, `Passed: 650, Skipped: 1` en anglais ; le premier `dotnet test` compile tout : 30
+à 60 secondes, ensuite une quinzaine de secondes) et `Ran 56 tests … OK`.
+Si les deux sont verts, votre poste est prêt pour les séquences 1 à 2.2.
 
 ## 4. Le mode hors-ligne (2 min)
 
@@ -131,13 +132,18 @@ comptez un ordre de grandeur de plus (non mesuré : à relever sur vos machines 
 
 L'application et le service IA sont deux programmes : rien n'oblige à les faire tourner sur le même
 poste. Sur la machine de calcul : `python -m ai_service --host 0.0.0.0` (et `[server] host` dans
-`config/ai_service.toml`). Sur le serveur applicatif :
+`config/ai_service.toml`), qui annonce « Service IA sur http://127.0.0.1:8100, à l'écoute sur toutes les
+interfaces ». Sur le serveur applicatif, `AI_SERVICE_URL` remplace `base_url` (la clé reste
+obligatoire dans `config/app.json`) :
 
 ```bash
 AI_SERVICE_URL=http://machine-gpu:8100 dotnet run --project src/Assistant.Cli -- serve --host 0.0.0.0
 ```
 
 L'application répond alors sur `http://<serveur>:8000` (`/health`, `/v1/ask`, `/v1/status`, `/v1/index`).
+`serve` annonce « Application sur http://127.0.0.1:8000, à l'écoute sur toutes les interfaces » : dans les deux
+annonces, 0.0.0.0 n'est pas une adresse où se connecter, 127.0.0.1 l'est depuis la machine elle-même. Pour `serve`,
+`*` et `+` disent aussi « toutes les interfaces ».
 
 ⚠️ Ni le service IA ni l'application n'ont d'**authentification** : ils sont prévus pour un réseau interne.
 L'application croit l'utilisateur que déclare l'appelant (`"user": "alice"`) : les droits d'accès ne protègent
@@ -150,11 +156,12 @@ urlacl url=http://+:8000/ user=%USERNAME%` (une fois, en administrateur) ; `127.
 
 | Symptôme | Cause probable | Remède |
 |---|---|---|
-| `Erreur : service IA — …` ou `injoignable (http://127.0.0.1:8100)` | le terminal 1 n'est pas lancé | `python -m ai_service` |
+| `Service IA injoignable (http://127.0.0.1:8100/…)` (ask, index, status), ou `Erreur : service IA injoignable (http://127.0.0.1:8100). Lancez-le d'abord : python -m ai_service` (banc, expériences) | le terminal 1 n'est pas lancé | `python -m ai_service` |
 | `HTTP 502 — … Ollama est-il lancé sur http://127.0.0.1:11434 ?` | Ollama arrêté | `ollama serve` |
 | `HTTP 502 — empreinte de … introuvable … (modèles installés : …)` | modèle non téléchargé, ou nom écrit autrement que dans `ollama list` | `ollama pull <modèle>`, ou corriger `model` dans `config/ai_service.toml` |
 | `HTTP 502 — … a changé pendant l'appel` | un `ollama pull` pendant la requête | relancer la commande |
-| `L'index a été construit avec « … » mais le modèle d'embeddings actuel est « … »` | vous avez changé de modèle d'embeddings | c'est voulu (séquence 2.3) : `index` avec ce modèle, ou `index --if-stale` |
+| `L'index a été construit avec « … » mais le modèle d'embeddings actuel est « … »` | vous avez changé de modèle d'embeddings ; ou, sans rien changer, l'index date d'avant le 21/09/2026 et l'alias a des préfixes (`nomic`, `mxbai`, `st-e5-small` : leur identifiant finit depuis par `+prefixes-…`) | c'est voulu (séquence 2.3) : `index` avec ce modèle, ou `index --if-stale` |
+| `Erreur : prompt introuvable : … dans … (connus : answer, answer-v2)` | `--prompt` ou `generation.prompt` (configuration) mal tapé | choisir un des prompts connus |
 | `dotnet : commande introuvable` | SDK non installé ou PATH non mis à jour | rouvrir le terminal après l'installation ; `dotnet --info` |
 | `NETSDK1045` ou « version du SDK » | SDK plus ancien que 8.0 | installer le SDK 8.0 (étape 1) |
 | « You must install or update .NET to run this application » (`Microsoft.NETCore.App` 8.0) | SDK 9 ou 10 seul, sans runtime 8 | installer le runtime .NET 8 (étape 1) |

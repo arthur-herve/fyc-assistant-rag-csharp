@@ -1,118 +1,11 @@
 // La racine de composition, montée avec la configuration livrée (cache d'embeddings compris)
 // contre un faux service IA dont on change ce qu'il sert en cours de route (ADR 0003 et 0010, S4.2).
 
-using System.Net;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using Assistant.Application;
 using Assistant.Cli;
 using Xunit;
 
 namespace Assistant.Tests;
-
-/// <summary>
-/// Faux service IA (contrat v1, <c>/v1/embeddings</c> seulement) : un axe par mot du vocabulaire,
-/// plus un axe constant (<see cref="Offset"/>) pour qu'aucun vecteur ne soit nul. <see cref="Model"/>
-/// et <see cref="Offset"/> se changent à chaud, comme une équipe qui modifie ce qui est servi derrière
-/// l'alias pendant que l'application tourne.
-/// </summary>
-public sealed class FakeAiService : IDisposable
-{
-    private readonly HttpListener _listener;
-    private readonly object _gate = new();
-    private string _model = "faux:modele-a";
-    private double _offset = 1.0;
-
-    public string Url { get; }
-
-    public string Model
-    {
-        get { lock (_gate) { return _model; } }
-        set { lock (_gate) { _model = value; } }
-    }
-
-    /// <summary>Change les vecteurs sans changer l'identifiant (préfixes modifiés, moteur sans empreinte).</summary>
-    public double Offset
-    {
-        get { lock (_gate) { return _offset; } }
-        set { lock (_gate) { _offset = value; } }
-    }
-
-    public FakeAiService()
-    {
-        // Un port libre : la sonde puis l'écoute ne sont pas atomiques, on réessaie si un autre processus s'est glissé entre.
-        for (var attempt = 0; ; attempt++)
-        {
-            var probe = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-            probe.Start();
-            var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-            probe.Stop();
-            var listener = new HttpListener();
-            listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-            try
-            {
-                listener.Start();
-                (_listener, Url) = (listener, $"http://127.0.0.1:{port}");
-                break;
-            }
-            catch (HttpListenerException) when (attempt < 5)
-            {
-                listener.Close();
-            }
-        }
-        _ = Task.Run(Serve);
-    }
-
-    private async Task Serve()
-    {
-        while (_listener.IsListening)
-        {
-            HttpListenerContext context;
-            try
-            {
-                context = await _listener.GetContextAsync();
-            }
-            catch (Exception e) when (e is HttpListenerException or ObjectDisposedException)
-            {
-                return;
-            }
-            byte[] bytes;
-            try
-            {
-                using var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8);
-                var body = JsonNode.Parse(await reader.ReadToEndAsync())!.AsObject();
-                var vectors = body["inputs"]!.AsArray().Select(t => Vector(t!.GetValue<string>())).ToList();
-                bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
-                {
-                    model = Model, alias = body["model"]!.GetValue<string>(), dimension = vectors[0].Length, vectors,
-                }));
-            }
-            catch (Exception error)
-            {
-                // Une requête inattendue échoue tout de suite, au lieu de laisser le client attendre.
-                context.Response.StatusCode = 500;
-                bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { error = new { code = "faux_service", message = error.Message } }));
-            }
-            context.Response.ContentType = "application/json";
-            context.Response.ContentLength64 = bytes.Length;
-            await context.Response.OutputStream.WriteAsync(bytes);
-            context.Response.Close();
-        }
-    }
-
-    private double[] Vector(string text)
-    {
-        var lowered = text.ToLowerInvariant();
-        return Fakes.Vocabulary.Select(w => lowered.Contains(w) ? 1.0 : 0.0).Prepend(Offset).ToArray();
-    }
-
-    public void Dispose()
-    {
-        _listener.Stop();
-        _listener.Close();
-    }
-}
 
 /// <summary>
 /// Processus long (<c>serve</c>), configuration livrée (cache d'embeddings compris) : ce qui est servi
@@ -121,7 +14,7 @@ public sealed class FakeAiService : IDisposable
 public sealed class CompositionTests : IDisposable
 {
     private const string Question = "Combien de jours de télétravail par semaine ?";
-    private readonly FakeAiService _ai = new();
+    private readonly FakeAiService _ai = new("faux:modele-a");   // le même modèle pour tout alias, changé à chaud
     private readonly string _dir = Directory.CreateTempSubdirectory("fyc-composition-").FullName;
     private readonly AppConfig _config;
 

@@ -16,8 +16,9 @@ namespace Assistant.Application;
 public sealed record AskSettings(
     int TopK = 4,
     // Attention : ce seuil n'a de sens que pour UN modèle d'embeddings et UN corpus donnés. La
-    // composition fixe toujours celui que la configuration donne pour l'alias utilisé (ou `default`,
-    // avec un avertissement ; ADR 0004) : 0,35 ne sert qu'aux tests.
+    // composition fixe toujours celui que la configuration donne pour l'alias utilisé, ou `default` :
+    // la ligne de commande, le banc d'essai et les expériences le signalent alors (ADR 0004). 0,35 ne
+    // sert qu'aux tests.
     double MinScore = 0.35,
     int MaxAttempts = 2,
     double Temperature = 0.2,

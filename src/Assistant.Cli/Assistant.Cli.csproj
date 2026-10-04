@@ -9,4 +9,10 @@
     <ProjectReference Include="../Assistant.Infrastructure/Assistant.Infrastructure.csproj" />
     <InternalsVisibleTo Include="Assistant.Tests" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Sa propre copie (interne) de la lecture stricte partagée avec l'infrastructure : la ligne de
+         commande ne nomme pas l'infrastructure (ArchitectureTests), seule Composition la connaît. -->
+    <Compile Include="../Shared/TextFiles.cs" Link="Shared/TextFiles.cs" />
+    <Compile Include="../Shared/JsonText.cs" Link="Shared/JsonText.cs" />
+  </ItemGroup>
 </Project>

@@ -3,4 +3,9 @@
   <ItemGroup>
     <ProjectReference Include="../Assistant.Application/Assistant.Application.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Lecture stricte des fichiers et des réponses du service IA : même source dans Assistant.Cli. -->
+    <Compile Include="../Shared/TextFiles.cs" Link="Shared/TextFiles.cs" />
+    <Compile Include="../Shared/JsonText.cs" Link="Shared/JsonText.cs" />
+  </ItemGroup>
 </Project>

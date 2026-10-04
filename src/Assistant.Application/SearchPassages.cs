@@ -31,9 +31,9 @@ public sealed class SearchPassages
     /// puis cherche les <paramref name="topK"/> passages les plus proches parmi ceux que
     /// l'utilisateur peut lire. Les droits sont filtrés ici, avant tout prompt.
     /// L'index peut être reconstruit par un autre processus entre la vérification et la recherche
-    /// (<c>serve</c> relit le fichier quand il change) : on vérifie après coup que l'index interrogé
-    /// est bien celui qu'on a contrôlé, sinon on recommence une fois (y compris quand la recherche échoue
-    /// parce que le nouvel index a une autre dimension).
+    /// (<c>serve</c> relit le fichier quand il change) : la recherche ne porte que sur l'index contrôlé
+    /// (<c>indexId</c>), et l'index lève <see cref="IndexReplacedException"/> s'il a été remplacé
+    /// entre-temps, même par un index d'une autre dimension. On recommence alors une fois.
     /// </summary>
     public Retrieval Execute(User user, string question, int topK)
     {
@@ -50,19 +50,14 @@ public sealed class SearchPassages
             IReadOnlyList<Passage> passages;
             try
             {
-                passages = _index.Search(query.Vectors[0], topK, chunk => _access.CanRead(user, chunk));
+                passages = _index.Search(query.Vectors[0], topK, chunk => _access.CanRead(user, chunk), indexId: manifest.IndexId);
             }
-            catch (ArgumentException) when (!Unchanged(manifest))
+            catch (IndexReplacedException)
             {
-                continue;   // autre index, d'une autre dimension : on recommence ; même index, une vraie erreur
+                continue;
             }
-            if (Unchanged(manifest))
-            {
-                return new Retrieval(manifest, passages);
-            }
+            return new Retrieval(manifest, passages);
         }
         throw new IndexReplacedException();
     }
-
-    private bool Unchanged(IndexManifest manifest) => _index.Manifest()?.IndexId == manifest.IndexId;
 }
