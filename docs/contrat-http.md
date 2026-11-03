@@ -8,7 +8,13 @@ C'est lui, et non le langage, qui fait la frontière entre les deux. Il en est �
 version 1, figée le 11/09/2026.
 
 Le service expose quatre routes. Deux servent à vérifier qu'il répond et à savoir ce qu'il sert,
-les deux autres font le travail : l'une produit des vecteurs, l'autre du texte.
+les deux autres font le travail : l'une produit des vecteurs, l'autre du texte. L'index, lui, reste
+du côté de l'application.
+
+Une exploration antérieure de l'équipe faisait l'inverse : l'index vivait dans le service, avec les
+routes `/index/reset`, `/index/upsert` et `/index/search`, cette dernière filtrant par droits
+d'accès. Ce contrat ne reprend pas ces routes, et c'est voulu. La règle d'accès reste dans le
+domaine, et l'index reste une donnée de l'application.
 
 ## `GET /health` (ou `HEAD`)
 

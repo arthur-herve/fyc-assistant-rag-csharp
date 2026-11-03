@@ -6,7 +6,7 @@ on:
 
 jobs:
   csharp:
-    name: exemple S1.3 en C# · ${{ matrix.os }}
+    name: application C# · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -17,8 +17,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
-      - name: Compilation (avertissements en erreurs) — exemple S1.3
-        run: dotnet build exemples/s1.3-transfert-naif -warnaserror --nologo
+      - name: Compilation (avertissements en erreurs) — fil rouge et exemple S1.3
+        run: dotnet build FycAssistantRag.sln -warnaserror --nologo
+      - name: Tests (sans IA, sans réseau) — fil rouge
+        run: dotnet test FycAssistantRag.sln --no-build --nologo
   python:
     name: Python ${{ matrix.python }} (service IA, outil d'import) · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

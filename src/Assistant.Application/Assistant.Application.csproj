@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- L'application ne référence que le domaine. C'est elle qui définit les ports. -->
+  <ItemGroup>
+    <ProjectReference Include="../Assistant.Domain/Assistant.Domain.csproj" />
+  </ItemGroup>
+</Project>

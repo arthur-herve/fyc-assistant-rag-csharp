@@ -17,9 +17,12 @@ Aucune carte graphique n'est nécessaire. Un portable avec 8 Go de RAM suffit po
 | macOS | la même page (installeur .pkg, Arm64 ou x64 selon la puce), ou `brew install --cask dotnet-sdk@8` | `dotnet --version` |
 | Linux (Debian/Ubuntu) | `sudo apt install dotnet-sdk-8.0` (dépôt Microsoft, ou Ubuntu 22.04 et plus) | `dotnet --version` |
 
-`global.json` accepte aussi un SDK plus récent que le 8.0. Mais l'exemple de la séquence 1.3 vise
-.NET 8, et il lui faut donc le runtime 8. Il est livré avec le SDK 8. Si vous n'avez qu'un SDK 9 ou
+`global.json` accepte aussi un SDK plus récent que le 8.0. Mais l'application et les tests visent
+.NET 8, et il leur faut donc le runtime 8. Il est livré avec le SDK 8. Si vous n'avez qu'un SDK 9 ou
 10, installez en plus le runtime 8, depuis la même page (« .NET Runtime 8.0.x »).
+
+L'application n'utilise aucun paquet NuGet. Seul le projet de tests télécharge xUnit, une seule fois,
+au premier `dotnet test`. Cela ne pèse que quelques mégaoctets.
 
 ## 2. Python 3.11 ou plus, pour le service IA (5 min)
 
@@ -42,15 +45,22 @@ bibliothèque standard.
 | macOS | `xcode-select --install` ou `brew install git` |
 | Linux | `sudo apt install git` |
 
-Récupérez le dépôt, puis lancez les tests du service IA :
+Récupérez le dépôt. Le clone vous place sur `main`, le point de départ du cours, où l'application
+n'est pas encore écrite. Pour tester l'application, passez sur la branche de votre séquence, par
+exemple `etape/s2.2`, la première qui la contient. Lancez ensuite les tests des deux programmes :
 
 ```bash
 git clone https://github.com/arthur-herve/fyc-assistant-rag-csharp.git
 cd fyc-assistant-rag-csharp
+git switch etape/s2.2
+dotnet test --nologo                                   # l'application
 python -m unittest discover -s tests_python -t .       # le service IA et l'outil d'import du corpus
 ```
 
-La commande doit se terminer sans échec.
+Les deux commandes doivent se terminer sans échec. La première fois, la commande compile tout : elle
+est plus lente, c'est normal.
+
+Si tout passe, les deux programmes sont prêts.
 
 ## 4. Le mode hors-ligne (2 min)
 
@@ -75,12 +85,12 @@ sans rien avoir appris, et `extractive` recopie la phrase la plus proche de la q
 déterministes et se passent du réseau.
 
 `dotnet run` vérifie la compilation à chaque lancement, ce qui prend quelques secondes même quand il
-n'y a rien à recompiler. Pour aller plus vite, lancez `dotnet build exemples/s1.3-transfert-naif` une
-fois, puis ajoutez `--no-build` juste après `dotnet run`.
+n'y a rien à recompiler. Pour aller plus vite, lancez `dotnet build` une fois, puis ajoutez
+`--no-build` juste après `dotnet run`.
 
 Sous Windows, il arrive que les accents du service IA s'affichent mal dans le premier terminal. Tapez
 alors `set PYTHONIOENCODING=utf-8` dans cmd, ou `$env:PYTHONIOENCODING = "utf-8"` dans PowerShell,
-avant de relancer le service. L'exemple C#, lui, écrit toujours en UTF-8.
+avant de relancer le service. L'application C#, elle, écrit toujours en UTF-8.
 
 ## 5. Ollama, si vous le pouvez
 
