@@ -43,7 +43,7 @@ public sealed class AskQuestion
     /// <summary>
     /// Numérote les passages pour que le modèle puisse les citer. Quand le découpage a déjà mis le titre dans
     /// le morceau, il apparaît deux fois. On garde cette redondance de quelques mots : la retirer changerait les
-    /// prompts.
+    /// prompts, et donc les mesures déjà faites.
     /// </summary>
     public static string FormatPassages(IReadOnlyList<Passage> passages)
     {

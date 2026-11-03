@@ -66,34 +66,3 @@ jobs:
           dotnet run --project src/Assistant.Cli --no-build -- index
           dotnet run --project src/Assistant.Cli --no-build -- ask "Combien de jours de télétravail par semaine ?" | tee reponse.txt
           grep -q -F "statut=answered" reponse.txt || { echo "La question devait recevoir une réponse."; exit 1; }
-  exercice:
-    name: exercice S2.3 — rouge au départ, vert avec la correction
-    # Sur la branche de départ seulement : là où l'exercice est fait, le rouge attendu n'existe plus.
-    if: github.ref_name == 'etape/s2.3' || github.base_ref == 'etape/s2.3'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # tout l'historique, avec les tags des corrections
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "8.0.x"
-      - name: Tests attendus, restaurés comme le dit l'énoncé
-        run: git restore --source corrige/s2.3 -- tests/Assistant.Tests/HttpContractTests.cs tests/Assistant.Tests/AiServiceResponseTests.cs tests/Assistant.Tests/CliAskTests.cs
-      - name: Rouge attendu — la compilation ou les tests échouent
-        run: |
-          # Les paquets d'abord, pour qu'un échec de téléchargement ne passe pas pour le rouge attendu.
-          dotnet restore FycAssistantRag.sln
-          # Les erreurs de compilation attendues ne doivent pas s'afficher en annotations sur la page du run.
-          echo "::remove-matcher owner=csc::"
-          if dotnet build FycAssistantRag.sln -warnaserror --nologo && dotnet test FycAssistantRag.sln --no-build --nologo; then
-            echo "Les tests attendus passent avant la solution : le départ ne laisse plus rien à écrire."
-            exit 1
-          fi
-      - name: Solution de la correction — src/
-        # Le dossier entier, cette fois : src/ devient celui de la correction, y compris pour les fichiers qu'elle retire.
-        run: git restore --source corrige/s2.3 -- src/
-      - name: Vert attendu — tout passe, documents du départ compris
-        run: |
-          dotnet build FycAssistantRag.sln -warnaserror --nologo
-          dotnet test FycAssistantRag.sln --no-build --nologo

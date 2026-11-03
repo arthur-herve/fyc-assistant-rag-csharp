@@ -66,6 +66,11 @@ public sealed class CliTests : CliTestBase
     [Fact]
     public void A_call_without_a_command_is_an_error() => Assert.Equal(1, Run().Code);
 
+    [Theory]
+    [InlineData("l'option --json ne prend pas de valeur", "ask", Question, "--json=1")]
+    public void A_wrong_value_or_an_unknown_subcommand_is_refused_before_any_work(string message, params string[] argv) =>
+        AssertRefused(message, argv);
+
     [Fact]
     public void An_option_without_its_value_is_refused() =>
         Assert.Contains("Erreur : l'option --user attend une valeur", Run("ask", Question, "--config", _missing, "--user").Err);
@@ -121,7 +126,7 @@ public sealed class CliTests : CliTestBase
     }
 
     [Fact]
-    public void The_help_says_how_to_end_the_options()
+    public void The_help_says_how_to_end_the_options_and_bounds_limit()
     {
         var help = Run("--help").Out;
         // Les exemples de l'aide sont vérifiés par A_double_dash_ends_the_options (« -télétravail ») et
@@ -129,5 +134,6 @@ public sealed class CliTests : CliTestBase
         Assert.Contains("« -- » termine les options : ce qui suit est un argument, même un mot qui commence par un tiret "
                         + "(ask -- -télétravail) ; sans « -- », un tel mot n'est un argument que s'il est « - », un nombre négatif, ou si son "
                         + "nom (ce qui précède un éventuel « = ») contient une espace (ask \"-vingt degrés ?\").", help);
+        Assert.Contains("--limit N, au moins 1", help);
     }
 }

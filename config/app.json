@@ -12,6 +12,9 @@
   "index": {
     "path": "data/index.json"
   },
+  "snapshots": {
+    "directory": "eval/instantanes"
+  },
   "splitter": {
     "max_chars": 800,
     "overlap_chars": 120,

@@ -52,12 +52,12 @@ bibliothèque standard.
 
 Récupérez le dépôt. Le clone vous place sur `main`, le point de départ du cours, où l'application
 n'est pas encore écrite. Pour tester l'application, passez sur la branche de votre séquence, par
-exemple `etape/s2.3`. Lancez ensuite les tests des deux programmes :
+exemple `etape/s3.1`. Lancez ensuite les tests des deux programmes :
 
 ```bash
 git clone https://github.com/arthur-herve/fyc-assistant-rag-csharp.git
 cd fyc-assistant-rag-csharp
-git switch etape/s2.3
+git switch etape/s3.1
 dotnet test --nologo                                   # l'application
 python -m unittest discover -s tests_python -t .       # le service IA et l'outil d'import du corpus
 ```
@@ -180,7 +180,7 @@ production, placez-le derrière un proxy authentifié.
 
 | Symptôme | Cause probable | Que faire |
 |---|---|---|
-| `Service IA injoignable (http://127.0.0.1:8100/…)` | le service IA ne tourne pas dans le premier terminal | lancez `python -m ai_service` |
+| `Service IA injoignable (http://127.0.0.1:8100/…)`, ou, avec les expériences, `service IA injoignable (…). Lancez-le d'abord : python -m ai_service` | le service IA ne tourne pas dans le premier terminal | lancez `python -m ai_service` |
 | `HTTP 502 — … Ollama est-il lancé sur http://127.0.0.1:11434 ?` | Ollama est arrêté | `ollama serve` |
 | `HTTP 502 — empreinte de … introuvable … (modèles installés : …)` | le modèle n'est pas téléchargé, ou son nom n'est pas écrit comme dans `ollama list` | `ollama pull <modèle>`, ou corrigez `model` dans `config/ai_service.toml` |
 | `HTTP 502 — … a changé pendant l'appel` | un `ollama pull` a eu lieu pendant la requête | relancez la commande |
@@ -189,7 +189,7 @@ production, placez-le derrière un proxy authentifié.
 | `NETSDK1045`, ou un message sur la « version du SDK » | SDK plus ancien que 8.0 | installez le SDK 8.0 (étape 1) |
 | « You must install or update .NET to run this application » (`Microsoft.NETCore.App` 8.0) | un SDK 9 ou 10 seul, sans le runtime 8 | installez le runtime .NET 8 (étape 1) |
 | `python : commande introuvable` sous Windows | PATH non mis à jour pendant l'installation | utilisez `py`, ou réinstallez Python en cochant « Add python.exe to PATH » |
-| Réponses très lentes, plus d'une minute, avec `qwen3:4b` | le mode réflexion et son budget de jetons | c'est normal sur processeur seul. En dehors des manipulations qui changent de modèle, gardez `llama3.2:3b` |
+| Réponses très lentes, plus d'une minute, avec `qwen3:4b` | le mode réflexion et son budget de jetons | c'est normal sur processeur seul. En dehors des expériences, gardez `llama3.2:3b` |
 | `MemoryError`, ou Ollama qui se ferme | modèle trop gros pour la mémoire | prenez un modèle plus petit (`gemma3:1b`, `nomic-embed-text`) |
 
 ## Machine de référence du cours

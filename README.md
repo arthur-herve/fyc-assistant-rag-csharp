@@ -1,36 +1,68 @@
-# Fil rouge, correction de S2.3 : brancher le modèle
+# Fil rouge, étape S3.1 : non-déterminisme
 
-> **Correction de la séquence S2.3.** Ce tag, `corrige/s2.3`, est l'état du fil rouge à la fin de la
-> séquence. Il sert à comparer votre travail et à récupérer les tests attendus. L'application complète,
-> avec toute sa documentation, est sur la branche `final`.
+> **Branche d'étape.** Cette branche est l'état du fil rouge au début de la séquence S3.1. Certains
+> défauts y sont laissés exprès : la séquence les montre, et sa correction les pare. L'application
+> complète, avec toute sa documentation, est sur la branche `final`.
 
 ## Où en est le fil rouge
 
-Le fil rouge fonctionne de bout en bout, dans sa version idéale : le cœur ne connaît le modèle que par
-ses ports, les droits sont filtrés avant le prompt, et chaque réponse doit citer ses sources. On change
-de générateur par une option, sans toucher au cœur ni à l'index. La séquence S3.1 part de là, avec une
-question : un cas d'usage qui appelle un modèle reste-t-il une fonction déterministe, et sinon,
-comment le tester ?
+Le fil rouge est dans sa version idéale : le cœur ne connaît le modèle que par ses ports, les droits
+sont filtrés avant le prompt, et chaque réponse doit citer ses sources. Cette étape n'y ajoute que des
+instruments de mesure : les instantanés, qui figent les réponses à un jeu de questions, et l'expérience
+`stabilite`, qui pose plusieurs fois les mêmes questions sans rien changer. La séquence part de là pour
+montrer ce que devient un test quand le modèle tire au hasard.
 
-## Ce que la correction a changé
+## Ce que vous faites dans cette séquence
 
-Au départ de la séquence, le générateur était un bouchon, `MissingGenerator`, et `ask` s'arrêtait dès
-qu'il fallait générer. La correction écrit `HttpGenerator` dans
-`src/Assistant.Infrastructure/HttpAiClient.cs`, d'après `docs/contrat-http.md`. Il envoie à la route
-`/v1/generate` le prompt construit par l'application, vérifie que la réponse porte `model` et `text`, et
-rend le texte. `src/Assistant.Cli/Composition.cs` le construit à la place du bouchon, qui
-disparaît, et ni le domaine ni l'application ne bougent. Les tests de l'exercice vérifient le contrat du
-côté de la génération et lancent `ask` contre un faux service IA.
-
-Pour lire la correction dans le code et dans les tests :
+Toutes les manipulations se font hors ligne. Lancez le service IA dans un premier terminal avec
+`python -m ai_service`, puis construisez l'index dans un second :
 
 ```bash
-git diff origin/etape/s2.3 corrige/s2.3 -- src tests
+dotnet run --project src/Assistant.Cli -- index
 ```
 
-`docs/contrat-http.md` dit maintenant comment l'application lit les réponses du service. Le corrigé de
-l'énoncé, à la fin de `exercices/s2.3-adaptateur-de-generation/README.md`, répond aux questions de la
-séquence.
+1. Vérifiez d'abord que la promesse du cours est tenue. Les tests passent, ceux de la règle de
+   dépendance compris, et le générateur se remplace sur le même index sans toucher au cœur :
+
+   ```bash
+   dotnet test
+   dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?"
+   dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" --generation-model extractive-variante
+   ```
+
+   Les deux générateurs ne choisissent pas la même phrase, mais chacun cite sa source et redonne la
+   même réponse à chaque fois.
+
+2. Regardez ensuite la vidéo de la séquence.
+
+3. Passez à un générateur qui tire au hasard. `extractive-bruite` imite un modèle imparfait : il choisit
+   au hasard entre les deux phrases les plus proches de la question, et il oublie sa citation 3 fois sur
+   10. Posez-lui cinq fois la même question :
+
+   ```bash
+   dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" --generation-model extractive-bruite
+   ```
+
+   La phrase change d'une fois à l'autre, et la réponse devient parfois « non sourcée » : l'assistant
+   refuse alors de répondre et renvoie aux passages. Mesurez ensuite le phénomène sur les 24 questions de
+   `eval/questions.json`, posées trois fois de suite sans rien changer :
+
+   ```bash
+   dotnet run --project src/Assistant.Cli -- experience stabilite --runs 3 --generation-model extractive-bruite
+   ```
+
+   La commande affiche à la fin le chemin de son rapport. Celui-ci appelle chaque tour un « passage » et
+   compare les suivants au premier. Environ une réponse sur deux change d'un passage à l'autre, avec une
+   quinzaine de changements de statut entre `answered` et `unsourced`, et ces chiffres varient d'une
+   série à l'autre. Relancez la même commande sans `--generation-model` : avec `extractive`, rien ne
+   bouge.
+
+4. Faites enfin l'exercice de
+   [`exercices/s3.1-evaluation-statistique/README.md`](exercices/s3.1-evaluation-statistique/README.md),
+   dans `tests/Assistant.Tests/`, sans rien restaurer. Vous y écrivez d'abord le test à assertion exacte
+   qu'on écrirait sans y penser, et vous le lancez dix fois. Viennent ensuite un test déterministe de la
+   règle métier, puis une évaluation statistique dont vous choisissez la tolérance et calculez le risque
+   de faux échec. Vous comparez enfin les deux régimes de test.
 
 ## Démarrer
 
@@ -53,50 +85,14 @@ Dans un second terminal, construisez l'index, puis posez une question :
 
 ```bash
 dotnet run --project src/Assistant.Cli -- index
-dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?"
+dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" -v
 ```
 
-`index` affiche le nombre de documents et de morceaux qu'il a indexés. La réponse cite sa source avec
-`[1]`, ici la politique de télétravail, et se termine par une ligne qui donne son statut. Après chaque
-changement de branche, reconstruisez l'index avec `index` : le dossier `data/` n'est pas versionné, et
-l'index d'une autre étape n'a pas forcément le même format. Dans ce cas, l'application refuse de le lire
-et donne la commande qui le reconstruit.
-
-Posez ensuite la même question à alice et à bruno. alice n'est que dans le groupe `tous`, bruno est
-aussi aux RH. L'option `-v` affiche la trace de la réponse : les passages retrouvés, leurs scores et la
-sortie brute, c'est-à-dire le texte que `HttpGenerator` a rendu.
-
-```bash
-dotnet run --project src/Assistant.Cli -- ask "Quelle est la grille des salaires ?" --user alice -v
-dotnet run --project src/Assistant.Cli -- ask "Quelle est la grille des salaires ?" --user bruno -v
-```
-
-alice reçoit un refus : aucun document qu'elle a le droit de lire ne répond. La trace montre que la
-grille ne figure pas parmi ses passages, car elle a été écartée avant même la construction du prompt.
-bruno, lui, reçoit une réponse qui cite la grille des rémunérations.
-
-Posée autrement, « Quelle est la fourchette de salaire d'un consultant senior ? », la question donne la
-fourchette à bruno. alice n'obtient pas de refus, mais une phrase sans rapport tirée de la fiche des
-congés, avec un score de 0,154 pour un seuil de 0,15. La règle des droits tient, puisque la grille
-n'entre jamais dans son prompt.
-
-Enfin, le générateur se remplace sur le même index, sans toucher au cœur ni réindexer :
-
-```bash
-dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" --generation-model extractive-variante -v
-dotnet run --project src/Assistant.Cli -- ask "En combien de temps un incident P1 est-il pris en charge ?" --generation-model extractive-variante -v
-```
-
-`extractive-variante` est un autre générateur hors ligne. Il choisit sa phrase autrement
-qu'`extractive`, mais il cite toujours sa source et redonne la même réponse à chaque fois. Relancez les
-deux commandes sans `--generation-model` pour comparer : les passages retrouvés et leurs scores n'ont pas
-bougé, seule la réponse change. Sur la première question, la variante répond moins bien : sa phrase vient
-de la fiche du télétravail, mais elle ne donne pas le nombre de jours. Sur la seconde, elle répond mieux :
-elle donne le délai de prise en charge, là où `extractive` ne donne que le titre de la fiche. Ces
-questions ont été choisies pour montrer les deux sens : sur d'autres, quand la variante ne répond pas
-comme `extractive`, elle répond le plus souvent moins bien. Changer de générateur change les réponses,
-dans un sens ou dans l'autre, pas le cœur. Avec Ollama, essayez de même `--generation-model llama3-2-3b`
-sur la question du P1.
+`index` affiche le nombre de documents et de morceaux qu'il a indexés. La réponse se termine par une
+ligne qui donne son statut. Avec `-v`, elle est suivie de sa trace : les passages retrouvés, leurs
+scores et la sortie brute du modèle. Après chaque changement de branche, reconstruisez l'index avec
+`index` : le dossier `data/` n'est pas versionné, et l'index d'une autre étape n'a pas forcément le même
+format. Dans ce cas, l'application refuse de le lire et donne la commande qui le reconstruit.
 
 ## Les branches du cours
 

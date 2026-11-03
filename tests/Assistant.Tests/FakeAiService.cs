@@ -1,4 +1,4 @@
-// Le faux service IA des tests qui passent par HTTP : ceux de la ligne de commande. Un seul
+// Le faux service IA des tests qui passent par HTTP : ligne de commande et expériences. Un seul
 // double pour tous, sur un port libre (TestPorts), plutôt qu'un par fichier de tests.
 
 using System.Net;
@@ -9,13 +9,14 @@ using System.Text.Json.Nodes;
 namespace Assistant.Tests;
 
 /// <summary>
-/// Faux service IA qui respecte le contrat v1 : des embeddings par mots-clés et une génération
+/// Faux service IA qui respecte le contrat v1 : /health, des embeddings par mots-clés et une génération
 /// qui cite le premier passage. Chaque mot du vocabulaire a son axe, et un axe constant garantit qu'aucun vecteur
 /// n'est nul. Le modèle servi s'appelle « faux:&lt;alias&gt; », si bien que deux alias donnent deux modèles.
 /// </summary>
 public sealed class FakeAiService : IDisposable
 {
     private readonly HttpListener _listener;
+    private int _requests;
 
     public FakeAiService()
     {
@@ -25,6 +26,9 @@ public sealed class FakeAiService : IDisposable
     }
 
     public string Url { get; }
+
+    /// <summary>Le nombre de requêtes reçues, toutes routes confondues.</summary>
+    public int Requests => Volatile.Read(ref _requests);
 
     private async Task Serve()
     {
@@ -39,6 +43,7 @@ public sealed class FakeAiService : IDisposable
             {
                 return;
             }
+            Interlocked.Increment(ref _requests);
             object response;
             try
             {
@@ -61,6 +66,10 @@ public sealed class FakeAiService : IDisposable
     private async Task<object> Answer(HttpListenerRequest request)
     {
         var path = request.Url!.AbsolutePath;
+        if (path == "/health")
+        {
+            return new { status = "ok" };
+        }
         using var reader = new StreamReader(request.InputStream, Encoding.UTF8);
         var body = JsonNode.Parse(await reader.ReadToEndAsync())!.AsObject();
         var alias = body["model"]!.GetValue<string>();

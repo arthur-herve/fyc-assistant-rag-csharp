@@ -10,15 +10,20 @@ namespace Assistant.Cli;
 
 public sealed record Container(
     IndexCorpus IndexCorpus,
-    AskQuestion AskQuestion);
+    AskQuestion AskQuestion,
+    RecordSnapshot RecordSnapshot,
+    ISnapshotStore Snapshots,
+    IPromptRepository Prompts,
+    AskSettings Settings);
 
 /// <summary>
-/// Ce que la ligne de commande peut changer sans
+/// Ce que la ligne de commande et les expériences peuvent changer sans
 /// toucher au fichier de configuration : chaque champ nul garde la valeur configurée.
 /// </summary>
 public sealed record Overrides(
     string? EmbeddingModel = null,
-    string? GenerationModel = null);
+    string? GenerationModel = null,
+    string? SnapshotsDir = null);
 
 public static class Composition
 {
@@ -40,6 +45,7 @@ public static class Composition
                                              config.SplitterOverlapChars,
                                              config.SplitterIncludeTitle);
         var prompts = new FilePromptRepository(PromptsDir);
+        var clock = new SystemClock();
 
         var indexCorpus = new IndexCorpus(source, splitter, embedder, index);
         var settings = new AskSettings(
@@ -49,6 +55,24 @@ public static class Composition
             MaxTokens: config.MaxTokens,
             PromptName: config.PromptName);
         var askQuestion = new AskQuestion(embedder, index, generator, prompts, settings);
-        return new Container(indexCorpus, askQuestion);
+        var snapshots = new JsonSnapshotStore(overrides.SnapshotsDir ?? config.SnapshotsDir);
+        // L'empreinte de configuration d'un instantané : tout ce qui change les réponses côté application.
+        // Les réglages propres au service IA, comme le budget de réflexion, n'y figurent pas, parce qu'ils
+        // vivent dans l'autre déployable. C'est une limite à nommer, pas un oubli.
+        var configuration = new Dictionary<string, object?>
+        {
+            ["corpus"] = Path.GetFileName(config.CorpusDir.TrimEnd(Path.DirectorySeparatorChar, '/')),
+            ["embedding_model"] = embeddingModel,
+            ["generation_model"] = generationModel,
+            ["splitter"] = splitter.Describe(),
+            ["top_k"] = settings.TopK,
+            ["min_score"] = settings.MinScore,
+            ["temperature"] = settings.Temperature,
+            ["max_tokens"] = settings.MaxTokens,
+            ["prompt"] = settings.PromptName,
+        };
+        var recordSnapshot = new RecordSnapshot(askQuestion, snapshots, clock, configuration);
+        return new Container(indexCorpus, askQuestion, recordSnapshot, snapshots,
+                             prompts, settings);
     }
 }

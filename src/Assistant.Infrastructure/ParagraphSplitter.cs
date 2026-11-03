@@ -1,4 +1,5 @@
-// Adaptateur : découpage des documents en morceaux. Les paramètres de découpage changent les réponses.
+// Adaptateur : découpage des documents en morceaux. Les paramètres de découpage changent les
+// réponses, c'est pourquoi ils sont enregistrés dans la configuration des instantanés.
 //
 // MaxChars borne le texte du morceau en unités UTF-16, celles de string.Length, où un emoji compte pour deux.
 // Avec IncludeTitle, le titre du document s'y ajoute parce qu'il aide la recherche. Un morceau peut donc
@@ -32,6 +33,14 @@ public sealed class ParagraphSplitter : ITextSplitter
         OverlapChars = overlapChars;
         IncludeTitle = includeTitle;
     }
+
+    public IReadOnlyDictionary<string, object> Describe() => new Dictionary<string, object>
+    {
+        ["type"] = "paragraph",
+        ["max_chars"] = MaxChars,
+        ["overlap_chars"] = OverlapChars,
+        ["include_title"] = IncludeTitle,
+    };
 
     public IReadOnlyList<Chunk> Split(Document document)
     {

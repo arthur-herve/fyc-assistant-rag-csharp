@@ -1,0 +1,132 @@
+// Cas d'usage : figer le comportement du système, puis mesurer ce qui a bougé.
+// Un système dont un maillon est probabiliste ne se valide pas par des assertions exactes
+// (séquence 3.1). On enregistre donc ses réponses à un jeu de questions fixe, avec la
+// configuration qui les a produites. Puis on change UNE chose, on enregistre à nouveau et
+// on compare. Le taux de dérive n'a de sens que lu à côté des différences de configuration.
+
+using System.Text.RegularExpressions;
+using Assistant.Domain;
+
+namespace Assistant.Application;
+
+public sealed record SnapshotQuestion(string Id, User User, string Question);
+
+public sealed class RecordSnapshot
+{
+    // \z plutôt que $, qui accepterait un saut de ligne final dans le nom, et donc dans le chemin du fichier.
+    public static readonly Regex ValidName = new(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z", RegexOptions.Compiled);
+
+    private readonly AskQuestion _ask;
+    private readonly ISnapshotStore _store;
+    private readonly IClock _clock;
+    private readonly IReadOnlyDictionary<string, object?> _configuration;
+
+    public RecordSnapshot(AskQuestion ask, ISnapshotStore store, IClock clock,
+                          IReadOnlyDictionary<string, object?> configuration)
+    {
+        _ask = ask;
+        _store = store;
+        _clock = clock;
+        _configuration = configuration;
+    }
+
+    public Snapshot Execute(string name, IReadOnlyList<SnapshotQuestion> questions)
+    {
+        if (!ValidName.IsMatch(name))
+        {
+            throw new InvalidSnapshotNameException(name);   // avant de poser la moindre question
+        }
+        var configuration = new SortedDictionary<string, object?>(_configuration.ToDictionary(kv => kv.Key, kv => kv.Value), StringComparer.Ordinal);
+        var entries = new List<SnapshotEntry>();
+        foreach (var q in questions)
+        {
+            // Une erreur comme un index absent, un modèle incompatible ou un service IA en panne
+            // toucherait toutes les questions. On la laisse remonter plutôt que d'enregistrer
+            // autant d'entrées en erreur.
+            var answer = _ask.Execute(q.User, q.Question);
+            entries.Add(new SnapshotEntry(
+                q.Id, q.User.Id, q.Question, StatusNames.Of(answer.Status),
+                answer.Sources.Select(s => s.DocumentId).Distinct().OrderBy(d => d, StringComparer.Ordinal).ToList(),
+                answer.Text));
+        }
+        var snapshot = new Snapshot(name, _clock.Now().ToString("yyyy-MM-dd'T'HH:mm:ssK"), configuration, entries);
+        _store.Save(snapshot);
+        return snapshot;
+    }
+}
+
+/// <summary>
+/// Natures d'écart, de la moins visible à la plus visible. « Moins visible » ne veut pas dire bénin :
+/// un texte modifié peut dire le contraire du précédent avec les mêmes sources.
+/// </summary>
+public static class DifferenceKind
+{
+    public const string Identical = "identique";
+    public const string TextChanged = "texte modifié";        // mêmes sources, même statut : texte à relire
+    public const string SourcesChanged = "sources modifiées"; // la réponse ne s'appuie plus sur le même matériau
+    public const string StatusChanged = "statut modifié";     // un refus devient une réponse, ou l'inverse
+    public const string Missing = "absente d'un des deux";
+}
+
+public sealed record EntryDifference(string QuestionId, string Kind, SnapshotEntry? Before, SnapshotEntry? After);
+
+public sealed record ConfigurationDifference(string Key, object? Before, object? After);
+
+public sealed record SnapshotComparison(
+    string Baseline,
+    string Candidate,
+    IReadOnlyList<ConfigurationDifference> ConfigurationDifferences,
+    IReadOnlyList<EntryDifference> Differences)
+{
+    public int Compared => Differences.Count(d => d.Kind != DifferenceKind.Missing);
+    public int Changed => Differences.Count(d => d.Kind != DifferenceKind.Identical && d.Kind != DifferenceKind.Missing);
+    public double? DriftRate => Compared == 0 ? null : Math.Round((double)Changed / Compared, 3);
+    public int Count(string kind) => Differences.Count(d => d.Kind == kind);
+}
+
+public static class SnapshotComparer
+{
+    /// <summary>Fonction pure : aucune dépendance, testable exhaustivement.</summary>
+    public static SnapshotComparison Compare(Snapshot baseline, Snapshot candidate)
+    {
+        var keys = baseline.Configuration.Keys.Union(candidate.Configuration.Keys).OrderBy(k => k, StringComparer.Ordinal);
+        // Les valeurs sont comparées sous leur forme canonique (ConfigurationValues.Canonical). Ainsi, 4 et 4.0
+        // sont égaux, de même qu'un dictionnaire relu du disque et le même construit en mémoire.
+        var configDiff = keys
+            .Select(k => new ConfigurationDifference(k, baseline.Configuration.GetValueOrDefault(k), candidate.Configuration.GetValueOrDefault(k)))
+            .Where(d => ConfigurationValues.Canonical(d.Before) != ConfigurationValues.Canonical(d.After))
+            .ToList();
+        var before = baseline.Entries.GroupBy(e => e.QuestionId).ToDictionary(g => g.Key, g => g.Last());
+        var after = candidate.Entries.GroupBy(e => e.QuestionId).ToDictionary(g => g.Key, g => g.Last());
+        var order = before.Keys.Concat(after.Keys.Where(k => !before.ContainsKey(k))).ToList();
+        var differences = new List<EntryDifference>();
+        foreach (var id in order)
+        {
+            var a = before.GetValueOrDefault(id);
+            var b = after.GetValueOrDefault(id);
+            string kind;
+            if (a is null || b is null)
+            {
+                kind = DifferenceKind.Missing;
+            }
+            else if (a.Status != b.Status)
+            {
+                kind = DifferenceKind.StatusChanged;
+            }
+            else if (!a.CitedDocuments.SequenceEqual(b.CitedDocuments))
+            {
+                kind = DifferenceKind.SourcesChanged;
+            }
+            else if (a.Text.Trim() != b.Text.Trim())
+            {
+                kind = DifferenceKind.TextChanged;
+            }
+            else
+            {
+                kind = DifferenceKind.Identical;
+            }
+            differences.Add(new EntryDifference(id, kind, a, b));
+        }
+        return new SnapshotComparison(baseline.Name, candidate.Name, configDiff, differences);
+    }
+}

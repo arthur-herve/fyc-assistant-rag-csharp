@@ -51,7 +51,7 @@ public abstract class CliTestBase : IDisposable
     }
 
     /// <summary>Le seuil vaut 0,15, celui de « hashing » sur le corpus Solvéo.</summary>
-    protected string WriteConfig(string aiUrl)
+    protected string WriteConfig(string aiUrl, string corpus = "corpus/solveo")
     {
         var path = Path.Combine(_dir, "app.json");
         File.WriteAllText(path, new JsonObject
@@ -60,11 +60,20 @@ public abstract class CliTestBase : IDisposable
             {
                 ["base_url"] = aiUrl, ["embedding_model"] = "hashing", ["generation_model"] = "extractive", ["timeout_seconds"] = 5,
             },
-            ["corpus"] = new JsonObject { ["directory"] = "corpus/solveo" },
+            ["corpus"] = new JsonObject { ["directory"] = corpus },
             ["index"] = new JsonObject { ["path"] = Path.Combine(_dir, "index.json") },
+            ["snapshots"] = new JsonObject { ["directory"] = Path.Combine(_dir, "instantanes") },
             ["retrieval"] = new JsonObject { ["min_score"] = 0.15 },
             ["users"] = new JsonObject { ["alice"] = new JsonObject { ["groups"] = new JsonArray("tous") } },
         }.ToJsonString());
+        return path;
+    }
+
+    /// <summary>Un jeu d'une seule question, posée par alice, que connaissent toutes les configurations.</summary>
+    protected string WriteQuestions()
+    {
+        var path = Path.Combine(_dir, "questions.json");
+        File.WriteAllText(path, """{"questions": [{"id": "tt", "user": "alice", "question": "Combien de jours de télétravail ?"}]}""");
         return path;
     }
 

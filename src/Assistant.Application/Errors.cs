@@ -37,6 +37,22 @@ public sealed class AiServiceException : AssistantApplicationException
     }
 }
 
+public sealed class InvalidSnapshotNameException : AssistantApplicationException
+{
+    public InvalidSnapshotNameException(string name)
+        : base($"nom d'instantané invalide : « {name} » (lettres, chiffres, . _ - ; 64 caractères au plus)") { }
+}
+
+/// <summary>
+/// Aucun instantané ne porte ce nom. Le port <see cref="ISnapshotStore"/> prévoit cette exception. Le message
+/// liste les noms connus, séparés par des virgules, ou dit « aucun » s'il n'y en a pas.
+/// </summary>
+public sealed class SnapshotNotFoundException : AssistantApplicationException
+{
+    public SnapshotNotFoundException(string name, IReadOnlyList<string> known)
+        : base($"instantané introuvable : {name} (connus : {(known.Count > 0 ? string.Join(", ", known) : "aucun")})") { }
+}
+
 /// <summary>
 /// Aucun prompt ne porte ce nom. Le port <see cref="IPromptRepository"/> prévoit cette exception. Le message donne le
 /// nom cherché, l'endroit où on l'a cherché et les prompts connus, pour qu'une faute de frappe se corrige d'un coup

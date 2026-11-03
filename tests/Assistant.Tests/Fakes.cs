@@ -34,12 +34,23 @@ public sealed class KeywordEmbedder : IEmbedder
 public sealed class ScriptedGenerator : IGenerator
 {
     private readonly string[] _outputs;
+    public string Model { get; }
     public List<GenerationRequest> Requests { get; } = new();
 
     public ScriptedGenerator(params string[] outputs)
     {
+        Model = "fake-llm";
         _outputs = outputs;
     }
+
+    private ScriptedGenerator(string model, string[] outputs)
+    {
+        Model = model;
+        _outputs = outputs;
+    }
+
+    /// <summary>Un générateur qui porte un autre nom de modèle.</summary>
+    public static ScriptedGenerator WithModel(string model, params string[] outputs) => new(model, outputs);
 
     public string Generate(GenerationRequest request)
     {
@@ -86,12 +97,29 @@ public sealed class WholeDocumentSplitter : ITextSplitter
 {
     public IReadOnlyList<Chunk> Split(Document d) =>
         d.Text.Length == 0 ? Array.Empty<Chunk>() : new[] { new Chunk($"{d.Id}#0", d.Id, d.Title, d.Text, 0, d.AllowedGroups) };
+
+    public IReadOnlyDictionary<string, object> Describe() => new Dictionary<string, object> { ["type"] = "whole" };
 }
 
 public sealed class StaticPrompts : IPromptRepository
 {
     public PromptTemplate Get(string name) =>
         new(name, "Cite tes sources.", "Passages :\n{passages}\n\nQuestion : {question}");
+}
+
+/// <summary>Toujours la même heure : deux instantanés se comparent octet pour octet.</summary>
+public sealed class FixedClock : IClock
+{
+    public DateTimeOffset Moment { get; } = new(2026, 9, 11, 12, 0, 0, TimeSpan.Zero);
+    public DateTimeOffset Now() => Moment;
+}
+
+public sealed class MemorySnapshotStore : ISnapshotStore
+{
+    public Dictionary<string, Snapshot> Saved { get; } = new();
+    public void Save(Snapshot snapshot) => Saved[snapshot.Name] = snapshot;
+    public Snapshot Load(string name) => Saved[name];
+    public IReadOnlyList<string> Names() => Saved.Keys.Order().ToList();
 }
 
 public static class Build

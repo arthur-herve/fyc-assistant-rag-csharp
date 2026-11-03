@@ -8,8 +8,8 @@ using System.Text;
 namespace Assistant;
 
 /// <summary>
-/// Tous les textes que lit l'application sont en UTF-8 : le corpus, les prompts, l'index et les
-/// réponses du service IA, et côté ligne de commande la configuration. La marque d'ordre des
+/// Tous les textes que lit l'application sont en UTF-8 : le corpus, les prompts, les instantanés, l'index et les
+/// réponses du service IA, et côté ligne de commande la configuration et les jeux de questions. La marque d'ordre des
 /// octets (BOM) qu'ajoutent certains éditeurs sous Windows est acceptée. Un fichier enregistré dans un autre encodage,
 /// en latin-1 par exemple, donne une erreur qui indique où se trouve l'octet fautif. On ne lit jamais un texte truffé
 /// de « � », comme le ferait File.ReadAllText, qui remplace les octets invalides sans rien dire.

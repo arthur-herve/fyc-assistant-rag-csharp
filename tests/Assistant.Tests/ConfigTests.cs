@@ -203,8 +203,8 @@ public sealed class ConfigTests : IDisposable
         if (accepted)
         {
             var config = Load(json);
-            Assert.Equal((maxChars ?? defaults.MaxChars, overlapChars ?? defaults.OverlapChars, defaults.IncludeTitle),
-                         (config.SplitterMaxChars, config.SplitterOverlapChars, config.SplitterIncludeTitle));
+            Assert.Equal(new ParagraphSplitter(maxChars ?? defaults.MaxChars, overlapChars ?? defaults.OverlapChars).Describe(),
+                         new ParagraphSplitter(config.SplitterMaxChars, config.SplitterOverlapChars, config.SplitterIncludeTitle).Describe());
         }
         else
         {

@@ -13,6 +13,10 @@ Le corpus réduit a la taille que demande le cahier des charges de la séquence 
 dizaines de documents ». Il s'indexe en une vingtaine de secondes avec `bge-m3` sur la machine de
 référence, qui dispose d'une carte graphique, et presque instantanément avec `hashing`.
 
+Les deux corpus Service-Public partagent le même jeu de questions,
+`eval/questions-service-public.json`. Toutes les fiches que ces questions attendent se trouvent dans
+le corpus réduit, et les questions hors corpus le restent dans les deux.
+
 ## Format des documents
 
 Chaque document est un fichier Markdown qui commence par un en-tête placé entre deux lignes `---`.
@@ -107,7 +111,8 @@ Les utilisateurs de démonstration sont définis dans `config/app-ollama.json`. 
 Le corpus réduit est un sous-ensemble figé du corpus complet : ce sont les mêmes fichiers, copiés sans
 modification. Il réunit deux sortes de fiches.
 
-D'abord 39 fiches retenues pour poser des questions sur le corpus.
+D'abord 39 fiches retenues pour des questions : les 37 que cite `eval/questions-service-public.json`,
+dans ses champs `expected_documents` et `forbidden_documents`, et deux autres des mêmes dossiers.
 
 Ensuite 11 fiches de diversion, prises pour l'essentiel dans des dossiers que les questions ne
 couvrent pas : représentation du personnel, contrats de travail, licenciement économique, handicap,

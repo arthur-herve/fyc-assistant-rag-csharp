@@ -41,7 +41,7 @@ public class IndexFileTests
         }
     }
 
-    /// <summary>Les mêmes cas de JSON non strict que pour la configuration.</summary>
+    /// <summary>Les mêmes cas de JSON non strict que pour les instantanés.</summary>
     public static TheoryData<string, string> NotStrict => new()
     {
         { Index.Replace("\"document_id\": \"a\"", "\"document_id\": \"a\", \"document_id\": \"autre\""), "clé « document_id » en double" },

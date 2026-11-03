@@ -84,4 +84,76 @@ public static class Presenter
         }
         return lines.ToString().TrimEnd();
     }
+
+    /// <summary>
+    /// La comparaison pour la console : les lignes de <see cref="ComparisonLines"/>, avec les fins de ligne du système.
+    /// </summary>
+    public static string ComparisonToText(SnapshotComparison c) =>
+        string.Join(Environment.NewLine, ComparisonLines(c));
+
+    /// <summary>
+    /// Les lignes de la comparaison, sans fin de ligne. Le texte d'une réponse y reste tel quel.
+    /// </summary>
+    public static List<string> ComparisonLines(SnapshotComparison c)
+    {
+        var lines = new List<string> { $"Comparaison : {c.Baseline} → {c.Candidate}", "", "Différences de configuration" };
+        if (c.ConfigurationDifferences.Count > 0)
+        {
+            foreach (var d in c.ConfigurationDifferences)
+            {
+                lines.Add($"  - {d.Key} : {ConfigurationValues.Canonical(d.Before)} → {ConfigurationValues.Canonical(d.After)}");
+            }
+        }
+        else
+        {
+            lines.Add("  (aucune : même configuration des deux côtés)");
+        }
+        lines.Add("");
+        lines.Add("Dérive");
+        lines.Add($"  questions comparées : {c.Compared}");
+        lines.Add($"  réponses modifiées  : {c.Changed}");
+        lines.Add($"  taux de dérive      : {(c.DriftRate is null ? "—" : c.DriftRate.Value.ToString("P0", CultureInfo.InvariantCulture))}");
+        lines.Add("");
+        lines.Add("| Nature | Nombre | Lecture |");
+        lines.Add("|---|---|---|");
+        var readings = new (string Kind, string Reading)[]
+        {
+            (DifferenceKind.StatusChanged, "changement de comportement : refus devenu réponse, ou l'inverse"),
+            (DifferenceKind.SourcesChanged, "même décision, autres documents cités"),
+            (DifferenceKind.TextChanged, "mêmes sources, même statut, texte différent : à relire, le sens a pu changer (Oui devenu Non…)"),
+            (DifferenceKind.Identical, "rien n'a bougé"),
+            (DifferenceKind.Missing, "question présente d'un seul côté"),
+        };
+        foreach (var (kind, reading) in readings)
+        {
+            lines.Add($"| {kind} | {c.Count(kind)} | {reading} |");
+        }
+        var changes = c.Differences.Where(d => d.Kind != DifferenceKind.Identical && d.Kind != DifferenceKind.Missing).ToList();
+        if (changes.Count > 0)
+        {
+            lines.Add("");
+            foreach (var d in changes)
+            {
+                lines.Add($"{d.QuestionId} [{d.Kind}]");
+                lines.Add($"  avant : {d.Before!.Status} [{string.Join(", ", d.Before.CitedDocuments)}] « {Head(d.Before.Text)} »");
+                lines.Add($"  après : {d.After!.Status} [{string.Join(", ", d.After.CitedDocuments)}] « {Head(d.After.Text)} »");
+            }
+        }
+        return lines;
+    }
+
+    /// <summary>
+    /// Les 90 premiers caractères Unicode (points de code), et non 90 unités UTF-16 : un emoji compte pour un et n'est
+    /// jamais coupé en deux, ce qui afficherait « � ». Une moitié de paire isolée compte aussi pour un et reste
+    /// telle quelle.
+    /// </summary>
+    private static string Head(string text)
+    {
+        var end = 0;
+        for (var count = 0; count < 90 && end < text.Length; count++)
+        {
+            end += char.IsSurrogatePair(text, end) ? 2 : 1;
+        }
+        return text[..end];
+    }
 }

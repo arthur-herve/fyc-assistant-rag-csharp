@@ -7,5 +7,6 @@ __pycache__/
 *.pyc
 data/
 eval/instantanes/
+eval/resultats/
 # Archive de la DILA téléchargée par tools/import_service_public.py --download
 vosdroits-latest.zip

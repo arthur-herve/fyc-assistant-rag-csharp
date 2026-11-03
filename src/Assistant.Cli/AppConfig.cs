@@ -31,6 +31,7 @@ public sealed record AppConfig(
     TimeSpan Timeout,
     string CorpusDir,
     string IndexPath,
+    string SnapshotsDir,
     int SplitterMaxChars,
     int SplitterOverlapChars,
     bool SplitterIncludeTitle,
@@ -48,10 +49,11 @@ public sealed record AppConfig(
     /// </summary>
     private static readonly Dictionary<string, string[]> KnownKeys = new(StringComparer.Ordinal)
     {
-        [""] = new[] { "ai_service", "corpus", "index", "splitter", "retrieval", "generation", "users" },
+        [""] = new[] { "ai_service", "corpus", "index", "snapshots", "splitter", "retrieval", "generation", "users" },
         ["ai_service"] = new[] { "base_url", "embedding_model", "generation_model", "timeout_seconds" },
         ["corpus"] = new[] { "directory" },
         ["index"] = new[] { "path" },
+        ["snapshots"] = new[] { "directory" },
         ["splitter"] = new[] { "max_chars", "overlap_chars", "include_title" },
         ["retrieval"] = new[] { "top_k", "min_score" },
         ["generation"] = new[] { "prompt", "temperature", "max_tokens" },
@@ -85,6 +87,63 @@ public sealed record AppConfig(
 
     /// <summary>Racine du projet : le dossier qui contient config/, corpus/, prompts/.</summary>
     public static string ProjectRoot { get; } = FindProjectRoot();
+
+    /// <summary>
+    /// Le dossier de sortie par défaut, daté à la seconde, par exemple « 20261001-164152 ». Une expérience passe
+    /// le <paramref name="prefix"/> « exp-&lt;nom&gt;- ». Le dossier est toujours sous la
+    /// racine du projet, d'où qu'on lance la commande, mais son chemin est relatif à <paramref name="from"/>, le
+    /// dossier courant par défaut. Depuis la racine, il s'affiche donc « eval/resultats/… ».
+    /// </summary>
+    public static string ResultsDir(string prefix, DateTime now, string? from = null) =>
+        Path.GetRelativePath(from ?? Directory.GetCurrentDirectory(),
+                             Path.Combine(ProjectRoot, "eval", "resultats", prefix + now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)));
+
+    /// <summary>
+    /// Crée un dossier neuf et renvoie le nom retenu : <paramref name="path"/> s'il est libre, sinon « path-2 »,
+    /// « path-3 », et ainsi de suite. Cela sert au dossier de sortie par défaut, daté à la seconde
+    /// (<see cref="ResultsDir"/>) : deux expériences lancées dans la même seconde, par un script ou depuis deux
+    /// terminaux, n'écrivent pas dans le même dossier.
+    /// Directory.CreateDirectory réussit aussi sur un dossier qui existe, et vérifier avant de créer laisserait deux
+    /// processus prendre le même nom. Le choix du nom et la création se font donc sous un Mutex nommé, un verrou
+    /// commun à tous les processus de la machine.
+    /// </summary>
+    public static string CreateNewDir(string path)
+    {
+        using var naming = new Mutex(false, NewDirLock);
+        try
+        {
+            naming.WaitOne();
+        }
+        catch (AbandonedMutexException)
+        {
+            // Un processus s'est arrêté en tenant le verrou : il nous revient quand même.
+        }
+        try
+        {
+            for (var number = 1; ; number++)
+            {
+                var candidate = number == 1 ? path : $"{path}-{number}";
+                if (!Path.Exists(candidate))   // ni dossier ni fichier de ce nom
+                {
+                    Directory.CreateDirectory(candidate);
+                    return candidate;
+                }
+            }
+        }
+        finally
+        {
+            naming.ReleaseMutex();
+        }
+    }
+
+    /// <summary>
+    /// Le nom du verrou de <see cref="CreateNewDir"/>. Le préfixe « Global\ » le rend commun à tous les processus,
+    /// même lancés depuis deux terminaux. Sans lui, sous Linux, chaque session, donc chaque terminal, aurait le sien.
+    /// </summary>
+    private const string NewDirLock = @"Global\fyc-assistant-rag-dossiers-de-sortie";
+
+    /// <summary>Le fichier d'où vient cette configuration, cité dans les rapports.</summary>
+    public string Source { get; init; } = "";
 
     public static AppConfig Load(string? path = null)
     {
@@ -131,6 +190,7 @@ public sealed record AppConfig(
             Timeout: TimeSpan.FromSeconds(Value(ai, "timeout_seconds", Where("ai_service"), 300.0, min: 1, max: MaxTimeoutSeconds)),
             CorpusDir: Rel(Value<string>(Section(raw, "corpus", path), "directory", Where("corpus"))),
             IndexPath: Rel(Value<string>(Section(raw, "index", path), "path", Where("index"))),
+            SnapshotsDir: Rel(Value(Section(raw, "snapshots", path, required: false), "directory", Where("snapshots"), "eval/instantanes")),
             SplitterMaxChars: maxChars,
             SplitterOverlapChars: Value(splitter, "overlap_chars", Where("splitter"), 120, min: 0, max: maxChars / 2 - 1),
             SplitterIncludeTitle: Value(splitter, "include_title", Where("splitter"), true),
@@ -142,7 +202,10 @@ public sealed record AppConfig(
             Users: Entries(users).ToDictionary(
                 kv => kv.Key,
                 kv => (IReadOnlySet<string>)Groups(Section(users, kv.Key, path, parent: "users"), Where($"users.{kv.Key}")),
-                StringComparer.Ordinal));
+                StringComparer.Ordinal))
+        {
+            Source = path,
+        };
     }
 
     public User User(string name) =>
