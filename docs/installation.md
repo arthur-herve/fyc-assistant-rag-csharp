@@ -52,12 +52,12 @@ bibliothèque standard.
 
 Récupérez le dépôt. Le clone vous place sur `main`, le point de départ du cours, où l'application
 n'est pas encore écrite. Pour tester l'application, passez sur la branche de votre séquence, par
-exemple `etape/s3.1`. Lancez ensuite les tests des deux programmes :
+exemple `etape/s3.2`. Lancez ensuite les tests des deux programmes :
 
 ```bash
 git clone https://github.com/arthur-herve/fyc-assistant-rag-csharp.git
 cd fyc-assistant-rag-csharp
-git switch etape/s3.1
+git switch etape/s3.2
 dotnet test --nologo                                   # l'application
 python -m unittest discover -s tests_python -t .       # le service IA et l'outil d'import du corpus
 ```
