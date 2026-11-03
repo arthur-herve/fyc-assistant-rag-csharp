@@ -138,7 +138,7 @@ public static class Build
     }
 
     public static AskQuestion Ask(IGenerator generator, IVectorIndex? index = null,
-                                  double minScore = 0.5) =>
+                                  double minScore = 0.5, int maxAttempts = 2, int? seed = null) =>
         new(new KeywordEmbedder(), index ?? Indexed(), generator, new StaticPrompts(),
-            new AskSettings(MinScore: minScore));
+            new AskSettings(MinScore: minScore, MaxAttempts: maxAttempts, Seed: seed));
 }

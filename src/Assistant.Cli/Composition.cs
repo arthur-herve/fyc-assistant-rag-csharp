@@ -23,6 +23,7 @@ public sealed record Container(
 public sealed record Overrides(
     string? EmbeddingModel = null,
     string? GenerationModel = null,
+    int? Seed = null,
     string? SnapshotsDir = null);
 
 public static class Composition
@@ -51,8 +52,10 @@ public static class Composition
         var settings = new AskSettings(
             TopK: config.TopK,
             MinScore: config.MinScore,
+            MaxAttempts: config.MaxAttempts,
             Temperature: config.Temperature,
             MaxTokens: config.MaxTokens,
+            Seed: overrides.Seed ?? config.Seed,
             PromptName: config.PromptName);
         var askQuestion = new AskQuestion(embedder, index, generator, prompts, settings);
         var snapshots = new JsonSnapshotStore(overrides.SnapshotsDir ?? config.SnapshotsDir);
@@ -69,7 +72,9 @@ public static class Composition
             ["min_score"] = settings.MinScore,
             ["temperature"] = settings.Temperature,
             ["max_tokens"] = settings.MaxTokens,
+            ["seed"] = settings.Seed,
             ["prompt"] = settings.PromptName,
+            ["max_attempts"] = settings.MaxAttempts,
         };
         var recordSnapshot = new RecordSnapshot(askQuestion, snapshots, clock, configuration);
         return new Container(indexCorpus, askQuestion, recordSnapshot, snapshots,

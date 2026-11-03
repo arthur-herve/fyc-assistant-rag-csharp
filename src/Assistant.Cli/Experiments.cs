@@ -2,7 +2,7 @@
 // rejouent sur l'application propre les « ruptures » de la problématique : stabilite pose plusieurs fois
 // les mêmes questions, sans rien changer, pour mesurer le non-déterminisme.
 //
-//     assistant experience stabilite             [--runs 3]
+//     assistant experience stabilite             [--runs 3] [--seed 42]
 
 using System.Diagnostics;
 using System.Globalization;
@@ -51,14 +51,21 @@ public sealed class Experiment
     /// L'index et les instantanés vivent dans le dossier de l'expérience, rien n'est donc écrasé ailleurs.
     /// Les options communes (--embedding-model, --generation-model) s'appliquent.
     /// </summary>
-    public Container Build(string indexName) =>
-        Composition.Build(Config with { IndexPath = Path.Combine(OutDir, $"index-{indexName}.json") },
-                          _common with { SnapshotsDir = Path.Combine(OutDir, "instantanes") });
+    public Container Build(string indexName, Overrides? overrides = null)
+    {
+        var o = overrides ?? new Overrides();
+        return Composition.Build(Config with { IndexPath = Path.Combine(OutDir, $"index-{indexName}.json") }, o with
+        {
+            EmbeddingModel = o.EmbeddingModel ?? _common.EmbeddingModel,
+            GenerationModel = o.GenerationModel ?? _common.GenerationModel,
+            SnapshotsDir = Path.Combine(OutDir, "instantanes"),
+        });
+    }
 
     /// <summary>Indexe le corpus et affiche une ligne de progression en console, comme <see cref="Record"/>.</summary>
-    public (Container Container, IndexSummary Summary) Index(string indexName)
+    public (Container Container, IndexSummary Summary) Index(string indexName, Overrides? overrides = null)
     {
-        var container = Build(indexName);
+        var container = Build(indexName, overrides);
         var clock = Stopwatch.StartNew();
         var summary = container.IndexCorpus.Execute();
         var seconds = clock.Elapsed.TotalSeconds;
@@ -205,13 +212,15 @@ public static class Experiments
     private static void Stabilite(Experiment exp, Args args)
     {
         var runs = args.Int("--runs") ?? 3;
+        var seed = args.Int("--seed");
 
-        var (container, summary) = exp.Index("partage");
+        var (container, summary) = exp.Index("partage", new Overrides(Seed: seed));
+        var effectiveSeed = container.Settings.Seed;   // --seed, sinon la graine de la configuration
         var snapshots = Enumerable.Range(1, runs).Select(i => exp.Record($"passage-{i}", container)).ToList();
 
         exp.Log($"Rien ne change entre les passages : même index ({summary.ChunkCount} morceaux, `{snapshots[0].Configuration.GetValueOrDefault("embedding_model")}`), "
                 + $"même générateur `{snapshots[0].Configuration.GetValueOrDefault("generation_model")}`, "
-                + $"même prompt, même seuil, température {exp.Config.Temperature}.");
+                + $"même prompt, même seuil, température {exp.Config.Temperature}, graine {(effectiveSeed?.ToString(CultureInfo.InvariantCulture) ?? "aucune")}.");
         exp.Log("");
         exp.Log("## Chaque passage comparé au premier");
         exp.Log("");
@@ -247,22 +256,25 @@ public static class Experiments
     }
 
     /// <summary>
-    /// La lecture du rapport de stabilité décrit la mesure, et rien de plus. Si aucune réponse n'a bougé, elle dit que
-    /// ce générateur s'est montré déterministe et explique comment obtenir des réponses qui bougent. Ce qu'une dérive
-    /// mesurée change pour les tests, elle ne le dit pas : c'est la question de l'exercice S3.1.
+    /// La lecture du rapport de stabilité suit la mesure. Si aucune réponse n'a bougé, elle n'affirme pas qu'un test par
+    /// assertion exacte échouerait au hasard sur ces réponses. Elle dit que ce générateur s'est montré déterministe et
+    /// explique comment obtenir des réponses qui bougent.
     /// </summary>
     public static IReadOnlyList<string> StabilityReading(IEnumerable<SnapshotComparison> comparisons)
     {
-        return comparisons.Any(c => c.Changed > 0)
+        var lines = comparisons.Any(c => c.Changed > 0)
             ? new List<string>
             {
-                "- Des réponses ont bougé alors que rien n'a changé entre les passages : ni l'index, ni le générateur, ni le prompt, ni le seuil, ni la température. Le taux de dérive compte les réponses modifiées, et les questions marquées ⚠ n'ont pas gardé le même statut.",
-                "- Le texte change souvent d'un passage à l'autre, et un « texte modifié » peut inverser la réponse (Oui devenu Non) : il se relit, la couverture des mots-clés le mesure grossièrement.",
+                "- C'est la mesure de base de la séquence 3.1 : un test par assertion exacte sur ces réponses échouerait au hasard. On teste donc une *proportion* (taux de réponses sourcées, de refus justes) avec une tolérance, et on documente la probabilité de faux échec.",
+                "- Le texte change souvent d'un passage à l'autre, et un « texte modifié » peut inverser la réponse (Oui devenu Non) : il se relit, la couverture des mots-clés le mesure grossièrement. Les changements de statut (⚠) existent aussi à configuration constante : un test statistique doit les borner avec une tolérance, pas exiger zéro.",
             }
             : new List<string>
             {
-                "- Aucune réponse n'a bougé d'un passage à l'autre : avec ces réglages, ce générateur s'est montré déterministe. C'est le cas d'`extractive`, le générateur hors-ligne par défaut. Cette mesure ne montre donc pas le non-déterminisme de la séquence 3.1.",
-                "- Un vrai modèle ne donne pas toujours la même réponse quand la configuration ne change pas. Hors-ligne, `--generation-model extractive-bruite` simule ce défaut.",
+                "- Aucune réponse n'a bougé d'un passage à l'autre : avec ces réglages, ce générateur s'est montré déterministe. C'est le cas d'`extractive`, le générateur hors-ligne par défaut, et d'`extractive-bruite` quand une graine est fixée. Cette mesure ne montre donc pas le non-déterminisme de la séquence 3.1.",
+                "- Sans graine, un vrai modèle ne donne pas toujours la même réponse quand la configuration ne change pas. Hors-ligne, `--generation-model extractive-bruite` sans graine simule ce défaut. "
+                + "Sur des réponses qui bougent, un test par assertion exacte échouerait au hasard : on teste alors une *proportion* (taux de réponses sourcées, de refus justes) avec une tolérance, et on documente la probabilité de faux échec.",
             };
+        lines.Add("- Une graine réduit la variabilité pour un même modèle et un même moteur ; elle ne garantit rien d'un modèle à l'autre, ni d'une version d'Ollama à l'autre.");
+        return lines;
     }
 }

@@ -19,7 +19,7 @@ public class SnapshotTests
         var store = new MemorySnapshotStore();
         var ask = Build.Ask(generator, Build.Indexed(
             Fakes.Doc("teletravail", "Deux jours de télétravail par semaine."), Fakes.Doc("frais", "Les frais de repas sont plafonnés.")),
-            minScore: minScore);
+            minScore: minScore, maxAttempts: 1);
         var snapshot = new RecordSnapshot(ask, store, new FixedClock(), new Dictionary<string, object?> { ["generation_model"] = generator.Model })
             .Execute(name, Questions);
         return (snapshot, store);
@@ -93,10 +93,10 @@ public class SnapshotTests
     [Fact]
     public void Configuration_values_are_compared_by_value_not_by_type()
     {
-        var a = new Snapshot("a", "t", new Dictionary<string, object?> { ["top_k"] = 4, ["splitter"] = new Dictionary<string, object> { ["max_chars"] = 800 } }, Array.Empty<SnapshotEntry>());
-        var b = new Snapshot("b", "t", new Dictionary<string, object?> { ["top_k"] = 4.0, ["splitter"] = new Dictionary<string, object> { ["max_chars"] = 800.0 } }, Array.Empty<SnapshotEntry>());
+        var a = new Snapshot("a", "t", new Dictionary<string, object?> { ["top_k"] = 4, ["seed"] = null, ["splitter"] = new Dictionary<string, object> { ["max_chars"] = 800 } }, Array.Empty<SnapshotEntry>());
+        var b = new Snapshot("b", "t", new Dictionary<string, object?> { ["top_k"] = 4.0, ["seed"] = null, ["splitter"] = new Dictionary<string, object> { ["max_chars"] = 800.0 } }, Array.Empty<SnapshotEntry>());
         Assert.Empty(SnapshotComparer.Compare(a, b).ConfigurationDifferences);
-        var c = b with { Configuration = new Dictionary<string, object?> { ["top_k"] = 5, ["splitter"] = new Dictionary<string, object> { ["max_chars"] = 800 } } };
+        var c = b with { Configuration = new Dictionary<string, object?> { ["top_k"] = 5, ["seed"] = null, ["splitter"] = new Dictionary<string, object> { ["max_chars"] = 800 } } };
         Assert.Equal(new[] { "top_k" }, SnapshotComparer.Compare(a, c).ConfigurationDifferences.Select(d => d.Key));
     }
 

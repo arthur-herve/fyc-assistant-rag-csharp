@@ -37,14 +37,15 @@ public class SnapshotStoreTests
             var store = new JsonSnapshotStore(Path.Combine(dir.FullName, "instantanes"));
             Assert.Empty(store.Names());
             var snapshot = new Snapshot("ref", "2026-09-11T12:00:00+00:00",
-                new Dictionary<string, object?> { ["generation_model"] = "extractive", ["top_k"] = 4, ["splitter"] = new Dictionary<string, object> { ["max_chars"] = 800 } },
-                new[] { new SnapshotEntry("q1", "alice", "Q ?", "answered", new[] { "a", "b" }, "Texte [1]") });
+                new Dictionary<string, object?> { ["generation_model"] = "extractive", ["top_k"] = 4, ["seed"] = null, ["splitter"] = new Dictionary<string, object> { ["max_chars"] = 800 } },
+                new[] { new SnapshotEntry("q1", "alice", "Q ?", "answered", new[] { "a", "b" }, "Texte [1]", 1) });
             store.Save(snapshot);
             var loaded = store.Load("ref");
             Assert.Equal(snapshot.Entries[0] with { CitedDocuments = Array.Empty<string>() }, loaded.Entries[0] with { CitedDocuments = Array.Empty<string>() });
             Assert.Equal(new[] { "a", "b" }, loaded.Entries[0].CitedDocuments);
             Assert.Equal("extractive", loaded.Configuration["generation_model"]);
             Assert.Equal(4, loaded.Configuration["top_k"]);
+            Assert.Null(loaded.Configuration["seed"]);
             Assert.Empty(SnapshotComparer.Compare(snapshot, loaded).ConfigurationDifferences);   // relu du disque, rien ne diffère
             Assert.Equal(new[] { "ref" }, store.Names());
         }

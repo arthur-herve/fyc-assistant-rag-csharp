@@ -99,6 +99,7 @@ public sealed class JsonSnapshotStore : ISnapshotStore
                 ["status"] = e.Status,
                 ["cited_documents"] = new JsonArray(e.CitedDocuments.Select(d => (JsonNode)d).ToArray()),
                 ["text"] = e.Text,
+                ["attempts"] = e.Attempts,
             }).ToArray()),
         };
         File.WriteAllText(path, payload.ToJsonString(Options));
@@ -131,8 +132,9 @@ public sealed class JsonSnapshotStore : ISnapshotStore
     }
 
     /// <summary>
-    /// Relit une réponse en vérifiant les types : « abc » n'est pas une liste de documents. Les champs inconnus
-    /// sont ignorés, ce qui permet de lire un instantané écrit par une version plus récente.
+    /// Relit une réponse en vérifiant les types : « abc » n'est pas une liste de documents, ni null un nombre
+    /// de tentatives. Les champs inconnus sont ignorés, ce qui permet de lire un instantané écrit par une
+    /// version plus récente.
     /// </summary>
     private static SnapshotEntry Entry(JsonNode? node)
     {
@@ -140,8 +142,11 @@ public sealed class JsonSnapshotStore : ISnapshotStore
         var cited = values["cited_documents"] is JsonArray documents && documents.All(JsonFiles.IsText)
             ? documents.Select(d => d!.GetValue<string>()).ToList()
             : throw new FormatException("« cited_documents » doit être une liste de textes");
+        var attempts = !values.ContainsKey("attempts") ? 0
+            : values["attempts"] is JsonValue value && value.TryGetValue<int>(out var count) ? count
+            : throw new FormatException("« attempts » doit être un entier");
         return new SnapshotEntry(Text(values, "question_id"), Text(values, "user_id"), Text(values, "question"),
-                                 Text(values, "status"), cited, Text(values, "text"));
+                                 Text(values, "status"), cited, Text(values, "text"), attempts);
     }
 
     private static string Text(JsonObject values, string key) =>

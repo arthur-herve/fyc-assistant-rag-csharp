@@ -11,7 +11,7 @@ namespace Assistant.Tests;
 
 public class SnapshotFileTests
 {
-    private const string Entry = """{"question_id": "q", "user_id": "a", "question": "?", "status": "answered", "cited_documents": ["d"], "text": "x"}""";
+    private const string Entry = """{"question_id": "q", "user_id": "a", "question": "?", "status": "answered", "cited_documents": ["d"], "text": "x", "attempts": 1}""";
 
     private static string Snapshot(string entry) => $$"""{"name": "a", "created_at": "t", "entries": [{{entry}}]}""";
 
@@ -31,6 +31,13 @@ public class SnapshotFileTests
         { Snapshot(Entry.Replace("[\"d\"]", "\"abc\"")), "« cited_documents » doit être une liste de textes" },
         { Snapshot(Entry.Replace("[\"d\"]", "[1]")), "« cited_documents » doit être une liste de textes" },
         { Snapshot(Entry.Replace("\"cited_documents\": [\"d\"], ", "")), "« cited_documents » doit être une liste de textes" },
+        { Snapshot(Entry.Replace("\"attempts\": 1", "\"attempts\": null")), "« attempts » doit être un entier" },
+        { Snapshot(Entry.Replace("\"attempts\": 1", "\"attempts\": true")), "« attempts » doit être un entier" },
+        { Snapshot(Entry.Replace("\"attempts\": 1", "\"attempts\": 1.5")), "« attempts » doit être un entier" },
+        { Snapshot(Entry.Replace("\"attempts\": 1", "\"attempts\": \"1\"")), "« attempts » doit être un entier" },
+        { Snapshot(Entry.Replace("\"attempts\": 1", "\"attempts\": 2147483648")), "« attempts » doit être un entier" },   // int.MaxValue + 1
+        { Snapshot(Entry.Replace("\"attempts\": 1", "\"attempts\": -2147483649")), "« attempts » doit être un entier" },
+        { Snapshot(Entry.Replace("\"attempts\": 1", "\"attempts\": 1" + new string('0', 4300))), "« attempts » doit être un entier" },
         { Snapshot(Entry.Replace("\"question_id\": \"q\", ", "")), "champ « question_id » manquant ou non textuel" },
         { Snapshot(Entry.Replace("\"user_id\": \"a\"", "\"user_id\": null")), "champ « user_id » manquant ou non textuel" },
         { Snapshot(Entry.Replace("\"text\": \"x\"", "\"text\": 5")), "champ « text » manquant ou non textuel" },
@@ -49,12 +56,23 @@ public class SnapshotFileTests
     [Fact]
     public void Optional_fields_take_their_default()
     {
-        // Un instantané écrit par une version plus ancienne n'a pas de « configuration ». Il doit rester lisible, avec
-        // une configuration vide.
+        // Un instantané écrit par une version plus ancienne n'a ni « configuration » ni « attempts ». Il doit rester
+        // lisible, avec les valeurs par défaut.
         using var dir = new TempDir();
-        File.WriteAllText(dir.File("a.json"), Snapshot(Entry));
+        File.WriteAllText(dir.File("a.json"), Snapshot(Entry.Replace(", \"attempts\": 1", "")));
         var snapshot = new JsonSnapshotStore(dir.Path).Load("a");
         Assert.Empty(snapshot.Configuration);
+        Assert.Equal(0, snapshot.Entries[0].Attempts);
+    }
+
+    [Theory]
+    [InlineData(int.MaxValue)]
+    [InlineData(int.MinValue)]
+    public void Attempts_take_any_int(int attempts)
+    {
+        using var dir = new TempDir();
+        File.WriteAllText(dir.File("a.json"), Snapshot(Entry.Replace("\"attempts\": 1", $"\"attempts\": {attempts}")));
+        Assert.Equal(attempts, new JsonSnapshotStore(dir.Path).Load("a").Entries[0].Attempts);
     }
 
     [Fact]
@@ -126,13 +144,13 @@ public class SnapshotFileTests
     private static readonly Dictionary<string, object?> Configuration = new()
     {
         ["corpus"] = "solveo", ["embedding_model"] = "hashing", ["splitter"] = Splitter, ["top_k"] = 4, ["min_score"] = 0.4,
-        ["temperature"] = 1.0,
+        ["temperature"] = 1.0, ["seed"] = null,
     };
 
     private static readonly Snapshot Reference = new("ref", "2026-09-11T12:00:00+00:00", Configuration, new[]
     {
-        new SnapshotEntry("q1", "alice", "Combien de congés ?", "answered", new[] { "a", "b" }, Bytes.Special),
-        new SnapshotEntry("q2", "bruno", "Et ?", "no_relevant_source", Array.Empty<string>(), "Rien."),
+        new SnapshotEntry("q1", "alice", "Combien de congés ?", "answered", new[] { "a", "b" }, Bytes.Special, 1),
+        new SnapshotEntry("q2", "bruno", "Et ?", "no_relevant_source", Array.Empty<string>(), "Rien.", 0),
     });
 
     [Fact]

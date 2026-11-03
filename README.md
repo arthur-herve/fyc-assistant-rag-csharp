@@ -1,68 +1,50 @@
-# Fil rouge, étape S3.1 : non-déterminisme
+# Fil rouge, correction de S3.1 : non-déterminisme
 
-> **Branche d'étape.** Cette branche est l'état du fil rouge au début de la séquence S3.1. Certains
-> défauts y sont laissés exprès : la séquence les montre, et sa correction les pare. L'application
+> **Correction de la séquence S3.1.** Ce tag, `corrige/s3.1`, est l'état du fil rouge à la fin de la
+> séquence. Il sert à comparer votre travail au corrigé et à voir la parade agir. L'application
 > complète, avec toute sa documentation, est sur la branche `final`.
 
 ## Où en est le fil rouge
 
-Le fil rouge est dans sa version idéale : le cœur ne connaît le modèle que par ses ports, les droits
-sont filtrés avant le prompt, et chaque réponse doit citer ses sources. Cette étape n'y ajoute que des
-instruments de mesure : les instantanés, qui figent les réponses à un jeu de questions, et l'expérience
-`stabilite`, qui pose plusieurs fois les mêmes questions sans rien changer. La séquence part de là pour
-montrer ce que devient un test quand le modèle tire au hasard.
+Le fil rouge a maintenant les parades de S3.1. La recherche filtrée par les droits est un cas d'usage à
+part, qui se teste par assertion. La génération a droit à une seconde tentative quand ses citations
+échouent, et une graine peut rendre son tirage reproductible. La séquence S3.2 part de là, avec une
+question : que deviennent les réponses quand on change les données, par exemple le découpage du
+corpus, sans toucher au code ?
 
-## Ce que vous faites dans cette séquence
+## Ce que la correction a changé
 
-Toutes les manipulations se font hors ligne. Lancez le service IA dans un premier terminal avec
-`python -m ai_service`, puis construisez l'index dans un second :
+Au départ de la séquence, `AskQuestion` appelait le générateur une seule fois, sans graine. Avec
+`extractive-bruite`, la même question changeait de texte d'un passage à l'autre, et une réponse qui
+oubliait sa citation devenait « non sourcée ». Un test par assertion exacte sur ces réponses échouait
+donc au hasard.
+
+La correction fait passer la frontière entre ce qui est déterministe et ce qui ne l'est pas. La
+recherche filtrée par les droits sort d'`AskQuestion` et devient `SearchPassages`, que l'on teste par
+assertion. `AskQuestion` refait une tentative quand les citations échouent, selon la clé
+`generation.max_attempts`, qui vaut 2 dans `config/app.json`. Une graine peut être fixée avec la clé
+`generation.seed`, ou avec l'option `--seed` d'`experience stabilite`. Elle augmente d'une unité à chaque
+tentative, et `HttpGenerator` l'envoie au service IA. La trace d'une réponse et les instantanés comptent
+les tentatives. Les tests statistiques sont dans `tests/Assistant.Tests/StatisticalTests.cs`.
+
+Pour lire la correction dans le code et dans les tests :
 
 ```bash
-dotnet run --project src/Assistant.Cli -- index
+git diff origin/etape/s3.1 corrige/s3.1 -- src tests
 ```
 
-1. Vérifiez d'abord que la promesse du cours est tenue. Les tests passent, ceux de la règle de
-   dépendance compris, et le générateur se remplace sur le même index sans toucher au cœur :
+Relancez ensuite la mesure de la séquence, le service IA lancé et l'index construit, une fois sans
+graine, une fois avec :
 
-   ```bash
-   dotnet test
-   dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?"
-   dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" --generation-model extractive-variante
-   ```
+```bash
+dotnet run --project src/Assistant.Cli -- experience stabilite --runs 3 --generation-model extractive-bruite
+dotnet run --project src/Assistant.Cli -- experience stabilite --runs 3 --generation-model extractive-bruite --seed 7
+```
 
-   Les deux générateurs ne choisissent pas la même phrase, mais chacun cite sa source et redonne la
-   même réponse à chaque fois.
-
-2. Regardez ensuite la vidéo de la séquence.
-
-3. Passez à un générateur qui tire au hasard. `extractive-bruite` imite un modèle imparfait : il choisit
-   au hasard entre les deux phrases les plus proches de la question, et il oublie sa citation 3 fois sur
-   10. Posez-lui cinq fois la même question :
-
-   ```bash
-   dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" --generation-model extractive-bruite
-   ```
-
-   La phrase change d'une fois à l'autre, et la réponse devient parfois « non sourcée » : l'assistant
-   refuse alors de répondre et renvoie aux passages. Mesurez ensuite le phénomène sur les 24 questions de
-   `eval/questions.json`, posées trois fois de suite sans rien changer :
-
-   ```bash
-   dotnet run --project src/Assistant.Cli -- experience stabilite --runs 3 --generation-model extractive-bruite
-   ```
-
-   La commande affiche à la fin le chemin de son rapport. Celui-ci appelle chaque tour un « passage » et
-   compare les suivants au premier. Environ une réponse sur deux change d'un passage à l'autre, avec une
-   quinzaine de changements de statut entre `answered` et `unsourced`, et ces chiffres varient d'une
-   série à l'autre. Relancez la même commande sans `--generation-model` : avec `extractive`, rien ne
-   bouge.
-
-4. Faites enfin l'exercice de
-   [`exercices/s3.1-evaluation-statistique/README.md`](exercices/s3.1-evaluation-statistique/README.md),
-   dans `tests/Assistant.Tests/`, sans rien restaurer. Vous y écrivez d'abord le test à assertion exacte
-   qu'on écrirait sans y penser, et vous le lancez dix fois. Viennent ensuite un test déterministe de la
-   règle métier, puis une évaluation statistique dont vous choisissez la tolérance et calculez le risque
-   de faux échec. Vous comparez enfin les deux régimes de test.
+Sans graine, le texte change toujours d'un passage à l'autre, mais les réponses non sourcées deviennent
+rares. Avec la graine, plus rien ne bouge. Le corrigé de l'énoncé, à la fin de
+`exercices/s3.1-evaluation-statistique/README.md`, donne les mesures et répond aux questions de la
+séquence.
 
 ## Démarrer
 
@@ -89,10 +71,11 @@ dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail
 ```
 
 `index` affiche le nombre de documents et de morceaux qu'il a indexés. La réponse se termine par une
-ligne qui donne son statut. Avec `-v`, elle est suivie de sa trace : les passages retrouvés, leurs
-scores et la sortie brute du modèle. Après chaque changement de branche, reconstruisez l'index avec
-`index` : le dossier `data/` n'est pas versionné, et l'index d'une autre étape n'a pas forcément le même
-format. Dans ce cas, l'application refuse de le lire et donne la commande qui le reconstruit.
+ligne qui donne son statut et le nombre de tentatives. Avec `-v`, elle est suivie de sa trace : les
+passages retrouvés, leurs scores et la sortie brute du modèle. Après chaque changement de branche,
+reconstruisez l'index avec `index` : le dossier `data/` n'est pas versionné, et l'index d'une autre
+étape n'a pas forcément le même format. Dans ce cas, l'application refuse de le lire et donne la
+commande qui le reconstruit.
 
 ## Les branches du cours
 
@@ -119,3 +102,5 @@ jamais un dossier.
 - L'index vit dans l'application, dans un fichier JSON.
 - Le seuil de pertinence est un réglage de la configuration.
 - Les droits sont filtrés avant le prompt, et le prompt est construit dans l'application.
+- La recherche, déterministe, se teste par assertion. La génération a droit à une seconde tentative,
+  et une graine peut la rendre reproductible.

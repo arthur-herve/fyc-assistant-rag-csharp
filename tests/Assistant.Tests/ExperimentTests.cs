@@ -18,27 +18,45 @@ public class ExperimentTests
     public void Keyword_coverage_is_null_without_keywords() =>
         Assert.Null(Keywords.Coverage("Deux jours.", Array.Empty<string>()));
 
+    /// <summary>Un instantané d'une seule réponse donnée, avec ce texte.</summary>
+    private static Application.Snapshot OneAnswer(string text) =>
+        new("s", "2026-09-12T00:00:00+00:00", new Dictionary<string, object?>(),
+            new[] { new Application.SnapshotEntry("q1", "alice", "?", "answered", Array.Empty<string>(), text, 1) });
+
+    /// <summary>Une comparaison où aucune réponse ne change.</summary>
+    private static readonly Application.SnapshotComparison[] Stable =
+        { Application.SnapshotComparer.Compare(OneAnswer("même"), OneAnswer("même")) };
+
+    /// <summary>La même, plus une comparaison où une seule réponse change.</summary>
+    private static readonly Application.SnapshotComparison[] Drifted =
+        Stable.Append(Application.SnapshotComparer.Compare(OneAnswer("même"), OneAnswer("autre"))).ToArray();
+
     [Fact]
-    public void The_stability_reading_describes_the_measure_without_concluding()
+    public void The_stability_reading_claims_random_failures_only_after_a_measured_drift()
     {
-        // Si aucune réponse ne change, comme avec extractive, la lecture dit que ce générateur s'est montré
-        // déterministe et nomme celui qui simule le défaut. Une seule réponse modifiée, dans une seule des
-        // comparaisons, suffit pour passer à l'autre lecture. Ni l'une ni l'autre ne dit comment tester des réponses
-        // qui bougent : c'est la question de l'exercice.
-        static Application.Snapshot Make(string text) => new("s", "2026-09-12T00:00:00+00:00", new Dictionary<string, object?>(),
-            new[] { new Application.SnapshotEntry("q1", "alice", "?", "answered", Array.Empty<string>(), text) });
-        var stable = new[] { Application.SnapshotComparer.Compare(Make("même"), Make("même")) };
-        var drifted = stable.Append(Application.SnapshotComparer.Compare(Make("même"), Make("autre"))).ToArray();
+        // Un test par assertion exacte n'échoue au hasard que sur des réponses qui bougent. Si aucune réponse ne
+        // change, comme avec extractive, ou avec extractive-bruite et une graine, la lecture dit que ce générateur
+        // s'est montré déterministe. Une seule réponse modifiée, dans une seule des comparaisons, suffit pour passer à
+        // l'autre lecture.
+        const string Claim = "un test par assertion exacte sur ces réponses échouerait au hasard";
 
-        var quiet = Experiments.StabilityReading(stable);
+        var quiet = Experiments.StabilityReading(Stable);
+        Assert.DoesNotContain(quiet, line => line.Contains(Claim));
         Assert.Contains(quiet, line => line.Contains("ce générateur s'est montré déterministe"));
-        Assert.Contains(quiet, line => line.Contains("`--generation-model extractive-bruite` simule ce défaut"));
+        Assert.Contains(quiet, line => line.Contains("`--generation-model extractive-bruite` sans graine"));
 
-        var moving = Experiments.StabilityReading(drifted);
-        Assert.Contains(moving, line => line.Contains("Des réponses ont bougé alors que rien n'a changé entre les passages"));
+        var moving = Experiments.StabilityReading(Drifted);
+        Assert.Contains(moving, line => line.Contains(Claim));
         Assert.DoesNotContain(moving, line => line.Contains("déterministe"));
+    }
 
-        Assert.All(quiet.Concat(moving), line => Assert.DoesNotMatch("assertion|tolérance|proportion|faux échec", line));
+    [Fact]
+    public void The_stability_reading_always_ends_with_the_seed_line()
+    {
+        // La dernière ligne, sur la graine, est la même dans les deux cas.
+        var (quiet, moving) = (Experiments.StabilityReading(Stable), Experiments.StabilityReading(Drifted));
+        Assert.Equal(quiet[^1], moving[^1]);
+        Assert.StartsWith("- Une graine réduit la variabilité", moving[^1]);
     }
 
     [Fact]
@@ -57,9 +75,9 @@ public class ExperimentTests
             var exp = new Experiment("test", config, questions, dir.FullName, "questions", "config");
             var snapshot = new Application.Snapshot("s", "2026-09-12T00:00:00+00:00", new Dictionary<string, object?>(), new[]
             {
-                new Application.SnapshotEntry("q1", "alice", "Q1", "answered", new[] { "teletravail" }, "Deux jours [1]"),
-                new Application.SnapshotEntry("q2", "alice", "Q2", "no_relevant_source", Array.Empty<string>(), "…"),
-                new Application.SnapshotEntry("q3", "alice", "Q3", "answered", new[] { "grille" }, "Fuite [1]"),
+                new Application.SnapshotEntry("q1", "alice", "Q1", "answered", new[] { "teletravail" }, "Deux jours [1]", 1),
+                new Application.SnapshotEntry("q2", "alice", "Q2", "no_relevant_source", Array.Empty<string>(), "…", 0),
+                new Application.SnapshotEntry("q3", "alice", "Q3", "answered", new[] { "grille" }, "Fuite [1]", 1),
             });
             var stats = exp.Stats(snapshot);
             Assert.Equal(6, stats.Count);

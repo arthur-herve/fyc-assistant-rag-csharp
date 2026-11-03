@@ -16,28 +16,26 @@ public sealed record AskSettings(
     // La racine de composition passe la valeur de la configuration.
     double MinScore,
     int TopK = 4,
+    int MaxAttempts = 2,
     double Temperature = 0.2,
     int MaxTokens = 400,
+    int? Seed = null,
     string PromptName = "answer");
 
 public sealed class AskQuestion
 {
-    private readonly IEmbedder _embedder;
-    private readonly IVectorIndex _index;
+    private readonly SearchPassages _search;
     private readonly IGenerator _generator;
     private readonly IPromptRepository _prompts;
     private readonly AskSettings _settings;
-    private readonly AccessPolicy _access;
 
     public AskQuestion(IEmbedder embedder, IVectorIndex index, IGenerator generator,
                        IPromptRepository prompts, AskSettings settings)
     {
-        _embedder = embedder;
-        _index = index;
+        _search = new SearchPassages(embedder, index);
         _generator = generator;
         _prompts = prompts;
         _settings = settings;
-        _access = new AccessPolicy();
     }
 
     /// <summary>
@@ -68,40 +66,45 @@ public sealed class AskQuestion
             throw new EmptyQuestionException();
         }
 
-        if (!_index.IsBuilt())
-        {
-            throw new IndexNotBuiltException();
-        }
-
-        // Les droits sont filtrés pendant la recherche, donc avant tout prompt.
-        var query = _embedder.EmbedQuery(question);
-        var passages = _index.Search(query, _settings.TopK, chunk => _access.CanRead(user, chunk));
+        // La recherche filtrée par les droits est celle du cas d'usage SearchPassages. Sans index,
+        // elle lève une exception et on s'arrête là.
+        var passages = _search.Execute(user, question, _settings.TopK);
         var relevant = passages.Where(p => p.Score >= _settings.MinScore).ToList();
         var retrieved = passages.Select(p => new Retrieved(p.Chunk.Id, Math.Round(p.Score, 4))).ToList();
 
         if (relevant.Count == 0)
         {
             return new Answer(question, AnswerStatus.NoRelevantSource, Messages.NoRelevantSource, Array.Empty<Source>(),
-                new AnswerTrace(retrieved, _settings.MinScore, Array.Empty<string>()));
+                new AnswerTrace(retrieved, _settings.MinScore, 0, Array.Empty<string>()));
         }
 
         var template = _prompts.Get(_settings.PromptName);
         var prompt = template.Render(question, FormatPassages(relevant));
 
-        var text = _generator.Generate(new GenerationRequest(
-            template.System, prompt, _settings.Temperature, _settings.MaxTokens));
-        var trace = new AnswerTrace(retrieved, _settings.MinScore, new[] { text });
-        var check = Citations.Check(text, relevant.Count);
-        if (check.IsValid)
+        var rawOutputs = new List<string>();
+        for (var attempt = 1; attempt <= _settings.MaxAttempts; attempt++)
         {
-            var sources = check.Cited
-                .Select(n => new Source(n, relevant[n - 1].Chunk.DocumentId, relevant[n - 1].Chunk.DocumentTitle, relevant[n - 1].Chunk.Id))
-                .ToList();
-            return new Answer(question, AnswerStatus.Answered, text.Trim(), sources, trace);
+            var seed = _settings.Seed is null ? (int?)null : _settings.Seed + attempt - 1;
+            var text = _generator.Generate(new GenerationRequest(
+                template.System, prompt, _settings.Temperature, _settings.MaxTokens, seed));
+            rawOutputs.Add(text);
+            var check = Citations.Check(text, relevant.Count);
+            if (check.IsValid)
+            {
+                var sources = check.Cited
+                    .Select(n => new Source(n, relevant[n - 1].Chunk.DocumentId, relevant[n - 1].Chunk.DocumentTitle, relevant[n - 1].Chunk.Id))
+                    .ToList();
+                return new Answer(question, AnswerStatus.Answered, text.Trim(), sources,
+                    Trace(retrieved, attempt, rawOutputs));
+            }
         }
 
         // Règle métier : pas de réponse non sourcée. On renvoie plutôt les passages, que l'utilisateur lira lui-même.
         var all = relevant.Select((p, i) => new Source(i + 1, p.Chunk.DocumentId, p.Chunk.DocumentTitle, p.Chunk.Id)).ToList();
-        return new Answer(question, AnswerStatus.Unsourced, Messages.Unsourced, all, trace);
+        return new Answer(question, AnswerStatus.Unsourced, Messages.Unsourced, all,
+            Trace(retrieved, _settings.MaxAttempts, rawOutputs));
     }
+
+    private AnswerTrace Trace(IReadOnlyList<Retrieved> retrieved, int attempts, List<string> rawOutputs) =>
+        new(retrieved, _settings.MinScore, attempts, rawOutputs.ToList());
 }

@@ -123,7 +123,7 @@ public class HttpContractTests : IDisposable
     [Fact]
     public void Generation_request_sends_the_prompt_built_by_the_application()
     {
-        new HttpGenerator(_url, "llama3-2-3b", Short).Generate(new GenerationRequest("sys", "prompt", 0.2, 150));
+        new HttpGenerator(_url, "llama3-2-3b", Short).Generate(new GenerationRequest("sys", "prompt", 0.2, 150, 42));
         var (path, body) = _requests.Single();
         Assert.Equal("/v1/generate", path);
         Assert.Equal("llama3-2-3b", body["model"]!.GetValue<string>());
@@ -131,6 +131,15 @@ public class HttpContractTests : IDisposable
         Assert.Equal("prompt", body["prompt"]!.GetValue<string>());
         Assert.Equal(0.2, body["temperature"]!.GetValue<double>());
         Assert.Equal(150, body["max_tokens"]!.GetValue<int>());
+        Assert.Equal(42, body["seed"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void An_unset_seed_is_sent_as_null()
+    {
+        new HttpGenerator(_url, "llama3-2-3b", Short).Generate(new GenerationRequest("sys", "prompt", 0.2, 150));
+        Assert.True(_requests.Single().Body.TryGetPropertyValue("seed", out var seed));
+        Assert.Null(seed);
     }
 
     [Fact]

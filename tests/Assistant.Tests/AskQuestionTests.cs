@@ -49,8 +49,9 @@ public class AskQuestionTests
     [Fact]
     public void A_huge_citation_number_is_invalid_not_a_crash()
     {
-        var answer = Build.Ask(new ScriptedGenerator("Appelez le [33612345678].")).Execute(Fakes.Alice, "Combien de jours de télétravail ?");
-        Assert.Equal(AnswerStatus.Unsourced, answer.Status);
+        var answer = Build.Ask(new ScriptedGenerator("Appelez le [33612345678].", "Deux jours [1].")).Execute(Fakes.Alice, "Combien de jours de télétravail ?");
+        Assert.Equal(AnswerStatus.Answered, answer.Status);
+        Assert.Equal(2, answer.Trace.Attempts);
     }
 
     [Fact]
@@ -77,9 +78,18 @@ public class AskQuestionTests
     }
 
     [Fact]
-    public void Refuses_an_unsourced_answer()
+    public void Retries_when_the_model_forgets_to_cite()
     {
-        var answer = Build.Ask(new ScriptedGenerator("Deux jours.")).Execute(Fakes.Alice, "Combien de jours de télétravail ?");
+        var answer = Build.Ask(new ScriptedGenerator("Deux jours.", "Deux jours [1].")).Execute(Fakes.Alice, "Combien de jours de télétravail ?");
+        Assert.Equal(AnswerStatus.Answered, answer.Status);
+        Assert.Equal(2, answer.Trace.Attempts);
+        Assert.Equal(2, answer.Trace.RawOutputs.Count);
+    }
+
+    [Fact]
+    public void Refuses_an_unsourced_answer_after_all_attempts()
+    {
+        var answer = Build.Ask(new ScriptedGenerator("Deux jours.", "Deux jours [9].")).Execute(Fakes.Alice, "Combien de jours de télétravail ?");
         Assert.Equal(AnswerStatus.Unsourced, answer.Status);
         Assert.DoesNotContain("Deux jours", answer.Text);   // la sortie non sourcée n'est pas montrée
     }
@@ -107,4 +117,12 @@ public class AskQuestionTests
     [Fact]
     public void Asking_before_indexing_is_explicit() =>
         Assert.Throws<IndexNotBuiltException>(() => Build.Ask(new ScriptedGenerator("[1]"), new FakeIndex()).Execute(Fakes.Alice, "télétravail"));
+
+    [Fact]
+    public void Seed_changes_between_attempts()
+    {
+        var generator = new ScriptedGenerator("sans citation", "avec [1]");
+        Build.Ask(generator, seed: 42).Execute(Fakes.Alice, "jours de télétravail");
+        Assert.Equal(new int?[] { 42, 43 }, generator.Requests.Select(r => r.Seed));
+    }
 }

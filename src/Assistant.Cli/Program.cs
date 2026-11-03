@@ -26,7 +26,7 @@ public static class Program
           snapshot compare <a> <b>       comparer deux instantanés
           snapshot list                  lister les instantanés
           experience <nom>               une expérience reproductible   (--questions, --limit, --out, et selon l'expérience :)
-                                           stabilite (--runs)
+                                           stabilite (--runs, --seed)
 
         Options communes : --config <fichier>   --embedding-model <alias>   --generation-model <alias>
         La commande vient d'abord, puis ses options. Une option inconnue, abrégée ou d'une autre commande, ou un argument en trop, est une erreur.
@@ -161,7 +161,7 @@ public static class Program
         new("snapshot compare", Common, new(2, "snapshot compare attend deux noms")),
         new("snapshot list", Common),
         // Les options propres à chaque expérience.
-        new("experience stabilite", ExperimentCommon.Concat(new[] { "--runs" }).ToArray()),
+        new("experience stabilite", ExperimentCommon.Concat(new[] { "--runs", "--seed" }).ToArray()),
     }.ToDictionary(c => c.Name);
 
     /// <summary>La commande que nomment les premiers arguments, ou null si le premier mot est inconnu.</summary>
@@ -228,7 +228,7 @@ public sealed class Args
 {
     private static readonly HashSet<string> Flags = new() { "-v", "--verbose", "--json", "--help", "-h" };
     // Les options entières de toutes les commandes : voir EnsureIntegers.
-    private static readonly HashSet<string> Integers = new() { "--limit", "--runs" };
+    private static readonly HashSet<string> Integers = new() { "--limit", "--runs", "--seed" };
     // « -1 » ou « -0.5 » est une valeur (un nombre négatif), pas une option.
     private static readonly Regex NegativeNumber = new(@"^-([0-9]+|[0-9]*\.[0-9]+)\z", RegexOptions.Compiled);
     private readonly string[] _argv;

@@ -1,6 +1,7 @@
 // Configuration et ligne de commande : une erreur de saisie se voit tout de suite, avec le fichier et la clé.
 
 using System.Text;
+using Assistant.Application;
 using Assistant.Cli;
 using Assistant.Infrastructure;
 using Xunit;
@@ -49,6 +50,7 @@ public sealed class ConfigTests : IDisposable
 
     [Theory]
     [InlineData("embedding_model", "\"embedding_model\": \"hashing\", ", "")]
+    [InlineData("max_attempts", "\"index\"", "\"generation\": { \"max_attempts\": 0 }, \"index\"")]
     [InlineData("top_k", "\"min_score\"", "\"top_k\": 0, \"min_score\"")]
     [InlineData("topk", "\"min_score\"", "\"topk\": 8, \"min_score\"")]
     [InlineData("max_char", "\"index\"", "\"splitter\": { \"max_char\": 300 }, \"index\"")]
@@ -84,6 +86,8 @@ public sealed class ConfigTests : IDisposable
     [InlineData("\"index\"", "\"generation\": { \"temperature\": \"chaud\" }, \"index\"",
                 " [generation] : « temperature » doit être un nombre, pas \"chaud\"")]
     [InlineData("\"index\"", "\"generation\": { \"max_tokens\": 0 }, \"index\"", " [generation] : « max_tokens » = 0, doit valoir au moins 1")]
+    [InlineData("\"index\"", "\"generation\": { \"max_attempts\": 0 }, \"index\"", " [generation] : « max_attempts » = 0, doit valoir au moins 1")]
+    [InlineData("\"index\"", "\"generation\": { \"seed\": \"42\" }, \"index\"", " [generation] : « seed » doit être un entier, pas \"42\"")]
     [InlineData("\"index\"", "\"generation\": { \"prompt\": 3 }, \"index\"", " [generation] : « prompt » doit être une chaîne, pas 3")]
     [InlineData("\"index\"", "\"splitter\": { \"max_chars\": 99 }, \"index\"", " [splitter] : « max_chars » = 99, doit valoir au moins 100")]
     [InlineData("\"index\"", "\"splitter\": { \"overlap_chars\": 400 }, \"index\"",
@@ -120,7 +124,7 @@ public sealed class ConfigTests : IDisposable
     public static TheoryData<string, string, string> HugeIntegers => new()
     {
         { "\"min_score\"", $"\"top_k\": {Huge}, \"min_score\"", TooLong },
-        { "\"index\"", $"\"generation\": {{ \"max_tokens\": -{Huge} }}, \"index\"", TooLong },
+        { "\"index\"", $"\"generation\": {{ \"seed\": -{Huge} }}, \"index\"", TooLong },
         { "\"index\"", $"\"users\": {{ \"alice\": {{ \"groups\": [{Huge}, \"rh\"] }} }}, \"index\"", TooLong },
         { "\"generation_model\": \"extractive\"", $"\"generation_model\": \"extractive\", \"timeout_seconds\": 1{new string('0', 400)}",
           $" [ai_service] : « timeout_seconds » = 1{new string('0', 400)}, doit être compris entre 1 et 86400" },
@@ -294,5 +298,14 @@ public sealed class ConfigTests : IDisposable
             Console.SetError(previous);
         }
         Assert.Contains("option(s) inconnue(s) pour ask : --usr", stderr.ToString());
+    }
+
+    [Fact]
+    public void The_snapshot_configuration_includes_the_settings_that_change_statuses()
+    {
+        var config = AppConfig.Load() with { AiBaseUrl = "http://127.0.0.1:1", IndexPath = Path.Combine(_dir, "index.json") };
+        var container = Composition.Build(config, new Overrides(SnapshotsDir: Path.Combine(_dir, "instantanes")));
+        var snapshot = container.RecordSnapshot.Execute("vide", Array.Empty<SnapshotQuestion>());
+        Assert.Equal((object?)2, snapshot.Configuration["max_attempts"]);
     }
 }

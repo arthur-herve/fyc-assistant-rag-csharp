@@ -106,3 +106,117 @@ dotnet run --project src/Assistant.Cli -- experience stabilite --config config/a
 
 La dérive mesurée à configuration constante, c'est le non-déterminisme réel : celui que la tolérance
 d'un test statistique doit absorber.
+
+## Corrigé
+
+La correction est le tag `corrige/s3.1`. Pour voir ce qu'elle change dans le code et dans les tests :
+
+```bash
+git diff origin/etape/s3.1 corrige/s3.1 -- src tests
+```
+
+### Ce que la correction ajoute
+
+Les tests statistiques sont dans `tests/Assistant.Tests/StatisticalTests.cs`. Le générateur
+`ForgetfulGenerator` est celui des étapes 0 et 2, et `BinomialCdf` fait le calcul de la loi binomiale.
+Trois tests s'en servent :
+
+- `Answer_rate_with_a_single_attempt_stays_above_its_tolerance`, avec une seule génération : taux
+  attendu de 0,70, tolérance de 0,50 ;
+- `Answer_rate_stays_above_the_tolerance`, avec deux tentatives : taux attendu de 0,91, tolérance de
+  0,75 ;
+- `The_false_failure_probability_is_documented_and_small`, qui vérifie l'ordre de grandeur des
+  probabilités annoncées en commentaire, pour une et pour deux tentatives. La documentation des tests
+  est elle-même testée.
+
+Votre test déterministe a ses équivalents dans `AskQuestionTests.cs`, en particulier
+`Refuses_an_unsourced_answer_after_all_attempts`, `Refusing_an_unsourced_answer_still_gives_the_passages`,
+`Retries_when_the_model_forgets_to_cite` et `A_huge_citation_number_is_invalid_not_a_crash`.
+
+Dans le code, la frontière passe désormais entre ce qui est déterministe et ce qui ne l'est pas :
+
+- `SearchPassages` sort d'`AskQuestion`. C'est la moitié déterministe du cas d'usage, la recherche
+  filtrée par les droits, et elle se teste par assertion.
+- `AskQuestion` refait une tentative quand les citations échouent : c'est `AskSettings.MaxAttempts`, avec
+  la clé `generation.max_attempts`, qui vaut 2 dans `config/app.json`.
+- Une graine peut être fixée : `AskSettings.Seed`, avec la clé `generation.seed` et l'option `--seed` de
+  `experience stabilite`. Elle augmente d'une unité à chaque tentative, ce que vérifie
+  `Seed_changes_between_attempts`, et `HttpGenerator` l'envoie désormais au service IA.
+- La trace et les instantanés comptent les tentatives.
+
+### Le test de l'étape 0
+
+Chaque lancement passe avec la probabilité 0,70. Dix lancements de suite passent avec la probabilité
+0,7¹⁰, soit 2,8 %. Le test échoue donc au moins une fois sur dix lancements avec une probabilité de
+97,2 %. Ce n'est pas un test, c'est un tirage : son résultat ne dit rien du code.
+
+### Le choix de la tolérance
+
+Avec une seule génération, le taux attendu est de 0,70. Avec `MinAnswerRate = 0.50`, le test échoue si
+24 essais sur 50 ou moins sont sourcés. Pour X ~ B(50 ; 0,70), P(X ≤ 24) vaut 0,093 %, soit un faux
+échec pour 1 070 exécutions environ. Une tolérance de 0,48 convient aussi : le test échoue alors à 23
+succès ou moins, avec une probabilité de 0,034 %.
+
+Avec deux tentatives, une question obtient une réponse sourcée si l'une des deux cite sa source. La
+probabilité passe à 1 − 0,3² = 0,91. Avec `MinAnswerRate = 0.75`, le test échoue à 37 succès ou moins,
+avec une probabilité de 0,037 %, soit un faux échec pour 2 700 exécutions environ.
+
+Une tolérance trop serrée devient vite fragile. Le tableau donne la probabilité de faux échec pour
+quelques tolérances.
+
+| Tolérance | Le test échoue à | Une génération (0,70) | Deux tentatives (0,91) |
+|---|---|---|---|
+| 0,48 | 23 succès ou moins | 0,034 % | négligeable |
+| 0,50 | 24 succès ou moins | 0,093 % | négligeable |
+| 0,55 | 27 succès ou moins | 1,2 % | négligeable |
+| 0,60 | 29 succès ou moins | 4,8 % | négligeable |
+| 0,75 | 37 succès ou moins | 77,7 % | 0,037 % |
+| 0,80 | 39 succès ou moins | 92 % | 0,43 % |
+| 0,85 | 42 succès ou moins | 99 % | 7,7 % |
+
+À 0,80, le test à deux tentatives échoue pour rien une fois sur 230 : c'est trop pour une intégration
+continue. À 0,85, c'est une fois sur treize. La tolérance dépend aussi du mécanisme testé, pas seulement
+du modèle : la tolérance de 0,75, sûre à deux tentatives, ferait échouer le test à une seule génération
+77,7 fois sur 100. C'est pourquoi chacun des deux tests a la sienne.
+
+### Ce que chaque test vérifie
+
+| | Test déterministe | Évaluation statistique |
+|---|---|---|
+| Ce qu'il vérifie | la règle métier : aucune réponse non sourcée n'est affichée | la qualité du comportement : assez de réponses sourcées |
+| Entrées | des sorties choisies pour couvrir les cas limites | des sorties tirées au hasard |
+| Résultat | vrai ou faux, et reproductible | une proportion, avec une tolérance et un risque de faux échec documentés |
+| Ce qu'il ne vérifie pas | que le modèle réel cite souvent ses sources | que la règle tient dans tous les cas, car il peut passer à côté d'un cas rare |
+| S'il échoue | il **bloque la livraison**, car une garantie est cassée | c'est une alerte : le modèle, le prompt ou le seuil a dérivé, à examiner avec les instantanés (`snapshot compare`) |
+
+Le test de l'étape 0 ne se range dans aucune des deux colonnes : il affirme une valeur exacte sur une
+sortie tirée au hasard. La frontière du cours passe exactement ici. D'un côté, ce qui est déterministe :
+les droits, la recherche et la vérification des citations, que l'on teste par une assertion. De l'autre,
+ce qui relève du modèle, que l'on évalue par une proportion, avec le test statistique et
+`experience stabilite`.
+
+### Ce que montre la mesure
+
+Avec la correction, relancez `experience stabilite --runs 3 --generation-model extractive-bruite` : elle
+tourne désormais avec deux tentatives. Pour retrouver une seule génération, passez par `--config` une
+copie de `config/app.json` où `generation.max_attempts` vaut 1. Relancez enfin avec une graine, par
+exemple `--seed 7`. Voici l'ordre de grandeur de ce que donnent, hors ligne, des séries de trois
+passages sans graine, puis avec une graine.
+
+| | Une génération | Deux tentatives | Deux tentatives et une graine |
+|---|---|---|---|
+| Dérive moyenne | environ la moitié | un peu moins de la moitié | 0 % |
+| Changements de statut dans une série | une quinzaine | environ deux fois moins | 0 |
+| Taux de non sourcé d'un passage | 0,23 en moyenne | 0,06 en moyenne | fixé par la graine |
+
+La seconde tentative fait à peine baisser la dérive : le générateur tire toujours sa phrase au hasard, et
+le texte change d'un passage à l'autre. Elle fait en revanche chuter le non sourcé et les changements de
+statut. Le calcul le prévoyait : 18 des 24 questions atteignent le modèle, et chacune reste non sourcée
+avec la probabilité 0,3 à une génération, 0,09 à deux tentatives, soit des taux attendus de 0,225 et de
+0,068.
+
+Seule la graine ramène la dérive à zéro. Mais elle rend le tirage reproductible, pas bon. Avec
+`--seed 7`, toutes les réponses sont citées. Avec `--seed 42`, le même tirage fait oublier la citation
+aux deux tentatives, et les 18 questions deviennent non sourcées, à chaque passage. Deux symptômes, deux
+parades : les tentatives contre les citations oubliées, la graine contre la variabilité. Ni l'une ni
+l'autre ne remplace le test statistique.

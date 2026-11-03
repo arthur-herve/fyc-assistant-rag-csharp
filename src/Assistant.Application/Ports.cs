@@ -17,7 +17,7 @@ public interface IEmbedder
 
 // --- Génération ------------------------------------------------------------
 
-public sealed record GenerationRequest(string System, string Prompt, double Temperature, int MaxTokens);
+public sealed record GenerationRequest(string System, string Prompt, double Temperature, int MaxTokens, int? Seed = null);
 
 public interface IGenerator
 {
@@ -78,7 +78,8 @@ public sealed record SnapshotEntry(
     string Question,
     string Status,
     IReadOnlyList<string> CitedDocuments,
-    string Text);
+    string Text,
+    int Attempts = 0);
 
 /// <summary>
 /// Comportement du système figé à un instant, avec la configuration qui l'a produit :

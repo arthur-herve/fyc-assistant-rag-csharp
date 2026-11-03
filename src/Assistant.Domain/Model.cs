@@ -39,6 +39,7 @@ public sealed record Retrieved(string ChunkId, double Score);
 public sealed record AnswerTrace(
     IReadOnlyList<Retrieved> Retrieved,
     double MinScore,
+    int Attempts,
     IReadOnlyList<string> RawOutputs);
 
 public sealed record Answer(

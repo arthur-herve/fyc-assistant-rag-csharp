@@ -76,7 +76,7 @@ public sealed class ReadableDisplayTests
             ("court", "court"),
         };
         static Snapshot Make(string name, string text) => new(name, "2026-09-11", new Dictionary<string, object?>(),
-            new[] { new SnapshotEntry("q0", "alice", "?", "answered", new[] { "d" }, text) });
+            new[] { new SnapshotEntry("q0", "alice", "?", "answered", new[] { "d" }, text, 1) });
         foreach (var (text, head) in cases)
         {
             var lines = Presenter.ComparisonLines(SnapshotComparer.Compare(Make("a", text), Make("b", text + "c")));
@@ -102,7 +102,7 @@ public sealed class ReadableDisplayTests
         // échappés. Relue, elle redonne la sortie telle quelle, y compris espaces insécables, emoji et caractères de
         // contrôle.
         const string raw = "Deux\u00a0jours\u202f! \U0001F600\u2028\u001b\u007f \"q\" \\ \n\t";
-        var trace = new AnswerTrace(new[] { new Retrieved("teletravail#0", 0.5276), new Retrieved("conges#0", 0.0) }, 2.0,
+        var trace = new AnswerTrace(new[] { new Retrieved("teletravail#0", 0.5276), new Retrieved("conges#0", 0.0) }, 2.0, 1,
                                     new[] { "Deux jours.\n[1]", raw });
         var text = Presenter.AnswerToText(new Answer("?", AnswerStatus.Answered, "Deux jours. [1]", Array.Empty<Source>(), trace), verbose: true)
             .Replace("\r\n", "\n");
@@ -119,7 +119,7 @@ public sealed class ReadableDisplayTests
     /// <summary>Une réponse aux textes délicats de Bytes.Special, qui cite un document au titre accentué.</summary>
     private static readonly Answer Sample = new("Combien ?", AnswerStatus.Answered, Bytes.Special, new[] { new Source(1, "a", "Congés", "a#0") },
         new AnswerTrace(new[] { new Retrieved("a#0", 1.0), new Retrieved("a#1", 0.25) },
-                        0.4, Array.Empty<string>()));
+                        0.4, 1, Array.Empty<string>()));
 
     [Fact]
     public void The_json_of_an_answer_is_indented_and_reads_back_the_same()

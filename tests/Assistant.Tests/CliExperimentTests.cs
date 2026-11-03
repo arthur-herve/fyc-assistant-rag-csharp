@@ -68,7 +68,7 @@ public sealed class CliExperimentTests : CliTestBase
     }
 
     [Theory]
-    [InlineData("experience", "stabilite", "--runs", "3", "--out", "ici")]
+    [InlineData("experience", "stabilite", "--runs", "3", "--seed", "42", "--out", "ici")]
     // La borne : --limit 1.
     [InlineData("experience", "stabilite", "--limit", "1")]
     public void The_options_of_each_command_reach_the_configuration(params string[] argv)

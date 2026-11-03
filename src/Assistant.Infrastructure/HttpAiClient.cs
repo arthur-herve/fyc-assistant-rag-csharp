@@ -212,6 +212,7 @@ public sealed class HttpGenerator : IGenerator
 
     public string Generate(GenerationRequest request)
     {
+        // seed vaut null s'il n'est pas fixé.
         var payload = _post(_url, new JsonObject
         {
             ["model"] = _model,
@@ -219,6 +220,7 @@ public sealed class HttpGenerator : IGenerator
             ["prompt"] = request.Prompt,
             ["temperature"] = request.Temperature,
             ["max_tokens"] = request.MaxTokens,
+            ["seed"] = request.Seed,
         });
         HttpTransport.Require(payload, "model", "text");
         // « model » est vérifié comme « text ».

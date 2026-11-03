@@ -30,6 +30,7 @@ public static class Presenter
         {
             ["retrieved"] = new JsonArray(t.Retrieved.Select(r => (JsonNode)new JsonObject { ["chunk_id"] = r.ChunkId, ["score"] = r.Score }).ToArray()),
             ["min_score"] = t.MinScore,
+            ["attempts"] = t.Attempts,
         };
         if (includeRaw)
         {
@@ -68,7 +69,7 @@ public static class Presenter
         }
         var t = answer.Trace;
         lines.AppendLine();
-        lines.AppendLine($"statut={StatusNames.Of(answer.Status)}");
+        lines.AppendLine($"statut={StatusNames.Of(answer.Status)} · tentatives={t.Attempts}");
         if (verbose)
         {
             lines.AppendLine($"seuil={F(t.MinScore)}");

@@ -40,6 +40,8 @@ public sealed record AppConfig(
     string PromptName,
     double Temperature,
     int MaxTokens,
+    int MaxAttempts,
+    int? Seed,
     IReadOnlyDictionary<string, IReadOnlySet<string>> Users)
 {
     /// <summary>
@@ -56,7 +58,7 @@ public sealed record AppConfig(
         ["snapshots"] = new[] { "directory" },
         ["splitter"] = new[] { "max_chars", "overlap_chars", "include_title" },
         ["retrieval"] = new[] { "top_k", "min_score" },
-        ["generation"] = new[] { "prompt", "temperature", "max_tokens" },
+        ["generation"] = new[] { "prompt", "temperature", "max_tokens", "max_attempts", "seed" },
     };
 
     /// <summary>
@@ -199,6 +201,8 @@ public sealed record AppConfig(
             PromptName: Value(gen, "prompt", Where("generation"), "answer"),
             Temperature: Value(gen, "temperature", Where("generation"), 0.2, min: 0, max: 2),
             MaxTokens: Value(gen, "max_tokens", Where("generation"), 400, min: 1),
+            MaxAttempts: Value(gen, "max_attempts", Where("generation"), 2, min: 1),
+            Seed: gen["seed"] is null ? null : Value<int>(gen, "seed", Where("generation")),
             Users: Entries(users).ToDictionary(
                 kv => kv.Key,
                 kv => (IReadOnlySet<string>)Groups(Section(users, kv.Key, path, parent: "users"), Where($"users.{kv.Key}")),

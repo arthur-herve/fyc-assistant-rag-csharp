@@ -44,10 +44,11 @@ public sealed class RecordSnapshot
             // toucherait toutes les questions. On la laisse remonter plutôt que d'enregistrer
             // autant d'entrées en erreur.
             var answer = _ask.Execute(q.User, q.Question);
+            var trace = answer.Trace;
             entries.Add(new SnapshotEntry(
                 q.Id, q.User.Id, q.Question, StatusNames.Of(answer.Status),
                 answer.Sources.Select(s => s.DocumentId).Distinct().OrderBy(d => d, StringComparer.Ordinal).ToList(),
-                answer.Text));
+                answer.Text, trace.Attempts));
         }
         var snapshot = new Snapshot(name, _clock.Now().ToString("yyyy-MM-dd'T'HH:mm:ssK"), configuration, entries);
         _store.Save(snapshot);
