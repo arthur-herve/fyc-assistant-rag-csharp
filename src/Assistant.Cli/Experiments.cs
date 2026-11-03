@@ -1,11 +1,13 @@
 // Expériences reproductibles. Chacune change une seule chose, enregistre des instantanés et écrit
 // un rapport Markdown. Elles rejouent sur l'application propre les « ruptures » de la problématique :
 // cace-decoupage et changement-embeddings pour la dépendance de données instable, stabilite pour le
-// non-déterminisme, changement-generateur pour ce que le générateur change malgré tout.
+// non-déterminisme, changement-generateur et prompt-v2 pour ce que le générateur et le prompt changent
+// malgré tout.
 //
 //     assistant experience cace-decoupage        --config config/app-ollama.json --questions eval/questions-service-public.json
 //     assistant experience changement-embeddings --other nomic
 //     assistant experience changement-generateur --other qwen3-4b
+//     assistant experience prompt-v2             [--other answer-v2]
 //     assistant experience stabilite             [--runs 3] [--seed 42]
 
 using System.Diagnostics;
@@ -69,13 +71,14 @@ public sealed class Experiment
         Log("");
     }
 
-    /// <summary>Modèles effectifs : les options communes de la ligne de commande, sinon la configuration.</summary>
+    /// <summary>Modèles et prompt effectifs : les options communes de la ligne de commande, sinon la configuration.</summary>
     public string EmbeddingModel => _common.EmbeddingModel ?? Config.EmbeddingModel;
     public string GenerationModel => _common.GenerationModel ?? Config.GenerationModel;
+    public string PromptName => _common.PromptName ?? Config.PromptName;
 
     /// <summary>
     /// L'index et les instantanés vivent dans le dossier de l'expérience, rien n'est donc écrasé ailleurs.
-    /// Les options communes (--embedding-model, --generation-model) s'appliquent, sauf sur ce que
+    /// Les options communes (--embedding-model, --generation-model, --prompt) s'appliquent, sauf sur ce que
     /// l'expérience change elle-même.
     /// </summary>
     public Container Build(string indexName, Overrides? overrides = null)
@@ -85,6 +88,7 @@ public sealed class Experiment
         {
             EmbeddingModel = o.EmbeddingModel ?? _common.EmbeddingModel,
             GenerationModel = o.GenerationModel ?? _common.GenerationModel,
+            PromptName = o.PromptName ?? _common.PromptName,
             IndexPath = Path.Combine(OutDir, $"index-{indexName}.json"),
             SnapshotsDir = Path.Combine(OutDir, "instantanes"),
         });
@@ -210,7 +214,7 @@ public sealed class Experiment
 
 public static class Experiments
 {
-    public static readonly string[] Names = { "cace-decoupage", "changement-embeddings", "changement-generateur", "stabilite" };
+    public static readonly string[] Names = { "cace-decoupage", "changement-embeddings", "changement-generateur", "prompt-v2", "stabilite" };
 
     public static int Run(string name, Args args, AppConfig config, Overrides common, string configPath)
     {
@@ -244,6 +248,10 @@ public static class Experiments
             var (maxChars, overlap) = CaceSplitter(args);
             Check(config, common with { SplitterMaxChars = maxChars, SplitterOverlapChars = overlap });
         }
+        if (name == "prompt-v2")
+        {
+            Check(config, common with { PromptName = OtherPrompt(args) });
+        }
         AiService.Require(config.AiBaseUrl);
         switch (name)
         {
@@ -263,6 +271,7 @@ public static class Experiments
             case "cace-decoupage": CaceDecoupage(exp, args); break;
             case "changement-embeddings": ChangementEmbeddings(exp, args); break;
             case "changement-generateur": ChangementGenerateur(exp, args); break;
+            case "prompt-v2": PromptV2(exp, args); break;
             case "stabilite": Stabilite(exp, args); break;
             default: throw new ArgumentException($"expérience inconnue : {name} (connues : {string.Join(", ", Names)})");
         }
@@ -278,7 +287,7 @@ public static class Experiments
     /// <summary>
     /// Monte la configuration que l'expérience utilisera et lit son prompt, sans rien calculer. Un découpage hors
     /// bornes ou un prompt introuvable se voit ainsi avant l'indexation et l'instantané « avant ». Run l'appelle
-    /// aussi pour le découpage de cace-decoupage.
+    /// aussi pour le découpage de cace-decoupage et pour le second prompt de prompt-v2.
     /// </summary>
     private static void Check(AppConfig config, Overrides overrides)
     {
@@ -288,6 +297,9 @@ public static class Experiments
 
     /// <summary>Le découpage « après » de cace-decoupage : --max-chars et --overlap-chars, sinon 300 et 50.</summary>
     private static (int MaxChars, int Overlap) CaceSplitter(Args args) => (args.Int("--max-chars") ?? 300, args.Int("--overlap-chars") ?? 50);
+
+    /// <summary>Le second prompt de prompt-v2 : --other, sinon answer-v2.</summary>
+    private static string OtherPrompt(Args args) => args.Value("--other") ?? "answer-v2";
 
     private static void CaceDecoupage(Experiment exp, Args args)
     {
@@ -427,6 +439,56 @@ public static class Experiments
         exp.Log("");
         exp.Log("- Aucune donnée stockée n'a changé : même index, même manifeste. « Le générateur est un détail » est vrai pour les données.");
         exp.Log("- Mais les textes, la latence et le nombre de réponses non sourcées changent : le prompt est réglé pour un modèle, chaque modèle a ses manies (longueur, langue, raisonnement). Une ligne de configuration, oui ; sans conséquence, non.");
+    }
+
+    private static void PromptV2(Experiment exp, Args args)
+    {
+        var other = OtherPrompt(args);
+        var first = exp.PromptName;
+
+        var (containerA, manifest, _) = exp.Index("partage");
+        Console.WriteLine($"Avant : prompt {first}");
+        var (snapshotA, _) = exp.Record("avant", containerA);
+        Console.WriteLine($"Après : prompt {other}");
+        var containerB = exp.Build("partage", new Overrides(PromptName: other));
+        var (snapshotB, _) = exp.Record("apres", containerB);
+
+        var comparison = SnapshotComparer.Compare(snapshotA, snapshotB);
+        exp.Log($"Une seule chose change : le prompt, `{first}` → `{other}`. Même index ({manifest.ChunkCount} morceaux, `{manifest.EmbeddingModel}`, "
+                + $"{manifest.Dimension} dim.), même générateur, même seuil.");
+        exp.Log("");
+        exp.Log("## Les deux prompts");
+        exp.Log("");
+        exp.Table(new[]
+        {
+            ($"avant (`{first}`)", Experiment.Merge(new Dictionary<string, object?>
+            {
+                ["longueur moyenne des réponses"] = MeanLength(snapshotA),
+            }, exp.Stats(snapshotA))),
+            ($"après (`{other}`)", Experiment.Merge(new Dictionary<string, object?>
+            {
+                ["longueur moyenne des réponses"] = MeanLength(snapshotB),
+            }, exp.Stats(snapshotB))),
+        });
+        Drift(exp, comparison);
+        exp.Log("## Lecture");
+        exp.Log("");
+        exp.Log("- Seul le prompt change entre les deux instantanés : la dérive est attribuable à cette seule modification.");
+        exp.Log("- Ce que le prompt change (forme, longueur, ton) n'est pas ce que le domaine garantit (citations vérifiées, droits filtrés). "
+                + "Deux lectures se défendent. Pour l'une, le prompt est une configuration, qu'on choisit avec le modèle comme on choisit le modèle lui-même. "
+                + "Pour l'autre, ses consignes portent des règles du métier, et il se teste comme du code.");
+        exp.Log("- Avec `extractive` (hors-ligne), 0 % de dérive : ce générateur ignore les consignes. Un modèle qui ignore le prompt produit exactement cette signature.");
+    }
+
+    /// <summary>
+    /// La longueur moyenne des réponses données, comptée en points de code Unicode et non en unités UTF-16
+    /// (string.Length) : un emoji compte pour un. La moyenne est arrondie à l'entier par Math.Round, qui départage
+    /// les égalités vers le pair. Sans réponse donnée, on renvoie null.
+    /// </summary>
+    public static int? MeanLength(Snapshot snapshot)
+    {
+        var answered = snapshot.Entries.Where(e => e.Status == Experiment.Answered).Select(e => e.Text.EnumerateRunes().Count()).ToList();
+        return answered.Count == 0 ? null : (int)Math.Round(answered.Average());
     }
 
     private static void Stabilite(Experiment exp, Args args)

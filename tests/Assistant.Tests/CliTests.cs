@@ -2,7 +2,6 @@
 // fichier vérifie les règles de l'analyse, montrées sur index et ask, et ce qui vaut pour toutes les commandes.
 // Les tests propres à une commande sont dans un fichier à son nom.
 
-using System.Text.Json.Nodes;
 using Assistant.Cli;
 using Xunit;
 
@@ -136,18 +135,14 @@ public sealed class CliTests : CliTestBase
     public void An_unknown_prompt_names_its_folder_and_the_known_ones()
     {
         // Le message dit « prompt introuvable » et nomme les prompts connus, au lieu d'un « fichier illisible » suivi
-        // du message .NET « Could not find file ». Le prompt est celui que nomme generation.prompt dans la
-        // configuration. ask ne le lit qu'après avoir retrouvé des passages, d'où l'index. Le modèle hashing-512 a son
-        // seuil : aucun avertissement ne précède l'erreur.
+        // du message .NET « Could not find file ». ask ne lit le prompt qu'après avoir retrouvé des passages, d'où
+        // l'index. Le modèle hashing-512 a son seuil : aucun avertissement ne précède l'erreur.
         using var ai = new FakeAiService();
         var config = WriteConfig(ai.Url);
-        var json = JsonNode.Parse(File.ReadAllText(config))!.AsObject();
-        json["generation"] = new JsonObject { ["prompt"] = "nexiste" };
-        File.WriteAllText(config, json.ToJsonString());
         Assert.Equal(0, Run("index", "--embedding-model", "hashing-512", "--config", config).Code);
-        var (code, output, errors) = Run("ask", Question, "--embedding-model", "hashing-512", "--config", config);
+        var (code, output, errors) = Run("ask", Question, "--embedding-model", "hashing-512", "--prompt", "nexiste", "--config", config);
         Assert.Equal((1, ""), (code, output));
-        Assert.Equal($"Erreur : prompt introuvable : nexiste dans {Composition.PromptsDir} (connus : answer)\n", errors);
+        Assert.Equal($"Erreur : prompt introuvable : nexiste dans {Composition.PromptsDir} (connus : answer, answer-v2)\n", errors);
     }
 
     [Fact]

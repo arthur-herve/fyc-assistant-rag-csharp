@@ -1,72 +1,70 @@
-# Fil rouge, correction de S3.2 : les données sont du code
+# Fil rouge, étape S3.3 : frontière métier et modèle
 
-> **Correction de la séquence S3.2.** Ce tag, `corrige/s3.2`, est l'état du fil rouge à la fin de la
-> séquence. Il sert à lire la parade et à refaire les manipulations de la séquence pour la voir agir.
-> L'application complète, avec toute sa documentation, est sur la branche `final`.
+> **Branche d'étape.** Cette branche est l'état du fil rouge au début de la séquence S3.3. Cette
+> séquence est un débat : elle n'a pas de correction. L'application complète, avec toute sa
+> documentation, est sur la branche `final`.
 
 ## Où en est le fil rouge
 
 Le fil rouge a les parades des séquences précédentes : les droits filtrés avant le prompt, les citations
-vérifiées, les tentatives et la graine. Cette correction ajoute celle de S3.2. L'index sait maintenant
-quel modèle l'a construit et refuse une question vectorisée par un autre, et le seuil de pertinence se
-règle par modèle d'embeddings. Elle ajoute aussi de quoi mesurer : un banc d'essai, qui propose un seuil
-par modèle, et des expériences qui rejouent les ruptures. La séquence S3.3 part de là, avec une question
-qu'elle laisse ouverte : où passe la frontière entre le métier et le modèle, quand une règle vit dans un
-prompt ou dans les poids d'un modèle ?
+vérifiées, les tentatives et la graine, le manifeste de l'index et un seuil par modèle d'embeddings. Il a
+aussi un banc d'essai et des expériences qui rejouent les ruptures. Cette étape n'ajoute presque rien au
+code : un second prompt, `prompts/answer-v2.json`, l'option `--prompt` qui choisit le prompt, et
+l'expérience `prompt-v2` qui compare les deux. Le débat porte sur la frontière entre le métier et le
+modèle, et rien dans cette branche ne tranche la question à votre place.
 
-## Ce que la correction a changé
+## Ce que vous faites dans cette séquence
 
-Au départ de la séquence, l'index ne savait pas quel modèle l'avait construit. Le service IA renvoyait
-pourtant `model` et `dimension` depuis S2.3, mais le port les jetait : `IEmbedder` ne rendait que des
-vecteurs. Un changement de modèle d'embeddings sans réindexation donnait donc, à dimension égale, des
-réponses fausses ou des refus sans aucune erreur, et sinon une erreur de dimension qui ne disait pas quoi
-faire.
+1. Relisez la parade de S3.2 sur les seuls fichiers qui la montrent :
 
-La correction change la forme des ports. `IEmbedder` rend un `EmbeddingBatch`, avec le modèle et la
-dimension, et `IGenerator` une `Generation`, avec le modèle. L'index enregistre un manifeste : le modèle,
-la dimension, le nombre de documents et de morceaux. Avant de chercher, `SearchPassages` compare le
-modèle qui a vectorisé la question à celui du manifeste. S'ils diffèrent, il refuse et demande de
-réindexer. La trace d'une réponse et les instantanés nomment les modèles qui ont servi.
+   ```bash
+   git diff origin/etape/s3.2 corrige/s3.2 -- src/Assistant.Application/Ports.cs src/Assistant.Application/SearchPassages.cs src/Assistant.Application/IndexCorpus.cs src/Assistant.Domain
+   ```
 
-Le seuil de pertinence devient une table par modèle d'embeddings, `retrieval.min_score`, avec une valeur
-`default` pour les modèles qui n'en ont pas. Les commandes qui cherchent des passages préviennent quand
-elles se rabattent sur cette valeur. Le banc d'essai, `benchmark`, mesure la recherche et la génération
-et propose un seuil par modèle. Les expériences `cace-decoupage`, `changement-embeddings` et
-`changement-generateur` rejouent les ruptures en ne changeant qu'une chose à la fois.
+   Regardez ce que le port a dû changer pour que l'index sache quel modèle l'a construit. Sur tout `src`,
+   ce diff serait noyé dans le banc d'essai, `src/Assistant.Cli/Benchmark.cs`, qui compte à lui seul plus
+   de 600 lignes.
 
-Pour lire la parade seule, sur les fichiers qui la montrent :
+2. Le service IA lancé, rejouez hors ligne les deux expériences de S3.2 :
 
-```bash
-git diff origin/etape/s3.2 corrige/s3.2 -- src/Assistant.Application/Ports.cs src/Assistant.Application/SearchPassages.cs src/Assistant.Application/IndexCorpus.cs src/Assistant.Domain
-```
+   ```bash
+   dotnet run --project src/Assistant.Cli -- experience changement-embeddings --other hashing-512
+   dotnet run --project src/Assistant.Cli -- experience cace-decoupage
+   ```
 
-Sur tout `src`, ce diff serait noyé dans le banc d'essai, `src/Assistant.Cli/Benchmark.cs`, qui compte à
-lui seul plus de 600 lignes.
+   La première montre le refus explicite : l'index construit avec `hashing-256-stem6` n'est pas interrogé
+   avec `hashing-512-stem6`, et l'application demande de réindexer. La seconde ne change que le découpage :
+   les morceaux passent de 800 à 300 caractères, et leur recouvrement de 120 à 50. Un tiers des réponses
+   changent, et la part des refus justes tombe de 0,80 à 0,40. Chaque expérience écrit un rapport et en
+   affiche le chemin à la fin.
 
-Refaites ensuite les deux pannes de la séquence, le service IA lancé et l'index construit avec
-`hashing` :
+3. Lisez le support de la séquence et les extraits proposés, dont *Software 2.0* d'Andrej Karpathy.
 
-```bash
-dotnet run --project src/Assistant.Cli -- ask "Quelle est la capitale de l'Australie ?" -v --embedding-model hashing-stem4
-dotnet run --project src/Assistant.Cli -- ask "Quelle est la capitale de l'Australie ?" -v --embedding-model hashing-512
-```
+4. Regardez où vivent les règles du fil rouge, et demandez-vous de quel côté de la frontière chacune se
+   trouve :
+   - le seuil de pertinence, dans la table `retrieval.min_score` de chaque fichier `config/*.json`, dit
+     quand l'assistant doit refuser de répondre. C'est une règle métier, mais sa valeur dépend des poids du
+     modèle d'embeddings ;
+   - les consignes de `prompts/answer.json` demandent de répondre en français, en trois phrases au plus,
+     en citant les passages. Ce sont des exigences du métier, écrites dans un texte réglé pour un modèle.
 
-La panne silencieuse ne l'est plus. Avec `hashing-stem4`, la dimension est la même, mais l'application
-voit que l'index vient de `hashing-256-stem6` et la question de `hashing-256-stem4`, et elle demande de
-réindexer au lieu de répondre à côté. Un avertissement précède l'erreur, parce que la configuration ne
-donne pas de seuil pour ce modèle. Avec `hashing-512`, l'erreur de dimension laisse place au même
-refus, qui dit quoi faire.
+5. Comparez les deux prompts. `prompts/answer-v2.json` demande une seule phrase, qui commence par la
+   valeur demandée. Avec Ollama, lancez l'expérience avec un vrai générateur. Les embeddings restent
+   ceux de `config/app.json`, et les deux prompts sont comparés sur le même index :
 
-Pour le seuil, lancez le banc sur le corpus réduit, avec `hashing` :
+   ```bash
+   dotnet run --project src/Assistant.Cli -- experience prompt-v2 --generation-model llama3-2-3b
+   ```
 
-```bash
-dotnet run --project src/Assistant.Cli -- benchmark --config config/app-ollama.json --embedding hashing --generation extractive --questions eval/questions-service-public.json --runs 1
-```
+   Regardez la dérive et la longueur moyenne des réponses. Avec un vrai modèle, changer les consignes
+   change les réponses, sans qu'une ligne de code ait bougé. Hors ligne, la même commande sans
+   `--generation-model` donne 0 % de dérive, parce qu'`extractive` recopie une phrase des passages et
+   ignore les consignes. L'effet du prompt ne se voit donc qu'avec un vrai modèle. Pour une seule
+   question, l'option `--prompt answer-v2` de `ask` fait la même substitution.
 
-La table donne à `hashing` sa propre valeur, 0,45. L'assistant répond alors à 30 des 32 questions
-répondables et refuse 8 des 10 autres, ce que le rapport écrit 0,94 et 0,80. Ajoutez `--min-score 0.65`
-pour imposer le seuil calibré pour `bge-m3` : il ne répond plus qu'à 9 des 32 questions répondables. Le
-banc écrit son index dans son propre dossier, et n'écrase donc pas celui de `data/`.
+6. Prenez position par écrit, en quelques lignes. Le prompt est-il de la configuration ou de la logique
+   métier ? Le modèle est-il un détail, une entité, ou une catégorie que le schéma classique de la Clean
+   Architecture ne prévoit pas ? Confrontez ensuite votre position au QCM, sur Moodle.
 
 ## Démarrer
 
@@ -92,12 +90,11 @@ dotnet run --project src/Assistant.Cli -- index
 dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" -v
 ```
 
-`index` affiche le manifeste de l'index qu'il vient de construire. La réponse se termine par une ligne
-qui nomme les modèles et le nombre de tentatives. Avec `-v`, elle est suivie de sa trace : les passages
-retrouvés, leurs scores et la sortie brute du modèle. Après chaque changement de branche, reconstruisez
-l'index avec `index` : le dossier `data/` n'est pas versionné, et l'index d'une autre étape n'a pas
-forcément le même format. Dans ce cas, l'application refuse de le lire et donne la commande qui le
-reconstruit.
+La réponse se termine par une ligne qui nomme les modèles et le nombre de tentatives. Avec `-v`, elle
+est suivie de sa trace : les passages retrouvés, leurs scores et la sortie brute du modèle. Après chaque
+changement de branche, reconstruisez l'index avec `index` : le dossier `data/` n'est pas versionné, et
+l'index d'une autre étape n'a pas forcément le même format. Dans ce cas, l'application refuse de le lire
+et donne la commande qui le reconstruit.
 
 ## Les branches du cours
 
@@ -121,8 +118,10 @@ jamais un dossier.
 ## Les choix de cette étape
 
 - L'application C# et le service IA en Python ne partagent que le contrat de `docs/contrat-http.md`.
-- L'index vit dans l'application. Construit par un autre modèle, il est refusé au lieu de répondre à côté.
+  L'index vit dans l'application. Construit par un autre modèle, il est refusé au lieu de répondre à côté.
 - Le seuil de pertinence se règle par modèle d'embeddings et par corpus, dans la configuration.
 - Les droits sont filtrés avant le prompt, et le prompt est construit dans l'application.
 - La recherche, déterministe, se teste par assertion. La génération a droit à une seconde tentative,
   et une graine peut la rendre reproductible.
+- Le prompt se choisit par son nom, dans la configuration ou avec `--prompt`. Ce choix ne dit pas encore
+  si le prompt relève de la configuration ou du métier : c'est la question de la séquence.

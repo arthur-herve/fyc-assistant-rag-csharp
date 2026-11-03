@@ -41,7 +41,7 @@ public sealed class BenchmarkRunTests : EvalRunTestBase
         Assert.Equal("max_chars doit valoir au moins 100", Refused<ArgumentException>(Options("jamais") with { SplitterMaxChars = 50 }).Message);
         Assert.Equal("overlap_chars doit être compris entre 0 et max_chars / 2",
                      Refused<ArgumentException>(Options("jamais") with { SplitterOverlapChars = 900 }).Message);
-        Assert.Equal(NoPrompt, Refused<Application.PromptNotFoundException>(Options("jamais"), _config with { PromptName = "nexiste" }).Message);
+        Assert.Equal(NoPrompt, Refused<Application.PromptNotFoundException>(Options("jamais") with { PromptName = "nexiste" }).Message);
         var intruder = new[] { Questions[0] with { UserName = "mallory" } };
         Assert.Contains("mallory", Refused<UnknownUserException>(Options("jamais", intruder)).Message);
         Assert.Contains("mallory", Refused<UnknownUserException>(Options("jamais") with { Validation = intruder }).Message);
@@ -176,5 +176,14 @@ public sealed class BenchmarkRunTests : EvalRunTestBase
             Assert.Equal(new[] { "index-hashing.json", "rapport.md", "resultats.csv", "synthese.json" },
                          Directory.GetFileSystemEntries(folder).Select(f => Path.GetFileName(f)).Order());
         }
+    }
+
+    [Fact]
+    public void The_benchmark_uses_the_prompt_it_is_given()
+    {
+        // Avec --prompt, le rapport nomme le prompt utilisé.
+        var options = Options("banc-prompt") with { PromptName = "answer-v2" };
+        Benchmark.Run(_config, options, _ => { });
+        Assert.Contains("prompt `answer-v2`", File.ReadAllText(Path.Combine(options.OutDir, "rapport.md")));
     }
 }

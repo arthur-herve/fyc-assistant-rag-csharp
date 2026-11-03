@@ -10,13 +10,14 @@ namespace Assistant.Tests;
 public sealed class CliExperimentTests : CliTestBase
 {
     [Theory]
+    [InlineData("option(s) inconnue(s) pour experience prompt-v2 : --runs", "experience", "prompt-v2", "--runs", "5")]
     [InlineData("option(s) inconnue(s) pour experience stabilite : --max-chars", "experience", "stabilite", "--max-chars", "300")]
     [InlineData("option(s) inconnue(s) pour experience cace-decoupage : --other", "experience", "cace-decoupage", "--other", "nomic")]
     public void A_mistyped_abbreviated_or_foreign_option_is_refused_before_any_work(string message, params string[] argv) =>
         AssertRefused(message, argv);
 
     [Theory]
-    [InlineData("--other", "experience", "--other", "nomic", "changement-embeddings")]
+    [InlineData("--other", "experience", "--other", "nomic", "prompt-v2")]
     public void The_command_comes_first(string option, params string[] argv) =>
         AssertRefused($"option placée avant la commande : {option} (la commande vient d'abord : assistant <commande> [options])", argv);
 
@@ -25,7 +26,7 @@ public sealed class CliExperimentTests : CliTestBase
     public void An_extra_argument_is_refused(string message, params string[] argv) => AssertRefused(message, argv);
 
     [Theory]
-    [InlineData("expérience inconnue : nope (connues : cace-decoupage, changement-embeddings, changement-generateur, stabilite)",
+    [InlineData("expérience inconnue : nope (connues : cace-decoupage, changement-embeddings, changement-generateur, prompt-v2, stabilite)",
                 "experience", "nope")]
     public void A_wrong_value_or_an_unknown_subcommand_is_refused_before_any_work(string message, params string[] argv) =>
         AssertRefused(message, argv);
@@ -39,6 +40,7 @@ public sealed class CliExperimentTests : CliTestBase
     [InlineData("max_chars doit valoir au moins 100", "cace-decoupage", "--max-chars", "50")]
     // 150 est la moitié des 300 caractères par défaut : c'est la première valeur refusée.
     [InlineData("overlap_chars doit être compris entre 0 et max_chars / 2", "cace-decoupage", "--overlap-chars", "150")]
+    [InlineData("prompt introuvable : nexiste dans ", "prompt-v2", "--other", "nexiste")]
     [InlineData("changement-embeddings attend --other <alias du second modèle>", "changement-embeddings")]
     public void An_experiment_option_is_checked_after_the_configuration_and_before_any_work(string message, params string[] options)
     {
@@ -63,7 +65,7 @@ public sealed class CliExperimentTests : CliTestBase
         AssertRefused(message, argv);
 
     [Theory]
-    [InlineData("Erreur : experience attend un nom : cace-decoupage, changement-embeddings, changement-generateur, stabilite",
+    [InlineData("Erreur : experience attend un nom : cace-decoupage, changement-embeddings, changement-generateur, prompt-v2, stabilite",
                 "experience")]
     public void A_command_is_one_word_or_two_separate_words(string message, params string[] argv)
     {
@@ -75,6 +77,7 @@ public sealed class CliExperimentTests : CliTestBase
     [Theory]
     [InlineData("experience", "cace-decoupage", "--max-chars", "300", "--overlap-chars", "50", "--questions", "q.json")]
     [InlineData("experience", "changement-embeddings", "--other", "nomic", "--limit", "2")]
+    [InlineData("experience", "prompt-v2", "--other", "answer-v2")]
     [InlineData("experience", "stabilite", "--runs", "3", "--seed", "42", "--out", "ici")]
     // La borne : --limit 1.
     [InlineData("experience", "stabilite", "--limit", "1")]

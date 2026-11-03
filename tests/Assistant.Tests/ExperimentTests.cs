@@ -1,5 +1,5 @@
-// Les calculs des expériences sont déterministes et se testent sans modèle : les mesures lues dans un instantané
-// et la lecture de la stabilité.
+// Les calculs des expériences sont déterministes et se testent sans modèle : les mesures lues dans un instantané,
+// la longueur des réponses et la lecture de la stabilité.
 
 using Assistant.Cli;
 using Xunit;
@@ -17,6 +17,34 @@ public class ExperimentTests
     [Fact]
     public void Keyword_coverage_is_null_without_keywords() =>
         Assert.Null(Keywords.Coverage("Deux jours.", Array.Empty<string>()));
+
+    /// <summary>Un instantané fait de ces réponses, chacune avec son statut et son texte.</summary>
+    private static Application.Snapshot Make(params (string Status, string Text)[] entries) => new("s", "2026-09-12T00:00:00+00:00",
+        new Dictionary<string, object?>(),
+        entries.Select((e, i) => new Application.SnapshotEntry($"q{i}", "alice", "?", e.Status, Array.Empty<string>(), e.Text, 1)).ToList());
+
+    [Fact]
+    public void The_mean_length_of_the_answers_counts_code_points()
+    {
+        // prompt-v2 compte en caractères (points de code), et non en unités UTF-16 : trois emoji comptent pour 3, pas
+        // pour 6.
+        Assert.Equal(2, Experiments.MeanLength(Make(("answered", "\U0001F600\U0001F600\U0001F600"), ("answered", "a"))));
+    }
+
+    [Fact]
+    public void The_mean_length_leaves_out_refusals()
+    {
+        // Seules les réponses données entrent dans la moyenne : 3 ici, et non 14 / 3 arrondi à 5 avec le refus. Sans
+        // réponse donnée, elle vaut null.
+        Assert.Equal(3, Experiments.MeanLength(Make(("answered", "ab"), ("answered", "abcd"), ("no_relevant_source", "un refus"))));
+        Assert.Null(Experiments.MeanLength(Make(("no_relevant_source", "un refus"))));
+    }
+
+    [Fact]
+    public void The_mean_length_rounds_half_to_even()
+    {
+        Assert.Equal(2, Experiments.MeanLength(Make(("answered", "ab"), ("answered", "abc"))));   // 2,5 s'arrondit à 2
+    }
 
     /// <summary>Un instantané d'une seule réponse donnée, avec ce texte.</summary>
     private static Application.Snapshot OneAnswer(string text) =>

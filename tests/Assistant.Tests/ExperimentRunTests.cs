@@ -25,6 +25,8 @@ public sealed class ExperimentRunTests : EvalRunTestBase
         var outDir = Path.Combine(_dir, "exp");
         Assert.Equal("max_chars doit valoir au moins 100",
                      Assert.Throws<ArgumentException>(() => Experiment("cace-decoupage", "--max-chars", "50", "--out", outDir)).Message);
+        Assert.Equal(NoPrompt, Assert.Throws<Application.PromptNotFoundException>(
+            () => Experiment("prompt-v2", "--other", "nexiste", "--out", outDir)).Message);
         Assert.Equal("--limit doit valoir au moins 1, pas 0",
                      Assert.Throws<ArgumentException>(() => Experiment("stabilite", "--limit", "0", "--out", outDir)).Message);
         File.WriteAllText(_questionsPath, """{"questions": [{"id": "q", "user": "mallory", "question": "?"}]}""");
@@ -35,10 +37,13 @@ public sealed class ExperimentRunTests : EvalRunTestBase
     [Fact]
     public void The_main_configuration_of_an_experiment_is_checked_before_any_work()
     {
-        // Pas seulement ce que l'expérience change : le prompt de la configuration aussi.
+        // Pas seulement ce que l'expérience change : le prompt principal aussi, qu'il vienne de la configuration ou
+        // de --prompt.
         var outDir = Path.Combine(_dir, "exp");
         Assert.Equal(NoPrompt, Assert.Throws<Application.PromptNotFoundException>(
             () => Experiment(_config with { PromptName = "nexiste" }, new Overrides(), "stabilite", "--out", outDir)).Message);
+        Assert.Equal(NoPrompt, Assert.Throws<Application.PromptNotFoundException>(
+            () => Experiment(_config, new Overrides(PromptName: "nexiste"), "stabilite", "--out", outDir)).Message);
         Assert.False(Directory.Exists(outDir));
     }
 

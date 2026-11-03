@@ -92,7 +92,7 @@ public sealed class CliBenchmarkTests : CliTestBase
         AssertRefused(message, argv);
 
     [Theory]
-    [InlineData("benchmark", "--embedding-model", "hashing-512", "--generation-model", "extractive")]
+    [InlineData("benchmark", "--embedding-model", "hashing-512", "--generation-model", "extractive", "--prompt", "answer-v2")]
     // La borne : --limit 1.
     [InlineData("benchmark", "--limit", "1")]
     public void The_options_of_each_command_reach_the_configuration(params string[] argv)
@@ -210,6 +210,7 @@ public sealed class CliBenchmarkTests : CliTestBase
     [InlineData("Erreur : --min-score attend config, auto ou un nombre de [-1, 1] (ex. 0.6), pas « abc »\n", "--min-score", "abc")]
     [InlineData("Erreur : max_chars doit valoir au moins 100\n", "--max-chars", "50")]
     [InlineData("Erreur : overlap_chars doit être compris entre 0 et max_chars / 2\n", "--overlap-chars", "900")]
+    [InlineData("nexiste", "--prompt", "nexiste")]
     public void Benchmark_checks_every_option_before_the_ai_service(string message, params string[] options)
     {
         var config = WriteConfig("http://127.0.0.1:1");

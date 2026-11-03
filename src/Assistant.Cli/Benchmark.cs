@@ -34,6 +34,7 @@ public sealed record BenchmarkOptions(
     int? SplitterMaxChars = null,
     int? SplitterOverlapChars = null,
     int? Seed = null,
+    string? PromptName = null,
     bool NewOutDir = false);
 
 public sealed record RetrievalScore(EvalQuestion Question, double Top1, bool? Hit, bool? Hit1);
@@ -254,7 +255,7 @@ public static class Benchmark
         {
             log($"\n=== Embeddings : {emb} ===");
             var indexPath = Path.Combine(outDir, $"index-{emb}.json");
-            var overrides = new Overrides(EmbeddingModel: emb, IndexPath: indexPath,
+            var overrides = new Overrides(EmbeddingModel: emb, IndexPath: indexPath, PromptName: options.PromptName,
                                           SplitterMaxChars: options.SplitterMaxChars, SplitterOverlapChars: options.SplitterOverlapChars,
                                           Seed: options.Seed);
             var container = Composition.Build(config, overrides);
@@ -313,7 +314,7 @@ public static class Benchmark
         var imposed = FixedMinScore(options.MinScoreMode);
         // Monter le conteneur ne calcule rien. Un découpage hors bornes (ArgumentException) échoue dès le montage,
         // un prompt introuvable à sa lecture juste en dessous : les deux erreurs arrivent avant toute indexation.
-        var container = Composition.Build(config, new Overrides(SplitterMaxChars: options.SplitterMaxChars,
+        var container = Composition.Build(config, new Overrides(PromptName: options.PromptName, SplitterMaxChars: options.SplitterMaxChars,
                                                                 SplitterOverlapChars: options.SplitterOverlapChars));
         return (imposed, container.Prompts.Get(container.Settings.PromptName).Name);
     }

@@ -39,17 +39,18 @@ public sealed class CliAskTests : CliTestBase
     [Fact]
     public void An_empty_value_is_no_value()
     {
-        // Donnés vides, --config, --embedding-model et --generation-model valent la configuration, comme si l'option
-        // était absente. Pris pour un nom, ils donneraient un modèle « » que le faux service servirait comme « faux: »,
-        // ou, pour --config, un message .NET en anglais (« The value cannot be an empty string »). ASSISTANT_CONFIG
-        // vaut pour tout le processus, d'où la collection « Console », qui ne tourne en même temps qu'aucune autre.
+        // Donnés vides, --config, --embedding-model, --generation-model et --prompt valent la configuration, comme si
+        // l'option était absente. Pris pour un nom, ils donneraient « prompt introuvable :  dans … », un modèle « » que
+        // le faux service servirait comme « faux: », ou, pour --config, un message .NET en anglais (« The value cannot
+        // be an empty string »). ASSISTANT_CONFIG vaut pour tout le processus, d'où la collection « Console », qui ne
+        // tourne en même temps qu'aucune autre.
         using var ai = new FakeAiService();
         var config = WriteConfig(ai.Url);
         const string question = "Combien de jours de télétravail par semaine ?";
         Assert.Equal(0, Run("index", "--config", config).Code);
         var ask = Run("ask", question, "--config", config);
         Assert.Equal(0, ask.Code);
-        foreach (var option in new[] { "--embedding-model", "--generation-model" })
+        foreach (var option in new[] { "--embedding-model", "--generation-model", "--prompt" })
         {
             Assert.Equal(ask, Run("ask", question, option, "", "--config", config));
         }

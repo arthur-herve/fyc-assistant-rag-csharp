@@ -27,6 +27,7 @@ public sealed record Overrides(
     string? GenerationModel = null,
     string? IndexPath = null,
     double? MinScore = null,
+    string? PromptName = null,
     int? SplitterMaxChars = null,
     int? SplitterOverlapChars = null,
     int? Seed = null,
@@ -36,8 +37,9 @@ public static class Composition
 {
     public static string PromptsDir => Path.Combine(AppConfig.ProjectRoot, "prompts");
 
-    public static Container Build(AppConfig config, string? embeddingModel = null, string? generationModel = null) =>
-        Build(config, new Overrides(embeddingModel, generationModel));
+    public static Container Build(AppConfig config, string? embeddingModel = null, string? generationModel = null,
+                                  string? promptName = null) =>
+        Build(config, new Overrides(embeddingModel, generationModel, PromptName: promptName));
 
     public static Container Build(AppConfig config, Overrides overrides)
     {
@@ -62,7 +64,7 @@ public static class Composition
             Temperature: config.Temperature,
             MaxTokens: config.MaxTokens,
             Seed: overrides.Seed ?? config.Seed,
-            PromptName: config.PromptName);
+            PromptName: overrides.PromptName ?? config.PromptName);
         var askQuestion = new AskQuestion(embedder, index, generator, prompts, settings);
         var searchPassages = new SearchPassages(embedder, index);
         var snapshots = new JsonSnapshotStore(overrides.SnapshotsDir ?? config.SnapshotsDir);

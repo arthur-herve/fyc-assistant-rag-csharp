@@ -12,7 +12,7 @@ namespace Assistant.Tests;
 public abstract class EvalRunTestBase : IDisposable
 {
     /// <summary>Le message pour le prompt « nexiste » : son nom, le dossier et les prompts livrés.</summary>
-    protected static readonly string NoPrompt = $"prompt introuvable : nexiste dans {Composition.PromptsDir} (connus : answer)";
+    protected static readonly string NoPrompt = $"prompt introuvable : nexiste dans {Composition.PromptsDir} (connus : answer, answer-v2)";
     protected readonly FakeAiService _ai = new();
     protected readonly string _dir = Directory.CreateTempSubdirectory("fyc-eval-").FullName;
     protected readonly AppConfig _config;

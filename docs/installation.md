@@ -52,12 +52,12 @@ bibliothèque standard.
 
 Récupérez le dépôt. Le clone vous place sur `main`, le point de départ du cours, où l'application
 n'est pas encore écrite. Pour tester l'application, passez sur la branche de votre séquence, par
-exemple `etape/s3.2`. Lancez ensuite les tests des deux programmes :
+exemple `etape/s3.3`. Lancez ensuite les tests des deux programmes :
 
 ```bash
 git clone https://github.com/arthur-herve/fyc-assistant-rag-csharp.git
 cd fyc-assistant-rag-csharp
-git switch etape/s3.2
+git switch etape/s3.3
 dotnet test --nologo                                   # l'application
 python -m unittest discover -s tests_python -t .       # le service IA et l'outil d'import du corpus
 ```
@@ -186,7 +186,7 @@ production, placez-le derrière un proxy authentifié.
 | `HTTP 502 — empreinte de … introuvable … (modèles installés : …)` | le modèle n'est pas téléchargé, ou son nom n'est pas écrit comme dans `ollama list` | `ollama pull <modèle>`, ou corrigez `model` dans `config/ai_service.toml` |
 | `HTTP 502 — … a changé pendant l'appel` | un `ollama pull` a eu lieu pendant la requête | relancez la commande |
 | `L'index a été construit avec « … » mais le modèle d'embeddings actuel est « … »` | vous avez changé de modèle d'embeddings | c'est voulu (séquence 3.2) : relancez `index` avec ce modèle |
-| `Erreur : prompt introuvable : … dans … (connus : answer)` | nom mal tapé dans `generation.prompt` de la configuration | choisissez un des prompts connus |
+| `Erreur : prompt introuvable : … dans … (connus : answer, answer-v2)` | nom mal tapé dans `--prompt` ou dans `generation.prompt` de la configuration | choisissez un des prompts connus |
 | `dotnet : commande introuvable` | SDK non installé, ou PATH pas encore mis à jour | rouvrez le terminal après l'installation, puis vérifiez avec `dotnet --info` |
 | `NETSDK1045`, ou un message sur la « version du SDK » | SDK plus ancien que 8.0 | installez le SDK 8.0 (étape 1) |
 | « You must install or update .NET to run this application » (`Microsoft.NETCore.App` 8.0) | un SDK 9 ou 10 seul, sans le runtime 8 | installez le runtime .NET 8 (étape 1) |

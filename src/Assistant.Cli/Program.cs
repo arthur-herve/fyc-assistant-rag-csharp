@@ -28,9 +28,9 @@ public static class Program
           benchmark                      mesurer recherche et génération   (--embedding a b, --generation x y — défaut : la configuration ; --questions, --validate-with, --runs, --limit, --min-score config|auto|<n de [-1, 1]>, --max-chars, --overlap-chars, --seed, --out)
           experience <nom>               une expérience reproductible   (--questions, --limit, --out, et selon l'expérience :)
                                            cace-decoupage (--max-chars, --overlap-chars) · changement-embeddings --other <alias>
-                                           changement-generateur --other <alias> · stabilite (--runs, --seed)
+                                           changement-generateur --other <alias> · prompt-v2 (--other <prompt>) · stabilite (--runs, --seed)
 
-        Options communes : --config <fichier>   --embedding-model <alias>   --generation-model <alias>
+        Options communes : --config <fichier>   --embedding-model <alias>   --generation-model <alias>   --prompt <nom>
         La commande vient d'abord, puis ses options. Une option inconnue, abrégée ou d'une autre commande, ou un argument en trop, est une erreur.
         « -- » termine les options : ce qui suit est un argument, même un mot qui commence par un tiret (ask -- -télétravail) ; sans « -- », un tel mot n'est un argument que s'il est « - », un nombre négatif, ou si son nom (ce qui précède un éventuel « = ») contient une espace (ask "-vingt degrés ?").
         Codes de retour : 0 ok · 1 erreur, saisie comprise
@@ -94,7 +94,8 @@ public static class Program
         var verbose = args.Has("-v") || args.Has("--verbose");
 
         var config = AppConfig.Load(args.NonEmpty("--config"));
-        var container = Composition.Build(config, args.NonEmpty("--embedding-model"), args.NonEmpty("--generation-model"));
+        var container = Composition.Build(config, args.NonEmpty("--embedding-model"), args.NonEmpty("--generation-model"),
+                                          promptName: args.NonEmpty("--prompt"));
         if (command.Searches && !config.HasThresholdFor(container.EmbeddingModel))
         {
             Console.Error.WriteLine($"Attention : aucun seuil de pertinence configuré pour « {container.EmbeddingModel} » : valeur `default` "
@@ -123,7 +124,8 @@ public static class Program
                 return RunBenchmark(args, config);
             default:   // experience <nom> (Find ne connaît pas d'autre commande)
             {
-                var common = new Overrides(args.NonEmpty("--embedding-model"), args.NonEmpty("--generation-model"));
+                var common = new Overrides(args.NonEmpty("--embedding-model"), args.NonEmpty("--generation-model"),
+                                           PromptName: args.NonEmpty("--prompt"));
                 // Le rapport cite --config tel qu'il a été donné, sinon le chemin depuis la racine,
                 // « config/app.json ». Experiment y met des « / » : le rapport est identique sous Windows et Linux.
                 var configPath = args.NonEmpty("--config") ?? Path.GetRelativePath(AppConfig.ProjectRoot, config.Source);
@@ -159,7 +161,7 @@ public static class Program
         }
     }
 
-    private static readonly string[] Common = { "--config", "--embedding-model", "--generation-model" };
+    private static readonly string[] Common = { "--config", "--embedding-model", "--generation-model", "--prompt" };
     private static readonly string[] ExperimentCommon = Common.Concat(new[] { "--questions", "--limit", "--out" }).ToArray();
     private const string OneQuestion = "ask attend une seule question, entre guillemets";
 
@@ -172,13 +174,14 @@ public static class Program
             Searches: true),
         new("snapshot compare", Common, new(2, "snapshot compare attend deux noms")),
         new("snapshot list", Common),
-        new("benchmark", new[] { "--config", "--embedding-model", "--generation-model", "--embedding", "--generation",
+        new("benchmark", new[] { "--config", "--embedding-model", "--generation-model", "--prompt", "--embedding", "--generation",
                                  "--questions", "--validate-with", "--runs", "--limit", "--min-score", "--max-chars",
                                  "--overlap-chars", "--seed", "--out" }),
         // Les options propres à chaque expérience.
         new("experience cace-decoupage", ExperimentCommon.Concat(new[] { "--max-chars", "--overlap-chars" }).ToArray()),
         new("experience changement-embeddings", ExperimentCommon.Append("--other").ToArray()),
         new("experience changement-generateur", ExperimentCommon.Append("--other").ToArray()),
+        new("experience prompt-v2", ExperimentCommon.Append("--other").ToArray()),
         new("experience stabilite", ExperimentCommon.Concat(new[] { "--runs", "--seed" }).ToArray()),
     }.ToDictionary(c => c.Name);
 
@@ -226,6 +229,7 @@ public static class Program
             SplitterMaxChars: maxChars,
             SplitterOverlapChars: overlap,
             Seed: seed,
+            PromptName: args.NonEmpty("--prompt"),
             NewOutDir: args.NonEmpty("--out") is null);   // sans --out : jamais un dossier qui existe déjà
         Benchmark.Run(config, options, Console.WriteLine);
         return 0;
@@ -408,8 +412,8 @@ public sealed class Args
     public string? Value(string option) => _values.TryGetValue(option, out var list) ? list[^1] : null;
 
     /// <summary>
-    /// Lit une option qui remplace un défaut, comme la configuration (--config, --embedding-model, --generation-model)
-    /// ou le dossier de sortie daté (--out). Absente ou donnée vide, elle vaut null, et le défaut s'applique.
+    /// Lit une option qui remplace un défaut, comme la configuration (--config, --embedding-model, --generation-model,
+    /// --prompt) ou le dossier de sortie daté (--out). Absente ou donnée vide, elle vaut null, et le défaut s'applique.
     /// </summary>
     public string? NonEmpty(string option) => Value(option) is { Length: > 0 } value ? value : null;
 
