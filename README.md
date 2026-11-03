@@ -1,60 +1,66 @@
-# Fil rouge, correction de S4.1 : stratégies d'isolation
+# Fil rouge, étape S4.2 : versionner ensemble
 
-> **Correction de la séquence S4.1.** Ce tag, `corrige/s4.1`, est l'état du fil rouge à la fin de la
-> séquence. Il sert à comparer votre travail et à récupérer les tests attendus. L'application complète,
-> avec toute sa documentation, est sur la branche `final`.
+> **Branche d'étape.** Cette branche est l'état du fil rouge au début de la séquence S4.2. Certains
+> défauts y sont laissés exprès : la séquence les montre, et sa correction les pare. L'application
+> complète, avec toute sa documentation, est sur la branche `final`.
 
 ## Où en est le fil rouge
 
-Les décorateurs sont au complet. Le cache, le journal et les tentatives réseau entourent les ports, et la
-validation de la sortie du modèle s'y ajoute. Une sortie qui n'a pas la forme d'une réponse, parce
-qu'elle est vide, trop longue, écrite dans une autre langue ou encombrée d'un raisonnement, est refusée
-et compte comme une tentative ratée. La séquence S4.2 part de là, avec une question : que faut-il
-versionner avec le code pour pouvoir reproduire une réponse et dire d'où elle vient ?
+Le fil rouge a toutes les parades vues jusqu'ici : les droits filtrés avant le prompt, les citations
+vérifiées, les tentatives, le manifeste de l'index, les décorateurs et la validation de la sortie. La
+séquence part de là pour montrer qu'un document, un découpage ou un prompt changés sur place passent
+inaperçus.
 
-## Ce que la correction a changé
+## Ce que vous faites dans cette séquence
 
-Au départ de la séquence, une sortie comme « Okay, let me check the documents. … [1] » recevait le statut
-`answered`, puisque seules les citations étaient vérifiées. La correction ajoute
-`OutputValidatingGenerator`, un décorateur de l'application qui applique au texte la règle du domaine
-`OutputRules` et lève `ModelOutputRejectedException` quand la forme ne convient pas. `AskQuestion`
-attrape ce rejet, le note dans la trace et passe à la tentative suivante. `Composition.Decorate` place la
-validation sous le journal des générations, qui voit ainsi les rejets. Les clés
-`decorators.validate_output` et `max_output_chars` arrivent dans la configuration, et dans celle des
-instantanés.
+1. Comparez d'abord votre décorateur de validation au corrigé de S4.1 :
 
-Les protections du fil rouge se rangent désormais en deux familles. Celles qui isolent la technologie
-rendent le modèle remplaçable :
+   ```bash
+   git diff origin/etape/s4.1 corrige/s4.1
+   ```
 
-- le service IA, qui sert de couche anticorruption
-- le contrat HTTP, lu strictement
-- le cache, le journal et les tentatives réseau
+2. Provoquez la troisième rupture, sur votre propre branche
+   (`git switch -c mon-s4.2 origin/etape/s4.2`). Le service IA lancé, construisez l'index et posez une
+   question :
 
-Celles qui isolent l'incertitude empêchent une sortie douteuse d'arriver jusqu'à l'utilisateur :
+   ```bash
+   dotnet run --project src/Assistant.Cli -- index
+   dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?"
+   ```
 
-- les droits filtrés avant le prompt
-- les citations vérifiées
-- les tentatives du cas d'usage
-- la validation de la forme
+   L'assistant répond qu'on peut télétravailler « jusqu'à deux jours par semaine », et cite le passage
+   [1]. Remplacez « deux jours » par « trois jours » dans `corpus/solveo/teletravail.md`, puis reposez la
+   même question : la réponse dit toujours « deux jours », et rien ne le signale. Faites de même avec le
+   découpage : passez `splitter.max_chars` de 800 à 300 dans `config/app.json`, sans réindexer. La
+   réponse ne bouge pas davantage.
 
-Pour lire la correction seule, puis ce qu'elle change dans le code et la configuration :
+3. Passez au prompt. Enregistrez un instantané, remplacez « Question : » par « Demande : » dans
+   `prompts/answer.json`, enregistrez un second instantané, puis comparez les deux :
 
-```bash
-git diff --stat origin/etape/s4.1 corrige/s4.1
-git diff origin/etape/s4.1 corrige/s4.1 -- src config
-```
+   ```bash
+   dotnet run --project src/Assistant.Cli -- snapshot record avant
+   # remplacement dans prompts/answer.json
+   dotnet run --project src/Assistant.Cli -- snapshot record apres
+   dotnet run --project src/Assistant.Cli -- snapshot compare avant apres
+   ```
 
-Relancez ensuite la démonstration de la séquence, le service IA lancé :
+   La comparaison mesure 62 % de dérive. Pourtant, sous « Différences de configuration », elle répond
+   « aucune : même configuration des deux côtés ». Cette dérive vient d'un couplage du générateur de
+   test : `extractive` cherche le mot « Question : » dans le prompt pour savoir quelle phrase recopier.
+   Sans lui, il rend le plus souvent le titre du document. Un vrai modèle réagirait autrement. Ce qui
+   compte ici, c'est que rien, ni dans la réponse ni dans l'instantané, ne dit que le prompt a changé.
 
-```bash
-dotnet run --project src/Assistant.Cli -- index
-dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" --generation-model extractive-bavard -v
-```
+4. Remplissez le gabarit [`docs/gabarit-artefacts.md`](docs/gabarit-artefacts.md) pour chaque
+   artefact : le code, le corpus, le découpage, l'index, les prompts, le modèle d'embeddings et le
+   modèle de génération. Pour chacun, dites où il vit, qui le change, ce qui en dépend, comment on le
+   trace et dans quelle couche il se situe.
 
-La réponse est refusée après deux tentatives : elle reçoit le statut `unsourced`, et l'utilisateur lit
-« Je n'ai pas pu produire de réponse correctement sourcée ». Le journal montre les deux rejets, et la
-trace garde les deux sorties, précédées de « <rejetée : … ». Le corrigé de l'énoncé, à la fin de
-`exercices/s4.1-decorateur-de-validation/README.md`, répond aux questions de la séquence.
+5. Remettez enfin les fichiers en état, puis réindexez :
+
+   ```bash
+   git restore corpus/solveo/teletravail.md config/app.json prompts/answer.json
+   dotnet run --project src/Assistant.Cli -- index
+   ```
 
 ## Démarrer
 

@@ -66,34 +66,3 @@ jobs:
           dotnet run --project src/Assistant.Cli --no-build -- index
           dotnet run --project src/Assistant.Cli --no-build -- ask "Combien de jours de télétravail par semaine ?" | tee reponse.txt
           grep -q -F "statut=answered" reponse.txt || { echo "La question devait recevoir une réponse."; exit 1; }
-  exercice:
-    name: exercice S4.1 — rouge au départ, vert avec la correction
-    # Sur la branche de départ seulement : là où l'exercice est fait, le rouge attendu n'existe plus.
-    if: github.ref_name == 'etape/s4.1' || github.base_ref == 'etape/s4.1'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # tout l'historique, avec les tags des corrections
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "8.0.x"
-      - name: Tests attendus, restaurés comme le dit l'énoncé
-        run: git restore --source corrige/s4.1 -- tests/Assistant.Tests/DecoratorTests.cs tests/Assistant.Tests/AskQuestionTests.cs tests/Assistant.Tests/CompositionRootTests.cs tests/Assistant.Tests/ConfigTests.cs
-      - name: Rouge attendu — la compilation ou les tests échouent
-        run: |
-          # Les paquets d'abord, pour qu'un échec de téléchargement ne passe pas pour le rouge attendu.
-          dotnet restore FycAssistantRag.sln
-          # Les erreurs de compilation attendues ne doivent pas s'afficher en annotations sur la page du run.
-          echo "::remove-matcher owner=csc::"
-          if dotnet build FycAssistantRag.sln -warnaserror --nologo && dotnet test FycAssistantRag.sln --no-build --nologo; then
-            echo "Les tests attendus passent avant la solution : le départ ne laisse plus rien à écrire."
-            exit 1
-          fi
-      - name: Solution de la correction — src/ et config/
-        # Les dossiers entiers, cette fois : src/ et config/ deviennent ceux de la correction, y compris pour les fichiers qu'elle retire.
-        run: git restore --source corrige/s4.1 -- src/ config/
-      - name: Vert attendu — tout passe, documents du départ compris
-        run: |
-          dotnet build FycAssistantRag.sln -warnaserror --nologo
-          dotnet test FycAssistantRag.sln --no-build --nologo
