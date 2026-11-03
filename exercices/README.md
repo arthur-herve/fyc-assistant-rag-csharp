@@ -4,13 +4,15 @@ Le fil rouge est livré en branches d'étape. La branche `etape/sX.Y` est l'éta
 la séquence X.Y, et sa correction est marquée par un tag, `corrige/sX.Y`. Les exercices de code se font
 donc dans le fil rouge lui-même, sur la branche de leur séquence.
 
-L'exemple de S1.3 a son énoncé à côté de son programme.
+Leurs énoncés sont dans ce dossier. La section « Corrigé » d'un énoncé n'est pas sur la branche de
+départ : elle arrive avec la correction. L'exemple de S1.3 a son énoncé à côté de son programme.
 L'exercice de S2.1 part d'un gabarit rangé dans `docs/`.
 
 | Séquence | Exercice | Forme | Où l'on travaille | Correction |
 |---|---|---|---|---|
 | S1.3 | [Le transfert naïf](../exemples/s1.3-transfert-naif/README.md) | l'adaptateur HTTP à réécrire d'après le contrat, une lecture guidée et un changement de générateur, puis, pour aller plus loin, un adaptateur sans réseau à écrire | `main`, dans `exemples/s1.3-transfert-naif/`, un programme à part | `HttpGenerator` pour l'adaptateur HTTP, et pour l'adaptateur sans réseau une solution possible, dans le README de l'exemple |
 | S2.1 | Le découpage de l'application, d'après le [cahier des charges](../docs/cahier-des-charges.md) | [gabarit](../docs/gabarit-decoupage.md) à remplir | `main` | `corrige/s2.1`, avec `docs/decoupage.md` |
+| S2.2 | [Construire le cœur métier sans IA](s2.2-coeur-metier/README.md) | code à écrire, tests à récupérer | `etape/s2.2` | `corrige/s2.2` |
 
 Les QCM et le test final ne sont pas dans le dépôt : vous les trouverez sur Moodle.
 
@@ -25,14 +27,26 @@ Pour un exercice, créez d'abord votre propre branche à partir de la branche de
 travaillez et vous y commitez librement :
 
 ```bash
-git switch -c mon-s2.1 origin/main
+git switch -c mon-s2.2 origin/etape/s2.2
 ```
+
+Quand l'énoncé vous le demande, récupérez les tests attendus depuis la correction, en nommant les
+fichiers :
+
+```bash
+git restore --source corrige/s2.2 -- tests/Assistant.Tests/DomainTests.cs tests/Assistant.Tests/AskQuestionTests.cs
+```
+
+La commande de restauration nomme toujours des fichiers, jamais un dossier. Restauré en entier, un
+dossier perd les fichiers suivis qui n'existent pas dans la correction : un fichier de test que vous
+auriez commité disparaîtrait sans prévenir. Nommer les fichiers laisse aussi de côté les tests qui ne
+font pas partie de l'exercice.
 
 Une fois l'exercice fini, comparez votre travail à la correction, puis lisez la correction seule :
 
 ```bash
-git diff corrige/s2.1
-git diff origin/main corrige/s2.1
+git diff corrige/s2.2
+git diff origin/etape/s2.2 corrige/s2.2
 ```
 
 La première commande compare vos fichiers à ceux de la correction. La seconde montre ce que la correction

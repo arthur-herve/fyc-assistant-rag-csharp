@@ -1,0 +1,116 @@
+// Les doubles de test : grâce à eux, le cœur métier se teste sans IA, sans réseau et sans disque.
+
+using Assistant.Application;
+using Assistant.Domain;
+
+namespace Assistant.Tests;
+
+public static class Fakes
+{
+    public static readonly string[] Vocabulary = { "télétravail", "jours", "frais", "repas", "salaire", "senior", "congés", "australie" };
+
+    public static Document Doc(string id, string text, params string[] groups) =>
+        new(id, char.ToUpperInvariant(id[0]) + id[1..], text, (groups.Length == 0 ? new[] { "tous" } : groups).ToHashSet());
+
+    public static readonly User Alice = new("alice", new HashSet<string> { "tous" });
+    public static readonly User Bruno = new("bruno", new HashSet<string> { "tous", "rh" });
+}
+
+/// <summary>Un axe par mot du vocabulaire : les scores sont prévisibles à la main.</summary>
+public sealed class KeywordEmbedder : IEmbedder
+{
+    private static double[] Vector(string text)
+    {
+        var lowered = text.ToLowerInvariant();
+        return Fakes.Vocabulary.Select(w => lowered.Contains(w) ? 1.0 : 0.0).ToArray();
+    }
+
+    public IReadOnlyList<double[]> EmbedDocuments(IReadOnlyList<string> texts) => texts.Select(Vector).ToList();
+
+    public double[] EmbedQuery(string text) => Vector(text);
+}
+
+/// <summary>Renvoie des réponses écrites à l'avance et enregistre les requêtes reçues.</summary>
+public sealed class ScriptedGenerator : IGenerator
+{
+    private readonly string[] _outputs;
+    public List<GenerationRequest> Requests { get; } = new();
+
+    public ScriptedGenerator(params string[] outputs)
+    {
+        _outputs = outputs;
+    }
+
+    public string Generate(GenerationRequest request)
+    {
+        Requests.Add(request);
+        return _outputs[Math.Min(Requests.Count, _outputs.Length) - 1];
+    }
+}
+
+public sealed class FakeIndex : IVectorIndex
+{
+    public List<Chunk> Chunks { get; } = new();
+    public List<double[]> Vectors { get; } = new();
+
+    public bool IsBuilt() => Chunks.Count > 0;
+
+    public void Replace(IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> vectors)
+    {
+        Chunks.Clear();
+        Chunks.AddRange(chunks);
+        Vectors.Clear();
+        Vectors.AddRange(vectors);
+    }
+
+    public IReadOnlyList<Passage> Search(double[] vector, int topK, Func<Chunk, bool> predicate)
+    {
+        static double Cosine(double[] a, double[] b)
+        {
+            double na = Math.Sqrt(a.Sum(x => x * x)), nb = Math.Sqrt(b.Sum(x => x * x));
+            return na == 0 || nb == 0 ? 0 : a.Zip(b, (x, y) => x * y).Sum() / (na * nb);
+        }
+        return Chunks.Zip(Vectors, (c, v) => new Passage(c, Cosine(vector, v)))
+            .Where(p => predicate(p.Chunk)).OrderByDescending(p => p.Score).Take(topK).ToList();
+    }
+}
+
+public sealed class ListSource : IDocumentSource
+{
+    private readonly IReadOnlyList<Document> _documents;
+    public ListSource(params Document[] documents) => _documents = documents;
+    public IReadOnlyList<Document> Load() => _documents;
+}
+
+public sealed class WholeDocumentSplitter : ITextSplitter
+{
+    public IReadOnlyList<Chunk> Split(Document d) =>
+        d.Text.Length == 0 ? Array.Empty<Chunk>() : new[] { new Chunk($"{d.Id}#0", d.Id, d.Title, d.Text, 0, d.AllowedGroups) };
+}
+
+public sealed class StaticPrompts : IPromptRepository
+{
+    public PromptTemplate Get(string name) =>
+        new(name, "Cite tes sources.", "Passages :\n{passages}\n\nQuestion : {question}");
+}
+
+public static class Build
+{
+    public static FakeIndex Indexed(params Document[] documents)
+    {
+        var index = new FakeIndex();
+        var docs = documents.Length > 0 ? documents : new[]
+        {
+            Fakes.Doc("teletravail", "Deux jours de télétravail par semaine."),
+            Fakes.Doc("frais", "Le repas est plafonné à 25 euros, frais remboursés."),
+            Fakes.Doc("grille", "Salaire senior : 56 000 à 68 000 euros.", "rh"),
+        };
+        new IndexCorpus(new ListSource(docs), new WholeDocumentSplitter(), new KeywordEmbedder(), index).Execute();
+        return index;
+    }
+
+    public static AskQuestion Ask(IGenerator generator, IVectorIndex? index = null,
+                                  double minScore = 0.5) =>
+        new(new KeywordEmbedder(), index ?? Indexed(), generator, new StaticPrompts(),
+            new AskSettings(MinScore: minScore));
+}

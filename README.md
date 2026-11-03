@@ -1,32 +1,65 @@
-# Fil rouge, correction de S2.1 : le découpage
+# Fil rouge, étape S2.2 : le cœur sans IA
 
-> **Correction de la séquence S2.1.** Ce tag, `corrige/s2.1`, est l'état du fil rouge à la fin de la
-> séquence. Il sert à comparer votre découpage à celui que retient le cours. L'application complète,
-> avec toute sa documentation, est sur la branche `final`.
+> **Branche d'étape.** Cette branche est l'état du fil rouge au début de la séquence S2.2. Il y manque
+> exprès le cœur de l'assistant, les deux règles métier et le cas d'usage qui répond à une question : la
+> séquence vous les fait écrire, et sa correction les donne. L'application complète, avec toute sa
+> documentation, est sur la branche `final`.
 
 ## Où en est le fil rouge
 
-Le découpage est écrit en code : quatre projets, dont chacun ne référence que la couche suivante vers
-l'intérieur, les entités du domaine et les ports de l'application. Il n'y a encore ni règle métier, ni
-cas d'usage, ni adaptateur. `Assistant.Infrastructure` est vide, et `Assistant.Cli` ne fait qu'annoncer
-l'application. La séquence S2.2 part de là, avec une question : peut-on écrire le cœur et le tester
-sans modèle et sans réseau ?
+Le découpage de S2.1 est en place : la solution `FycAssistantRag.sln`, ses quatre projets et leurs
+références, le modèle du domaine et les ports de l'application. Le départ de la séquence y ajoute les
+erreurs de l'application, le cas d'usage d'indexation, déjà écrit, et un double de test pour chaque port.
+Les deux règles métier de `src/Assistant.Domain/Rules.cs` et le cas d'usage de
+`src/Assistant.Application/AskQuestion.cs` lèvent encore `NotImplementedException`. `Assistant.Infrastructure`
+est vide, et `Assistant.Cli` ne fait qu'annoncer l'application : la séquence montre que le cœur s'écrit
+et se teste sans eux, sans modèle, sans réseau et sans disque.
 
-## Ce que la correction a changé
+## Ce que vous faites dans cette séquence
 
-Au départ de la séquence, le dépôt n'avait aucun code de l'application. La correction crée la solution
-`FycAssistantRag.sln` et ses quatre projets, avec leurs références : le domaine ne référence rien,
-l'application référence le domaine, l'infrastructure l'application, et la ligne de commande
-l'infrastructure. Les entités sont dans `src/Assistant.Domain/Model.cs`, et les ports dans
-`src/Assistant.Application/Ports.cs`. Des tests d'architecture vérifient la règle de dépendance, sur les
-`.csproj` et sur le code compilé. `docs/decoupage.md` décrit ce découpage et justifie ses choix :
-comparez-le à votre gabarit.
+L'exercice est décrit dans
+[`exercices/s2.2-coeur-metier/README.md`](exercices/s2.2-coeur-metier/README.md). En voici les étapes.
 
-Pour lire la correction dans le code, dans les tests et dans sa description :
+1. Comparez votre gabarit de S2.1 à `docs/decoupage.md`, aux quatre projets et à leurs références. Pour
+   chaque port de `src/Assistant.Application/Ports.cs`, dites qui le déclare, qui l'implémente et pourquoi
+   il vit dans l'application.
 
-```bash
-git diff origin/main corrige/s2.1 -- src tests docs/decoupage.md
-```
+2. Créez votre branche à partir de la branche d'étape :
+
+   ```bash
+   git switch -c mon-s2.2 origin/etape/s2.2
+   ```
+
+3. Écrivez d'abord votre test, dans `tests/Assistant.Tests/MesTests.cs`, classe `MesTests`. Il vérifie
+   que la trace d'un refus « aucune source pertinente » garde les passages retrouvés et leurs scores.
+   L'énoncé dit pourquoi le fichier et la classe sont imposés.
+
+4. Récupérez les tests attendus depuis la correction, en nommant les fichiers :
+
+   ```bash
+   git restore --source corrige/s2.2 -- tests/Assistant.Tests/DomainTests.cs tests/Assistant.Tests/AskQuestionTests.cs
+   ```
+
+5. Faites passer les tests un par un : `AccessPolicy.CanRead` et `Citations.Check` dans
+   `src/Assistant.Domain/Rules.cs`, puis `AskQuestion.FormatPassages` et `AskQuestion.Execute` dans
+   `src/Assistant.Application/AskQuestion.cs`. Les commentaires de ces méthodes disent ce qu'elles doivent
+   faire.
+
+6. Vérifiez que le cœur ne dépend de rien d'extérieur :
+
+   ```bash
+   dotnet test --filter "FullyQualifiedName~ArchitectureTests"
+   ```
+
+   Utilisez ensuite un `HttpClient` au début d'`Execute` : `The_core_does_not_touch_the_network` échoue.
+   Retirez-le.
+
+7. Lisez la correction, puis comparez-la à votre travail :
+
+   ```bash
+   git diff origin/etape/s2.2 corrige/s2.2
+   git diff corrige/s2.2
+   ```
 
 ## Démarrer
 
@@ -38,8 +71,13 @@ dotnet test
 python -m unittest discover -s tests_python -t .
 ```
 
-Les deux commandes doivent se terminer sans échec. Les tests C# vérifient pour l'instant la règle de
-dépendance, sur les projets et sur le code compilé.
+Les deux commandes doivent se terminer sans échec : les tests des règles et du cas d'usage ne sont pas
+encore là. `IndexCorpusTests` montre comment on teste un cas d'usage avec les doubles de
+`tests/Assistant.Tests/Fakes.cs`. Pour ne lancer qu'une classe de tests, filtrez-la par son nom :
+
+```bash
+dotnet test --filter "FullyQualifiedName~IndexCorpusTests"
+```
 
 Il n'y a pas encore d'application à lancer. Le service IA, `python -m ai_service`, ne sert pour
 l'instant qu'à l'exemple de S1.3.
@@ -65,11 +103,9 @@ jamais un dossier.
 
 ## Les choix de cette étape
 
-- Chaque couche est un projet. C'est le compilateur qui fait respecter la règle de dépendance, et des
-  tests d'architecture la vérifient en plus.
 - Le domaine ne dépend de rien. Les ports sont déclarés dans l'application, à côté des cas d'usage qui
-  s'en serviront.
+  s'en servent.
 - L'index vit dans l'application, derrière le port `IVectorIndex`, et le service IA reste un programme
   à part, joint par le contrat de `docs/contrat-http.md`.
-- Les droits sont filtrés pendant la recherche, donc avant le prompt : le port de l'index accepte un
-  filtre. Le prompt est construit dans l'application.
+- Le seuil de pertinence est un réglage du cas d'usage.
+- Les droits sont filtrés avant le prompt, et le prompt est construit dans l'application.
