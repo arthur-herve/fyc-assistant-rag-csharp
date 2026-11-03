@@ -27,10 +27,9 @@ class _OllamaModel:
         self.timeout = timeout
 
     def model_id(self) -> str:
-        """Identifiant avec l'empreinte du modèle installé (poids, gabarit, paramètres),
-        relue à chaque appel : un `ollama pull` qui la change change l'identifiant, et
-        l'application le détecte sans redémarrer le service. Sans empreinte, pas
-        d'identifiant."""
+        """Identifiant qui porte l'empreinte du modèle installé, c'est-à-dire de ses poids, de son gabarit
+        et de ses paramètres. Elle est relue à chaque appel : un `ollama pull` qui la modifie change
+        l'identifiant renvoyé, sans qu'il faille redémarrer le service. Sans empreinte, pas d'identifiant."""
         tags = _call(self, "GET", "/api/tags", None, timeout=10)
         wanted = _canonical(self.model)
         try:
@@ -41,7 +40,7 @@ class _OllamaModel:
                     if digest:
                         return f"ollama:{self.model}@{digest}"
             names = ", ".join(str(entry.get("name")) for entry in installed) or "aucun"
-        except (AttributeError, TypeError):   # pas la forme d'Ollama (proxy, mauvaise base_url) : toujours pareil
+        except (AttributeError, TypeError):   # pas la forme d'Ollama (proxy, mauvaise base_url) : définitif
             raise BackendError(f"Réponse /api/tags inattendue : {str(tags)[:300]}", retryable=False) from None
         raise BackendError(
             f"empreinte de {self.model} introuvable dans {self.base_url}/api/tags "
@@ -52,9 +51,9 @@ class _OllamaModel:
     def _identified(self, call: Callable[[], T]) -> tuple[str, T]:
         """Exécute `call` et renvoie (identifiant du modèle qui a servi, résultat).
 
-        L'empreinte est lue avant et après l'appel : si un `ollama pull` l'a changée
-        entre-temps, on ne sait pas quelle version a servi, donc on échoue (erreur
-        passagère : il suffit de réessayer)."""
+        L'empreinte est lue avant et après l'appel. Si un `ollama pull` l'a changée
+        entre-temps, on ne sait pas quelle version a servi, et on échoue plutôt que
+        de deviner. L'erreur est passagère : il suffit de réessayer."""
         before = self.model_id()
         result = call()
         after = self.model_id()
@@ -90,15 +89,13 @@ class OllamaEmbeddingBackend(_OllamaModel):
 
 
 class OllamaGenerationBackend(_OllamaModel):
-    """Génération via /api/chat.
+    """Génération par /api/chat.
 
-    Modèles à « réflexion » (qwen3…) : mesuré avec Ollama 0.34 et qwen3:4b,
-    `think = false` ne supprime pas le raisonnement, il le déverse dans la
-    réponse elle-même (« Okay, let's see… »), sans balise. Avec `think = true`,
-    Ollama renvoie le raisonnement à part (`message.thinking`) et la réponse
-    dans `message.content`. On garde donc la réflexion activée, on l'ignore, et
-    on lui accorde un budget de jetons séparé (`thinking_tokens`) : sinon elle
-    consomme tout `max_tokens` et la réponse est vide.
+    Pour les modèles à « réflexion », comme qwen3, `think = true` demande à Ollama
+    de renvoyer le raisonnement à part, dans `message.thinking`, et la réponse dans
+    `message.content`. On garde la réponse, on ignore le raisonnement, et on lui
+    accorde un budget de jetons séparé (`thinking_tokens`). Sans lui, la réflexion
+    consommerait tout `max_tokens` et la réponse serait vide.
     """
 
     def __init__(self, model: str, base_url: str = "http://127.0.0.1:11434",
@@ -110,8 +107,8 @@ class OllamaGenerationBackend(_OllamaModel):
         self.keep_alive = keep_alive
 
     def generate(self, system, prompt, temperature, max_tokens, seed):
-        # Le budget de réflexion s'ajoute à max_tokens : la réponse peut donc dépasser
-        # max_tokens si le modèle réfléchit peu (assumé, documenté dans docs/contrat-http.md).
+        # Le budget de réflexion s'ajoute à max_tokens. La réponse peut donc dépasser max_tokens
+        # si le modèle réfléchit peu : c'est assumé, et documenté dans docs/contrat-http.md.
         options = {"temperature": temperature, "num_predict": max_tokens + self.thinking_tokens}
         if seed is not None:
             options["seed"] = seed
@@ -133,6 +130,6 @@ class OllamaGenerationBackend(_OllamaModel):
             content = data["message"]["content"].strip()
         except (KeyError, TypeError, AttributeError):
             raise BackendError(f"Réponse Ollama inattendue : {str(data)[:300]}", retryable=False) from None
-        # `message.thinking`, renvoyé à part par Ollama, est ignoré ; les balises <think> laissées
-        # dans la réponse sont retirées par le registre, quel que soit le moteur.
+        # Le raisonnement qu'Ollama renvoie à part, dans `message.thinking`, est ignoré. Les balises
+        # <think> restées dans la réponse sont retirées par le registre, quel que soit le moteur.
         return model_id, content

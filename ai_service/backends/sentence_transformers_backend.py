@@ -1,7 +1,8 @@
 """Backend optionnel : modèles d'embeddings Hugging Face exécutés en Python.
 
-Nécessite `pip install sentence-transformers` (installe PyTorch, ~1 à 2 Go).
-Fonctionne sur CPU. Le modèle est téléchargé au premier appel.
+Il faut installer sentence-transformers (pip install -r requirements-ai-optional.txt),
+qui tire PyTorch, soit 1 à 2 Go environ. Le backend fonctionne sur CPU, et le
+modèle est téléchargé au premier appel.
 """
 
 from __future__ import annotations

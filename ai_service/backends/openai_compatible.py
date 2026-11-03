@@ -1,8 +1,7 @@
 """Backends pour tout serveur exposant l'API « compatible OpenAI ».
 
-C'est le cas de LM Studio, du serveur de llama.cpp et de vLLM (courant sur
-les serveurs GPU d'entreprise). Aucun compte payant n'est nécessaire pour
-les serveurs locaux.
+C'est le cas de LM Studio, du serveur de llama.cpp et de vLLM, courant sur
+les serveurs GPU d'entreprise. Un serveur local ne demande aucun compte payant.
 """
 
 from __future__ import annotations

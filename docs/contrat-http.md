@@ -1,21 +1,31 @@
 # Contrat HTTP du service IA — version 1
 
-Le service IA ne connaît rien au métier. Il reçoit des textes, renvoie des vecteurs ou du texte, et **dit toujours quel modèle a réellement servi**. C'est ce champ qui permet à l'application de détecter qu'un index n'est plus compatible.
+Le service IA ne connaît rien au métier. Il reçoit des textes et renvoie des vecteurs ou du texte.
+À chaque réponse, il dit aussi **quel modèle a réellement servi**.
 
-Version 1, figée le 11/09/2026 ; ce contrat est la seule chose que partagent l'application C# et le service IA Python. Deux routes seulement : le service produit des vecteurs et du texte,
-l'index reste côté application ([ADR 0002](adr/0002-index-cote-application.md)).
-Une exploration antérieure de l'équipe hébergeait l'index dans le service (`/index/reset`,
-`/index/upsert`, `/index/search` avec filtre d'accès) ; ce contrat-ci ne reprend pas ces routes,
-volontairement : la règle d'accès reste dans le domaine et l'index reste une donnée que l'application
-sait décrire (`status`). Tout ajout de route passe par une nouvelle version (`/v2/`).
+Ce contrat est la seule chose que partagent l'application C# et le service IA écrit en Python.
+C'est lui, et non le langage, qui fait la frontière entre les deux. Il en est à sa
+version 1, figée le 11/09/2026.
+
+Le service expose quatre routes. Deux servent à vérifier qu'il répond et à savoir ce qu'il sert,
+les deux autres font le travail : l'une produit des vecteurs, l'autre du texte.
 
 ## `GET /health` (ou `HEAD`)
+
+Cette route permet de vérifier que le service répond, et de savoir quelle version du contrat il
+parle.
 
 ```json
 {"status": "ok", "contract_version": "1"}
 ```
 
+Comme `/v1/models`, elle accepte aussi `HEAD`. La réponse porte alors les mêmes en-têtes qu'avec
+`GET`, sans le corps.
+
 ## `GET /v1/models` (ou `HEAD`)
+
+Elle donne la liste des alias servis, rangés par type, avec pour chacun le moteur qui le fait
+tourner (`backend`) et une courte description.
 
 ```json
 {
@@ -32,9 +42,11 @@ Requête :
 {"model": "nomic", "input_type": "query", "inputs": ["Combien de jours de télétravail ?"]}
 ```
 
-- `model` : alias déclaré dans `config/ai_service.toml`.
-- `input_type` : `"query"` ou `"document"` (défaut). L'application déclare une **intention** ; le service applique les préfixes propres au modèle (`search_query: `, `query: `…).
-- `inputs` : 1 à 256 textes.
+- `model` : un alias déclaré dans `config/ai_service.toml`.
+- `input_type` : `"query"` pour une question, `"document"` pour un passage à indexer. La valeur par
+  défaut est `"document"`. L'application déclare ainsi une intention, et c'est le service qui
+  applique les préfixes propres au modèle (`search_query: `, `query: `…).
+- `inputs` : de 1 à 256 textes.
 
 Réponse :
 
@@ -48,7 +60,13 @@ Réponse :
 }
 ```
 
-`model` est l'identifiant concret : empreinte du modèle quand le moteur la fournit (Ollama : relue avant et après chaque inférence), et empreinte des préfixes quand l'alias en déclare (`+prefixes-…`), car ils changent les vecteurs (ADR 0010). Si l'équipe qui exploite le service met à jour le modèle derrière le même alias, `model` change, et l'application refuse de chercher dans l'ancien index avec des vecteurs du nouveau modèle.
+Le champ `model` donne l'identifiant concret du modèle, pas seulement son alias. Quand le moteur
+fournit une empreinte du modèle, elle en fait partie. C'est le cas avec Ollama : le service relit
+alors cette empreinte avant et après chaque inférence. Quand l'alias déclare des préfixes, leur
+propre empreinte s'ajoute à la fin (`+prefixes-…`), parce qu'ils changent les vecteurs.
+
+Concrètement, si l'équipe qui exploite le service met à jour le modèle derrière le même alias,
+`model` change.
 
 ## `POST /v1/generate`
 
@@ -65,63 +83,73 @@ Requête :
 }
 ```
 
+`seed` est facultatif : absent ou `null`, il ne fixe aucune graine.
+
 Réponse :
 
 ```json
 {"model": "ollama:qwen3:4b@a383baf4993b", "alias": "qwen3-4b", "text": "Deux jours par semaine [1].", "duration_ms": 5230}
 ```
 
-Le prompt est construit **côté application** : il dépend du métier (numérotation des passages, obligation de citer). Le service ne fait que le transmettre.
+Le prompt est construit côté application, parce qu'il dépend du métier : numérotation des passages,
+obligation de citer. Le service se contente de le transmettre au modèle.
 
-`max_tokens` est le budget de la **réponse**. Pour un modèle à réflexion (`think = true` dans `config/ai_service.toml`), le service ajoute un budget de réflexion (`thinking_tokens`) que l'application ne voit pas : la réponse peut donc dépasser `max_tokens` si le modèle réfléchit peu. C'est la validation de forme côté application (`max_output_chars`) qui borne la longueur montrée à l'utilisateur.
+`max_tokens` fixe le budget de la réponse. Un modèle à réflexion, déclaré avec `think = true` dans
+`config/ai_service.toml`, reçoit en plus un budget de réflexion (`thinking_tokens`) que
+l'application ne voit pas. La réponse peut donc dépasser `max_tokens` si le modèle réfléchit peu.
 
 ## Erreurs
 
-Toujours au format :
+Une erreur a toujours la même forme : un objet `error` avec un `code`, fait pour être testé par un
+programme, et un `message`, fait pour être lu.
 
 ```json
 {"error": {"code": "unknown_model", "message": "modèle de génération inconnu : gpt-9 (…)"}}
 ```
 
-Pour un 502, le champ `retryable` de l'objet `error` dit si réessayer peut réussir : `true` pour un
-moteur injoignable, surchargé ou coupé en pleine réponse, `false` pour un modèle absent ou une
-réponse que le moteur renverra toujours pareille. Les clients ne réessaient que les 5xx qui ne
-portent pas `"retryable": false`.
+Pour une erreur 502, l'objet `error` porte aussi un champ `retryable`, qui dit si réessayer a une
+chance de réussir. Il vaut `true` quand le moteur est injoignable, surchargé, ou s'est coupé en
+pleine réponse. Il vaut `false` quand le modèle manque, ou quand le moteur renverra toujours la même
+réponse, par exemple une réponse qui n'est pas du JSON. Un client ne réessaie donc que les erreurs
+5xx qui ne portent pas `"retryable": false`.
 
 ```json
 {"error": {"code": "backend_error", "message": "empreinte de bge-m3 introuvable dans … (ollama pull bge-m3) ?", "retryable": false}}
 ```
 
-| HTTP | `code` | Cause |
+Cet exemple vient d'Ollama. Sans empreinte, le service ne peut pas dire quel modèle a servi : plutôt
+que de renvoyer un identifiant incertain, il répond par cette erreur, dont le message invite à
+vérifier que le modèle a bien été téléchargé. À l'inverse, une empreinte qui change pendant l'appel
+donne une erreur passagère (`"retryable": true`) : il suffit de réessayer.
+
+| HTTP | `code` | Signification |
 |---|---|---|
-| 400 | `invalid_request` | champ manquant, type ou valeur invalide ; corps qui n'est pas un objet JSON strict (clé en double, chaîne avec un surrogate UTF-16 isolé, `NaN` ou `Infinity`, entier de plus de 4300 chiffres, plus de 64 niveaux d'imbrication) ; `Content-Length` invalide, ou absent d'un envoi en morceaux (`Transfer-Encoding`, que le service ne lit pas) ; ligne de requête illisible ; deux `Content-Length` différents (répété à l'identique, il est fondu en un) |
-| 404 | `unknown_model` | alias absent de la configuration |
+| 400 | `invalid_request` | requête mal formée : champ manquant, de mauvais type ou de valeur invalide, corps qui n'est pas un objet JSON strict, `Content-Length` invalide, envoi en morceaux, requête illisible |
+| 404 | `unknown_model` | l'alias demandé n'est pas dans la configuration du service |
 | 404 | `not_found` | route inconnue, quelle que soit la méthode |
-| 405 | `method_not_allowed` | route connue, autre méthode que les siennes (GET et HEAD pour `/health` et `/v1/models`, POST pour `/v1/embeddings` et `/v1/generate`) : l'en-tête `Allow` les donne (`GET, HEAD` ou `POST`), le message aussi (« permises : … ») ; HEAD reçoit les en-têtes de GET, sans corps |
-| 413 | `payload_too_large` | corps annoncé de plus de 16 Mio (16 777 216 octets) sur `/v1/embeddings` ou `/v1/generate` : refusé sans être lu |
+| 405 | `method_not_allowed` | route connue, mais pas avec cette méthode : l'en-tête `Allow` donne celles qui sont permises (`GET, HEAD` ou `POST`), et le message les rappelle |
+| 413 | `payload_too_large` | corps de plus de 16 Mio sur `/v1/embeddings` ou `/v1/generate`, refusé sans être lu |
 | 414, 431, 505 | `invalid_request` | requête refusée avant d'être lue : ligne de requête trop longue (414), en-têtes trop longs ou trop nombreux (431), version HTTP non prise en charge (505) |
-| 502 | `backend_error` | le moteur (Ollama, serveur OpenAI-compatible…) est injoignable ou a échoué : réponse coupée ou qui n'arrive plus, même au milieu d'une réponse d'erreur du moteur (`retryable: true`), réponse qui n'est pas du HTTP ou pas le JSON attendu (`retryable: false`), refus HTTP 4xx (`retryable: false`, sauf 408 et 429) ; avec Ollama, aussi : empreinte du modèle introuvable (`retryable: false`) ou changée pendant l'appel (`retryable: true`) |
-| 500 | `internal_error` | erreur imprévue |
+| 502 | `backend_error` | le moteur qui fait tourner le modèle (Ollama, serveur compatible OpenAI…) est injoignable ou a échoué, et `retryable` dit s'il vaut la peine de réessayer |
+| 500 | `internal_error` | erreur imprévue dans le service |
 
-Le service répond en HTTP/1.0 : une connexion par requête, fermée après la réponse. Une
-connexion où le client n'envoie plus rien pendant 30 s (requête ou corps attendu) est fermée sans
-réponse. Sur un port déjà pris, `python -m ai_service` s'arrête sur « Erreur : impossible d'écouter
-(port déjà pris, adresse inconnue ou non autorisée) — … », code 1.
+Le service ne lit pas les envois en morceaux (`Transfer-Encoding`). Un client doit donc annoncer la
+taille de son corps avec `Content-Length`. Le JSON est lu de façon
+stricte : une clé en double ou une valeur comme `NaN`, que certains analyseurs tolèrent, est
+refusée.
 
-Côté application, une erreur n'est lue que si son corps est du JSON strict et `error.message` un
-texte ; sinon le corps est cité tel quel, et un 5xx reste passager. Une réponse 200 qui n'est pas du
-JSON strict en UTF-8 (`NaN`, clé en double, plus de 64 niveaux d'imbrication) est une erreur non
-passagère : le client ne réessaie pas. C'est aussi le cas si un champ manque ou n'a pas le type du
-contrat : `model` et `text` sont des textes Unicode, `dimension` un entier de 32 bits, `vectors`
-autant de listes de nombres finis que de textes envoyés, de la dimension annoncée. Une marque
-d'ordre des octets en tête de corps est acceptée, en succès comme en erreur. Un délai dépassé ou une
-coupure au milieu du corps d'une réponse, d'erreur ou non, est une erreur passagère (« Service IA
-injoignable … »), comme avant les en-têtes. Les deux versions de l'application envoient le même
-JSON, en UTF-8 : les mêmes champs, avec les mêmes valeurs. Seule l'écriture peut différer (espaces,
-accents échappés en `\u00e9` ou écrits tels quels, `1.0` ou `1` pour un réel entier) : le service lit
-les valeurs, pas les octets. La réponse à GET /v1/models est lue comme les autres : UTF-8 strict, marque
-d'ordre des octets acceptée, JSON strict.
+Le service répond en HTTP/1.0 : une connexion par requête, fermée après la réponse. Si le client
+n'envoie plus rien pendant 30 secondes, alors que le service attend la requête ou son corps, la
+connexion est fermée sans réponse.
+
+Au démarrage, si le port est déjà pris, `python -m ai_service` s'arrête avec le message « Erreur :
+impossible d'écouter (port déjà pris, adresse inconnue ou non autorisée) — … » et le code de
+retour 1.
 
 ## Évolution du contrat
 
-Toute modification incompatible (champ renommé, sémantique changée) passe par un nouveau préfixe (`/v2/…`). Les tests `HttpContractTests` (`tests/Assistant.Tests/InfrastructureTests.cs`) vérifient ce que l'application envoie et attend ; `tests_python/ai_service/test_server.py` vérifie ce que le service accepte et renvoie.
+Une nouvelle route, ou toute modification incompatible comme un champ renommé ou un sens changé,
+passe par une nouvelle version du contrat, sous le préfixe `/v2/`.
+
+Du côté du service, le contrat est vérifié par `tests_python/ai_service/test_server.py`, qui
+contrôle ce que le service accepte et renvoie.

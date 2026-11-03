@@ -1,8 +1,8 @@
 """Registre des modèles servis, construit à partir de config/ai_service.toml.
 
-L'application demande un *alias* (« nomic », « qwen3-4b ») ; le registre
-choisit le backend et applique les particularités du modèle, comme les
-préfixes « query: » / « passage: » exigés par certains modèles d'embeddings.
+L'application demande un *alias*, comme « nomic » ou « qwen3-4b ». Le registre
+choisit le backend et applique les particularités du modèle, par exemple les
+préfixes « query: » et « passage: » qu'exigent certains modèles d'embeddings.
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ def _generation_factory(backend: str, params: dict[str, Any], defaults: dict[str
 
 
 class _Lazy:
-    """Instancie un backend au premier usage (charger un modèle coûte cher)."""
+    """Instancie le backend au premier usage, parce que charger un modèle coûte cher."""
 
     def __init__(self, factory: Callable[[], Any]) -> None:
         self._factory = factory
@@ -90,8 +90,8 @@ class EmbeddingModel:
         vectors = backend.embed([prefix + t for t in texts])
         if not (self.query_prefix or self.document_prefix):
             return vectors
-        # Les préfixes changent les vecteurs : ils entrent dans l'identifiant, sinon un index
-        # construit avec d'autres préfixes passerait pour compatible (ADR 0003).
+        # Les préfixes changent les vecteurs, donc ils entrent dans l'identifiant. Sans cela, des vecteurs
+        # calculés avec d'autres préfixes passeraient pour comparables.
         digest = hashlib.sha256(f"{self.query_prefix}\0{self.document_prefix}".encode("utf-8")).hexdigest()[:8]
         return dataclasses.replace(vectors, model_id=f"{vectors.model_id}+prefixes-{digest}")
 
@@ -106,8 +106,8 @@ class GenerationModel:
     def generate(self, system, prompt, temperature, max_tokens, seed) -> tuple[str, str]:
         backend: GenerationBackend = self._backend.get()
         model_id, text = backend.generate(system, prompt, temperature, max_tokens, seed)
-        # Particularité de certains modèles (qwen3…), quel que soit le moteur qui les sert :
-        # le raisonnement entre balises <think> n'est pas la réponse.
+        # Certains modèles, comme qwen3, écrivent leur raisonnement entre balises <think>. Ce n'est pas la
+        # réponse, et cela tient au modèle, pas au moteur : on le retire donc ici, quel que soit le backend.
         return model_id, _THINK.sub("", text).strip()
 
 

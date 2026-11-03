@@ -22,8 +22,7 @@ from ai_service import __main__ as entry_point
 from ai_service.backends.hashing import HashingEmbeddingBackend
 from ai_service.registry import ModelRegistry
 from ai_service.server import create_server
-
-from .stub_servers import silent_after   # relatif : ce fichier est le même dans tests/ et tests_python/ (C#)
+from tests_python.ai_service.stub_servers import silent_after
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = {
@@ -36,7 +35,7 @@ MAX_BODY = 16 * 1024 * 1024   # 16 Mio : au-delà, 413
 
 
 def serve(server: ThreadingHTTPServer) -> ThreadingHTTPServer:
-    # Arrêt vérifié toutes les 50 ms (0,5 s par défaut) : sinon shutdown() attend jusqu'à une demi-seconde.
+    # Arrêt vérifié toutes les 50 ms au lieu de 0,5 s, sinon shutdown() attend jusqu'à une demi-seconde.
     threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
     return server
 
@@ -53,7 +52,7 @@ def post(url: str, payload) -> tuple[int, dict]:
 
 
 def read_all(sock: socket.socket) -> bytes:
-    """Tout ce qui arrive jusqu'à ce que le service ferme la connexion (requête HTTP/1.0, corps non lu…)."""
+    """Lit tout ce qui arrive jusqu'à ce que le service ferme la connexion."""
     received = b""
     while chunk := sock.recv(65536):
         received += chunk
@@ -61,8 +60,8 @@ def read_all(sock: socket.socket) -> bytes:
 
 
 def read_response(stream: BinaryIO, head: bool = False) -> tuple[str, dict[str, str], bytes]:
-    """La réponse lue dans `stream` (sock.makefile("rb")) : ligne de statut, en-têtes, et corps selon son
-    Content-Length (aucun pour HEAD)."""
+    """Lit une réponse dans `stream`, obtenu par sock.makefile("rb") : ligne de statut, en-têtes, puis corps
+    selon son Content-Length, sauf pour HEAD."""
     status_line = stream.readline().decode("latin-1").rstrip("\r\n")
     if not status_line:
         raise AssertionError("connexion fermée sans réponse")
@@ -75,8 +74,8 @@ def read_response(stream: BinaryIO, head: bool = False) -> tuple[str, dict[str, 
 
 @contextmanager
 def service_behind(answer: bytes):
-    """Un service IA branché sur un faux moteur « compatible OpenAI » qui répond `answer` (200) à
-    toute requête ; alias « o » en embeddings comme en génération. Renvoie l'adresse du service."""
+    """Service IA branché sur un faux moteur « compatible OpenAI » qui répond `answer`, en 200, à toute
+    requête. L'alias « o » sert en embeddings comme en génération. Renvoie l'adresse du service."""
     class Engine(BaseHTTPRequestHandler):
         def do_POST(self):
             self.rfile.read(int(self.headers.get("Content-Length", "0")))
@@ -119,7 +118,7 @@ class AIServiceServerTest(unittest.TestCase):
         return socket.create_connection(("127.0.0.1", self.server.server_address[1]), timeout=5)
 
     def raw(self, request: bytes) -> tuple[int, dict[str, str], bytes]:
-        """Requête en octets bruts (ce qu'urllib n'enverrait pas) : statut, en-têtes et corps de la réponse."""
+        """Envoie une requête en octets bruts, qu'urllib n'enverrait pas, et renvoie statut, en-têtes et corps."""
         with self.connect() as sock, sock.makefile("rb") as stream:
             sock.sendall(request)
             status_line, headers, body = read_response(stream, head=request.startswith(b"HEAD "))
@@ -135,7 +134,7 @@ class AIServiceServerTest(unittest.TestCase):
                                  (405, "method_not_allowed"))
 
     def test_a_known_route_with_another_method_is_405_with_allow(self):
-        """Ce qu'annonce le contrat : 405 et l'en-tête Allow sur une route connue, 404 sur une route inconnue."""
+        """Ce qu'annonce le contrat : 405 et l'en-tête Allow sur une route connue."""
         cases = [("GET", "/v1/embeddings", "POST"), ("POST", "/health", "GET, HEAD"), ("PUT", "/v1/generate", "POST"),
                  ("DELETE", "/v1/models", "GET, HEAD"), ("TRACE", "/health", "GET, HEAD")]
         for method, path, allowed in cases:
@@ -145,15 +144,18 @@ class AIServiceServerTest(unittest.TestCase):
                                  (405, allowed, {"code": "method_not_allowed",
                                                  "message": f"méthode {method} non permise sur {path} "
                                                             f"(permises : {allowed})"}))
+
+    def test_an_unknown_route_is_404_whatever_the_method(self):
+        """404 sur une route inconnue, quelle que soit la méthode, et sans en-tête Allow."""
         for method in ("GET", "POST", "PUT", "TRACE"):
-            with self.subTest(f"{method} /inconnue"):
+            with self.subTest(method):
                 status, headers, body = self.raw(f"{method} /inconnue HTTP/1.0\r\n\r\n".encode())
                 self.assertEqual((status, json.loads(body)["error"]["code"]), (404, "not_found"))
                 self.assertNotIn("Allow", headers)
 
     def test_head_is_accepted_wherever_get_is_without_the_body(self):
-        """RFC 9110 : mêmes statut et en-têtes que GET (Date mise à part), sans corps ; ailleurs, 405 ou
-        404, sans corps non plus."""
+        """RFC 9110 : HEAD reçoit le statut et les en-têtes de GET, Date mise à part, sans le corps. Sur les
+        autres routes, il reçoit 405 ou 404, sans corps non plus."""
         for path in ("/health", "/v1/models"):
             with self.subTest(path):
                 status, headers, body = self.raw(f"HEAD {path} HTTP/1.0\r\n\r\n".encode())
@@ -168,8 +170,8 @@ class AIServiceServerTest(unittest.TestCase):
                 self.assertGreater(int(headers["Content-Length"]), 0)
 
     def test_a_thrown_away_body_does_not_delay_the_answer(self):
-        """La réponse et la fin de l'envoi partent sans attendre un corps que personne ne lira (route
-        inconnue, autre méthode, GET), même annoncé et jamais envoyé."""
+        """La réponse et la fin de l'envoi partent sans attendre un corps que personne ne lira, même s'il est
+        annoncé et jamais envoyé."""
         for line, length, expected in ((b"POST /inconnue", 4, 404), (b"PUT /v1/embeddings", 4, 405),
                                        (b"GET /health", 4, 200), (b"PUT /v1/embeddings", 10**12, 405)):
             with self.subTest(line=line, length=length), self.connect() as sock:
@@ -177,10 +179,10 @@ class AIServiceServerTest(unittest.TestCase):
                 self.assertTrue(read_all(sock).startswith(b"HTTP/1.0 %d " % expected))
 
     def test_a_big_thrown_away_body_still_gets_its_answer(self):
-        """Le corps jeté est lu jusqu'au bout après la réponse : fermée sur des octets non lus, la
-        connexion serait réinitialisée avant que le client, qui envoie tout son corps avant de lire,
-        ne voie la réponse (sans cette lecture, sous Windows comme sous Linux, chacun de ces cas perdait sa
-        réponse). Un envoi en morceaux, refusé, est lu aussi."""
+        """Le corps jeté est lu jusqu'au bout après la réponse. Fermée sur des octets non lus, la connexion
+        serait réinitialisée avant que le client, qui envoie tout son corps avant de lire, ne voie la réponse.
+        Sans cette lecture, chacun de ces cas perd sa réponse, sous Windows comme sous Linux. Un envoi en
+        morceaux, refusé, est lu lui aussi."""
         body = b"x" * 20_000_000   # bien plus que ce que retiennent les tampons du système
         for method, path, chunked, expected in (("PUT", "/v1/embeddings", False, 405), ("GET", "/health", False, 200),
                                                 ("POST", "/v1/embeddings", True, 400)):
@@ -193,8 +195,9 @@ class AIServiceServerTest(unittest.TestCase):
                     connection.close()
 
     def test_a_content_length_is_required_and_made_of_digits(self):
-        """Les clients du service envoient toujours Content-Length : un envoi en morceaux est refusé,
-        explicitement, plutôt que lu comme un corps vide. int() accepterait « +37 » ou « 3_7 »."""
+        """Les clients du service envoient toujours Content-Length. Un envoi en morceaux est donc refusé avec
+        un message clair, plutôt que lu comme un corps vide. Quant aux chiffres, int() accepterait « +37 » ou
+        « 3_7 »."""
         payload = b'{"model": "hashing", "inputs": ["a"]}'   # 37 octets
 
         def sized(length: bytes) -> bytes:
@@ -216,8 +219,8 @@ class AIServiceServerTest(unittest.TestCase):
         self.assertEqual(self.raw(sized(b"0" * 30 + b"37 "))[0], 200)   # zéros devant, espace après
 
     def test_leading_zeros_are_read_in_linear_time(self):
-        """Une ligne d'en-tête peut faire 64 Kio. Lue en temps quadratique, « 000…0x » occupait un fil une
-        quinzaine de secondes : la réponse arrive ici avant le délai de 5 s de la connexion de test."""
+        """Une ligne d'en-tête peut faire 64 Kio. Lue en temps quadratique, « 000…0x » occuperait un fil une
+        quinzaine de secondes. Ici, la réponse doit arriver avant le délai de 5 s de la connexion de test."""
         zeros = b"0" * 65_000
         payload = b'{"model": "hashing", "inputs": ["a"]}'   # 37 octets
         cases = {"illisible": (b"POST /v1/embeddings", zeros + b"x", b"", 400),
@@ -232,9 +235,9 @@ class AIServiceServerTest(unittest.TestCase):
                                                                  "message": "Content-Length invalide"})
 
     def test_what_the_standard_library_refuses_is_a_json_client_error(self):
-        """Rien n'est laissé non lu (sinon la connexion pourrait être réinitialisée) : la ligne de requête ou
-        d'en-tête fait juste un octet de trop, et la version arrive sans en-têtes. La réponse a sa ligne de
-        statut, même pour une version illisible, puis la connexion se ferme."""
+        """Ces requêtes sont taillées pour être lues en entier, sinon la connexion pourrait être réinitialisée : la
+        ligne de requête ou d'en-tête a juste un octet de trop, et la version arrive sans en-têtes. La réponse a sa
+        ligne de statut, même pour une version illisible, puis la connexion se ferme."""
         cases = {
             "ligne de requête trop longue": (b"GET /" + b"a" * (65537 - 5), 414),
             "en-tête trop long": (b"GET /health HTTP/1.1\r\nX: " + b"a" * (65537 - 3), 431),
@@ -263,9 +266,9 @@ class AIServiceServerTest(unittest.TestCase):
             connection.close()
 
     def test_a_repeated_content_length_is_merged_if_identical_refused_otherwise(self):
-        """Comme le permet la RFC 9110 (§ 8.6) : répété à l'identique (espaces autour mis à part), il est
-        fondu en un ; deux valeurs différentes, même d'un même nombre (« 037 »), sont refusées plutôt que de
-        garder la première."""
+        """Comme le permet la RFC 9110 (§ 8.6), un Content-Length répété à l'identique, aux espaces près, est
+        fondu en un. Deux valeurs différentes sont refusées plutôt que de garder la première, même quand elles
+        écrivent le même nombre (« 037 »)."""
         payload = b'{"model": "hashing", "inputs": ["a"]}'   # 37 octets
         cases = {"deux valeurs identiques": ((b"37", b"37"), 200),
                  "trois, dont une suivie d'espaces": ((b"37", b"37 \t", b"37"), 200),
@@ -281,8 +284,9 @@ class AIServiceServerTest(unittest.TestCase):
                                      {"code": "invalid_request", "message": "Content-Length en double"})
 
     def test_a_body_of_more_than_16_mib_is_413_without_being_read(self):
-        """Annoncé plus grand, il est refusé sans être lu : la réponse part sans l'attendre (jamais envoyé
-        ici), même au-delà de 19 chiffres, ou de 4300 (que int() refuse de convertir). 16 Mio passent."""
+        """Un corps annoncé plus grand est refusé sans être lu : la réponse part sans l'attendre, et ici il n'est
+        jamais envoyé. C'est vrai aussi au-delà de 19 chiffres, ou de 4300, que int() refuse de convertir.
+        Exactement 16 Mio passent."""
         too_large = {"code": "payload_too_large",
                      "message": "corps de requête trop volumineux : 16777216 octets au plus (16 Mio)"}
         for length in (b"%d" % (MAX_BODY + 1), b"9" * 19, b"1" + b"0" * 19, b"1" + b"0" * 30, b"9" * 5000):
@@ -297,9 +301,9 @@ class AIServiceServerTest(unittest.TestCase):
                 self.assertEqual(self.raw(request)[0], expected)
 
     def test_an_idle_client_is_dropped_without_an_answer(self):
-        """Délai d'inactivité de 30 s, raccourci ici : un client qui n'envoie plus rien ne retient pas un
-        fil sans fin, ni l'arrêt du service, qui attend ses fils. La connexion est abandonnée sans réponse :
-        ni 500, ni corps lu à moitié."""
+        """Le délai d'inactivité de 30 s est raccourci ici. Un client qui n'envoie plus rien ne retient pas un
+        fil sans fin, ni l'arrêt du service, qui attend ses fils. La connexion est abandonnée sans réponse : pas
+        de 500, et pas de corps lu à moitié."""
         server = create_server(ModelRegistry.from_dict(CONFIG), "127.0.0.1", 0, quiet=True)
         self.addCleanup(server.server_close)
         self.assertEqual(server.RequestHandlerClass.timeout, 30)
@@ -329,20 +333,26 @@ class AIServiceServerTest(unittest.TestCase):
                 sock.close()
 
     def test_a_timeout_that_is_not_the_client_s_gets_an_answer(self):
-        """Seul un client muet est abandonné sans réponse. Un délai dépassé ailleurs, ici un TimeoutError qu'un
-        moteur laisse passer (request_json, lui, le traduit :
-        test_an_engine_silent_or_cut_in_its_error_is_a_retryable_502), a sa réponse, comme toute erreur
-        imprévue : jamais de connexion coupée sans réponse."""
+        """Seul un client muet est abandonné sans réponse. Un délai dépassé ailleurs reçoit sa réponse, comme
+        toute erreur imprévue. Ici, c'est un TimeoutError qu'un moteur laisse passer. request_json, lui, le
+        traduit en BackendError, ce que vérifie
+        test_an_engine_silent_or_cut_in_its_error_is_a_retryable_502_without_a_stack_in_the_log."""
         with mock.patch.object(HashingEmbeddingBackend, "embed", side_effect=TimeoutError("timed out")), \
-                redirect_stderr(io.StringIO()) as stderr:
+                redirect_stderr(io.StringIO()):
             status, body = self.post("/v1/embeddings", {"model": "hashing", "inputs": ["a"]})
         self.assertEqual((status, body["error"]),
                          (500, {"code": "internal_error", "message": "TimeoutError: timed out"}))
-        self.assertIn("TimeoutError: timed out", stderr.getvalue())   # l'imprévu laisse sa pile dans le journal
+
+    def test_an_unexpected_error_leaves_its_stack_in_the_log(self):
+        with mock.patch.object(HashingEmbeddingBackend, "embed", side_effect=RuntimeError("panne")), \
+                redirect_stderr(io.StringIO()) as stderr:
+            self.post("/v1/embeddings", {"model": "hashing", "inputs": ["a"]})
+        self.assertIn("Traceback", stderr.getvalue())
+        self.assertIn("RuntimeError: panne", stderr.getvalue())
 
     def test_a_port_already_taken_is_refused_even_under_windows(self):
-        """Sous Windows, SO_REUSEADDR (que http.server active) laissait un second service écouter le même
-        port sans erreur, les requêtes allant à l'un ou à l'autre."""
+        """Sous Windows, SO_REUSEADDR, que http.server active, laisse un second service écouter le même port
+        sans erreur, et les requêtes vont alors à l'un ou à l'autre."""
         registry = ModelRegistry.from_dict(CONFIG)
         first = create_server(registry, "127.0.0.1", 0, quiet=True)
         self.addCleanup(first.server_close)
@@ -350,9 +360,8 @@ class AIServiceServerTest(unittest.TestCase):
             create_server(registry, "127.0.0.1", first.server_address[1], quiet=True).server_close()
 
     def test_a_json_body_must_be_strict(self):
-        """Ce que json.loads accepterait en silence : clé en double (la dernière gagnerait), « \\ud800 »
-        isolé (la réponse qui le reprend ne pourrait pas être encodée), NaN, imbrication sans fin ; et
-        un entier trop long pour int(), qui donnerait une erreur 500."""
+        """Le corps est refusé pour ce que json.loads accepterait en silence : clé en double, « \\ud800 »
+        isolé, NaN, imbrication sans fin. Un entier trop long pour int() est refusé avec un message clair."""
         def with_x(value: bytes) -> bytes:
             return b'{"model": "hashing", "inputs": ["a"], "x": ' + value + b"}"
 
@@ -423,20 +432,20 @@ class AIServiceServerTest(unittest.TestCase):
         self.assertEqual((status, body["error"]["code"]), (404, "unknown_model"))
 
     def test_backend_failure_is_502(self):
-        # Un vrai refus de connexion (Ollama absent de 127.0.0.1:1), le seul de ces tests : il coûte 2 s sous Windows.
+        # C'est le seul vrai refus de connexion de ces tests (Ollama absent de 127.0.0.1:1) : il coûte 2 s sous Windows.
         status, body = self.post("/v1/embeddings", {"model": "ollama-absent", "inputs": ["a"]})
         self.assertEqual((status, body["error"]["code"]), (502, "backend_error"))
-        self.assertTrue(body["error"]["retryable"])   # Ollama injoignable : peut revenir
 
-    def test_an_engine_answer_that_is_not_json_is_502_not_400(self):
+    def test_an_engine_answer_that_is_not_json_is_a_definitive_502_not_400(self):
         """La faute est chez le moteur, pas chez le client : jamais « votre requête est invalide »."""
         with service_behind(b"<html>proxy</html>") as url:
             status, body = post(url + "/v1/embeddings", {"model": "o", "inputs": ["a"]})
         self.assertEqual((status, body["error"]["code"], body["error"]["retryable"]), (502, "backend_error", False))
 
-    def test_an_engine_silent_or_cut_in_its_error_is_a_retryable_502(self):
-        """Le moteur envoie ses en-têtes d'erreur, puis se tait (délai dépassé) ou coupe : 502 backend_error,
-        réessayable, comme une coupure au milieu d'une réponse 200 ; jamais 500, ni pile dans le journal."""
+    def test_an_engine_silent_or_cut_in_its_error_is_a_retryable_502_without_a_stack_in_the_log(self):
+        """Le moteur envoie ses en-têtes d'erreur, puis se tait jusqu'au délai ou coupe la connexion. Comme pour
+        une coupure au milieu d'une réponse 200, le client reçoit un 502 backend_error réessayable, jamais un 500,
+        et le journal ne garde aucune pile."""
         start = b"HTTP/1.1 500 Erreur\r\nContent-Length: 100\r\n\r\n{"
         for case, cut in (("silence", False), ("coupure", True)):
             with self.subTest(case), silent_after(start, cut) as engine:
@@ -455,7 +464,7 @@ class AIServiceServerTest(unittest.TestCase):
                 self.assertEqual(stderr.getvalue(), "")
 
     def test_a_lone_surrogate_from_the_engine_is_replaced_not_a_cut_connection(self):
-        """Une moitié de paire ne s'écrit pas en UTF-8 : U+FFFD à la place, plutôt qu'aucune réponse."""
+        """Une moitié de paire ne s'écrit pas en UTF-8 : elle devient U+FFFD, plutôt qu'une réponse perdue."""
         answer = json.dumps({"choices": [{"message": {"content": "Deux jours\ud800 [1]"}}]}).encode()
         with service_behind(answer) as url:
             status, body = post(url + "/v1/generate", {"model": "o", "prompt": "p"})
@@ -468,8 +477,8 @@ class AIServiceServerTest(unittest.TestCase):
 
 
 class Stopped:
-    """Un serveur factice, déjà arrêté (comme après Ctrl+C), qui porte l'adresse qu'aurait le vrai : on n'écoute pas
-    pour de bon, sur toutes les interfaces par exemple."""
+    """Serveur factice, arrêté d'emblée comme après un Ctrl+C, qui porte l'adresse qu'aurait le vrai. Le test
+    n'écoute ainsi jamais pour de bon, pas même sur toutes les interfaces."""
 
     def __init__(self, address: tuple[str, int]) -> None:
         self.server_address = address
@@ -482,8 +491,8 @@ class Stopped:
 
 
 def launch(*args: str, bound: str = "127.0.0.1") -> tuple[int, str, str]:
-    """python -m ai_service <args>, dans ce processus, sur un serveur factice (Stopped) au port 54321 : le code de
-    retour, la sortie et la sortie d'erreur."""
+    """Exécute python -m ai_service <args> dans ce processus, sur un serveur factice (Stopped) au port 54321.
+    Renvoie le code de retour, la sortie et la sortie d'erreur."""
     with mock.patch.object(sys, "argv", ["ai_service", *args]), \
             mock.patch.object(entry_point, "create_server", lambda registry, host, port: Stopped((bound, 54321))), \
             redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()) as err:
@@ -493,9 +502,9 @@ def launch(*args: str, bound: str = "127.0.0.1") -> tuple[int, str, str]:
 
 class EntryPointTest(unittest.TestCase):
     def test_port_0_takes_a_free_port_and_shows_the_one_listening(self):
-        """`--port 0` l'emporte sur le port du fichier (ici occupé), et l'adresse affichée est celle
-        qui écoute vraiment, pas « :0 ». Sortie redirigée, donc mise en tampon (ni « -u » ni PYTHONUNBUFFERED) :
-        les lignes du lancement s'y lisent quand même pendant que le service tourne."""
+        """`--port 0` l'emporte sur le port du fichier, occupé ici, et l'adresse affichée est celle qui écoute
+        vraiment, pas « :0 ». La sortie est redirigée, donc mise en tampon, sans « -u » ni PYTHONUNBUFFERED : les
+        lignes du lancement doivent s'y lire quand même pendant que le service tourne."""
         env = {name: value for name, value in os.environ.items() if name != "PYTHONUNBUFFERED"}
         env["PYTHONIOENCODING"] = "utf-8"   # « génération », lu ci-dessous en UTF-8
         with socket.socket() as taken, tempfile.TemporaryDirectory() as tmp:
@@ -523,8 +532,8 @@ class EntryPointTest(unittest.TestCase):
                 process.wait(10)
                 process.stdout.close()
 
-    def test_a_port_already_taken_is_said_like_by_assistant_serve(self):
-        """Même message clair que « assistant serve », code 1, sans pile."""
+    def test_a_port_already_taken_is_a_clear_error(self):
+        """Un port déjà pris donne un message clair, avec le code 1 et sans pile."""
         with socket.socket() as taken, tempfile.TemporaryDirectory() as tmp:
             if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):   # Windows : sans lui, un second bind partagerait le port
                 taken.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
@@ -540,10 +549,10 @@ class EntryPointTest(unittest.TestCase):
         self.assertIn("Erreur : impossible d'écouter (port déjà pris, adresse inconnue ou non autorisée) — ", errors)
         self.assertNotIn("Traceback", errors)
 
-    def test_a_bad_port_or_configuration_is_said_like_by_assistant_serve(self):
-        """Port hors de 0 à 65535 ou qui n'est pas un entier (option ou fichier), fichier absent ou qui n'est pas
-        du TOML, moteur inconnu ou configuration que le registre refuse : « Erreur : … » sur une ligne, code 1,
-        sans pile, comme le port déjà pris. Les bornes, 0 et 65535, sont acceptées."""
+    def test_a_bad_port_or_configuration_is_a_clear_error(self):
+        """Un port invalide, dans l'option ou dans le fichier, et une configuration illisible ou refusée par le
+        registre donnent, comme le port déjà pris, « Erreur : … » sur une ligne, le code 1 et aucune pile. Les
+        bornes 0 et 65535 sont acceptées."""
         hashing = '[embedding.hashing]\nbackend = "hashing"\n'
         with tempfile.TemporaryDirectory() as tmp:
             def config(name: str, content: str | bytes) -> str:
@@ -592,8 +601,9 @@ class EntryPointTest(unittest.TestCase):
                     self.assertEqual((code, err), (0, ""))
 
     def test_all_interfaces_are_announced_with_an_address_to_connect_to(self):
-        """Comme « assistant serve » : pour 0.0.0.0 (toutes les interfaces, mais pas une adresse où se connecter),
-        127.0.0.1, en le disant ; tout autre hôte tel quel (« localhost », pas l'adresse résolue)."""
+        """Le service annonce une adresse où se connecter. 0.0.0.0 désigne toutes les interfaces, mais on ne s'y
+        connecte pas : on annonce alors 127.0.0.1, en le précisant. Tout autre hôte s'affiche tel quel, « localhost »
+        et non l'adresse résolue."""
         hashing = '[embedding.hashing]\nbackend = "hashing"\n'
         everywhere = "http://127.0.0.1:54321, à l'écoute sur toutes les interfaces"
         cases = {   # arguments, contenu du fichier, adresse du serveur, adresse annoncée

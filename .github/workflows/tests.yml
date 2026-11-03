@@ -6,7 +6,7 @@ on:
 
 jobs:
   csharp:
-    name: application C# · ${{ matrix.os }}
+    name: exemple S1.3 en C# · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -17,30 +17,20 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
-      - name: Tests (sans IA, sans réseau) — fil rouge et exemple S1.3
-        run: dotnet test FycAssistantRag.sln --nologo
-      - name: Kit S2.2 — rouge au départ, vert avec la solution
-        shell: bash
-        run: |
-          cd exercices/s2.2-coeur-metier/depart
-          dotnet build --nologo                                    # le kit de départ doit compiler…
-          if dotnet test --nologo --no-build > /dev/null 2>&1; then echo "le kit de départ ne doit pas être vert" && exit 1; fi   # … et être rouge
-          cp ../solution/*.cs Coeur/
-          dotnet test --nologo
-      - name: Cas pratique S5.1 — la version de départ compile
-        run: dotnet build cas-pratique/depart --nologo
+      - name: Compilation (avertissements en erreurs) — exemple S1.3
+        run: dotnet build exemples/s1.3-transfert-naif -warnaserror --nologo
   python:
-    name: service IA Python ${{ matrix.python }} · ${{ matrix.os }}
+    name: Python ${{ matrix.python }} (service IA, outil d'import) · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python: ["3.11", "3.13"]   # version minimale annoncée (docs/installation.md) et récente
+        python: ["3.11", "3.13"]   # la version minimale annoncée dans docs/installation.md, et une récente
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: Tests du service IA
+      - name: Tests du service IA et de l'outil d'import
         run: python -m unittest discover -s tests_python -t . -v

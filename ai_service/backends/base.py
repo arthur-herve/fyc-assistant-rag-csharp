@@ -9,8 +9,8 @@ from typing import Protocol, Sequence
 class BackendError(RuntimeError):
     """Le moteur sous-jacent (Ollama, bibliothèque locale…) a échoué.
 
-    `retryable` : réessayer peut-il réussir ? Oui pour un moteur injoignable ou surchargé,
-    non pour un modèle absent ou une réponse que le moteur renverra toujours pareille.
+    `retryable` dit si réessayer a une chance de réussir : oui pour un moteur injoignable ou
+    surchargé, non pour un modèle absent ou une réponse que le moteur renverra toujours pareille.
     """
 
     def __init__(self, message: str, retryable: bool = True) -> None:

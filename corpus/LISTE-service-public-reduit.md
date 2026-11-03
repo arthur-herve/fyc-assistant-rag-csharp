@@ -1,10 +1,15 @@
 # Corpus réduit `service-public-reduit/` : les 50 fiches
 
-Sous-ensemble figé de `service-public/` (Service-Public.gouv.fr / DILA, Licence Ouverte 2.0,
-téléchargement du 11 septembre 2026), constitué le 12 septembre 2026. Critère : les 39 fiches
-citées par `eval/questions-service-public.json` et `eval/questions-service-public-validation.json`
-(raison « question »), plus 11 fiches de diversion, pour l'essentiel dans des dossiers non couverts par les
-questions (raison « diversion »). Les groupes d'accès sont ceux du corpus complet.
+Ce corpus est un sous-ensemble figé de `service-public/`. Les fiches viennent de
+Service-Public.gouv.fr (DILA, Licence Ouverte 2.0) et ont été téléchargées le 11 septembre 2026. La
+sélection a été faite le lendemain, le 12 septembre 2026.
+
+La colonne « Raison » indique pourquoi chaque fiche a été retenue. « question » désigne les 39 fiches
+qui servent à poser des questions sur le corpus. « diversion » désigne les 11 autres, prises pour
+l'essentiel dans des dossiers que les questions ne couvrent pas, pour que la recherche ait de quoi se
+tromper.
+
+Les groupes d'accès sont les mêmes que dans le corpus complet.
 
 | Fiche | Groupe | Dossier | Titre | Raison |
 |---|---|---|---|---|

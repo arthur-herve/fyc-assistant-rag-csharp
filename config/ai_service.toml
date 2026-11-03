@@ -1,7 +1,8 @@
 # Configuration du service IA : quels modèles sont servis, et par quel moteur.
-# L'application ne connaît que les ALIAS (clés entre crochets).
+# L'application ne connaît que les alias, les noms entre crochets : llama3-2-3b dans
+# [generation.llama3-2-3b], alors que le modèle Ollama s'appelle llama3.2:3b.
 #
-# Modèles Ollama : les télécharger avant usage ; ceux de la configuration « cours » :
+# Les modèles Ollama doivent être téléchargés avant usage. Ceux qu'utilise le cours :
 #   ollama pull bge-m3
 #   ollama pull llama3.2:3b
 # Les noms exacts sont à vérifier sur https://ollama.com/library
@@ -14,7 +15,7 @@ port = 8100
 base_url = "http://127.0.0.1:11434"
 
 [defaults.openai-compatible]
-base_url = "http://127.0.0.1:1234/v1"   # LM Studio par défaut ; llama.cpp : 8080
+base_url = "http://127.0.0.1:1234/v1"   # port de LM Studio, 8080 pour llama.cpp
 
 # ---------------------------------------------------------------------------
 # Modèles d'embeddings
@@ -27,12 +28,12 @@ dimension = 256
 
 [embedding.hashing-512]
 backend = "hashing"
-description = "Même principe, autre dimension : sert à montrer qu'un index ne survit pas au changement."
+description = "Même principe que `hashing`, en 512 dimensions."
 dimension = 512
 
 [embedding.hashing-stem4]
 backend = "hashing"
-description = "Même dimension que `hashing` mais autres vecteurs (radicaux de 4 lettres) : la panne SILENCIEUSE de l'exemple S1.3."
+description = "Même dimension que `hashing`, mais d'autres vecteurs : les mots y sont réduits à leurs 4 premières lettres."
 dimension = 256
 stem = 4
 
@@ -59,7 +60,7 @@ backend = "ollama"
 description = "1024 dim., ~1,2 Go, multilingue."
 model = "bge-m3"
 
-# Optionnels : nécessitent pip install -r requirements-ai-optional.txt
+# Optionnels : ces modèles demandent d'abord pip install -r requirements-ai-optional.txt
 [embedding.st-multilingual-minilm]
 backend = "sentence-transformers"
 description = "384 dim., multilingue, exécuté par PyTorch sur CPU."
@@ -87,18 +88,30 @@ citation_failure_rate = 0.3
 randomize = true
 model_id = "extractive-bruite"
 
+[generation.extractive-variante]
+backend = "extractive"
+description = "Hors-ligne et déterministe : comme `extractive`, mais choisit pour certaines questions une autre phrase, toujours citée."
+citation_failure_rate = 0.0
+randomize = true
+default_seed = 1
+model_id = "extractive-variante"
+
+[generation.extractive-bavard]
+backend = "extractive"
+description = "Hors-ligne et déterministe : comme `extractive`, mais la réponse citée est précédée d'un raisonnement en anglais."
+preamble = "Okay, let me check the documents. The user is asking a question, and the answer should be in the passages. First, I need to find the sentence that answers it."
+model_id = "extractive-bavard"
+
 [generation.gemma3-1b]
 backend = "ollama"
 description = "~0,8 Go. Tourne sur presque tout, qualité limitée."
 model = "gemma3:1b"
 
-# Modèles qwen3 : le mode réflexion reste ACTIVÉ (think = true) et reçoit son
-# propre budget de jetons. Mesuré le 11/09/2026 (Ollama 0.34, qwen3:4b, mesures de
-# la version Python, dossier eval/resultats/ de ce dépôt-là) :
-# think = false déverse le raisonnement dans la réponse, sans balise ;
-# think = true le renvoie à part, et la réponse est propre. Le budget doit
-# suivre la longueur du prompt : avec 4 passages de 800 caractères, qwen3:4b
-# réfléchit sur ~2 300 jetons ; à 1 200, la réponse revient vide 4 fois sur 10.
+# Pour les modèles qwen3, le mode réflexion reste activé (think = true) : Ollama renvoie
+# alors le raisonnement à part, et le service ne garde que la réponse. La réflexion a son
+# propre budget de jetons (thinking_tokens), qui doit suivre la longueur du prompt. Avec
+# 4 passages de 800 caractères, qwen3:4b réfléchit sur environ 2 300 jetons, et avec un
+# budget de 1 200 la réponse revient vide 4 fois sur 10 (mesuré avec Ollama 0.34).
 # C'est une particularité du modèle : elle se règle ici, jamais dans l'application.
 [generation.qwen3-1b7]
 backend = "ollama"

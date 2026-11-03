@@ -2,11 +2,10 @@ bin/
 obj/
 *.user
 .vs/
+.idea/
 __pycache__/
 *.pyc
 data/
 eval/instantanes/
-*.tmp
-# Rapports du banc et des expériences conservés, sans les index reconstruits
-eval/resultats/*/index-*.json
-exemples/**/index-naif.json
+# Archive de la DILA téléchargée par tools/import_service_public.py --download
+vosdroits-latest.zip

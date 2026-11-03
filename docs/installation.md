@@ -1,39 +1,38 @@
-# Guide d'installation pas à pas (version C# / Python)
+# Guide d'installation pas à pas (.NET 8 et Python)
 
-Cette version demande **deux environnements** : .NET 8 pour l'application, Python 3.11+ pour
-le service IA (ADR 0009 : les modèles vivent dans un autre programme, dans un autre langage).
-Durée réaliste : **20 minutes** pour tout ce qui tourne hors-ligne (séquences 1 à 2.2), **30 à
-60 minutes de plus** pour les vrais modèles (téléchargements compris, selon la connexion).
-Rien n'exige de carte graphique ; un portable de 8 Go de RAM suffit pour le hors-ligne, 16 Go
-sont confortables pour les vrais modèles.
+Le projet a besoin de deux environnements : .NET 8 pour l'application et Python 3.11 ou plus récent
+pour le service IA. C'est un choix voulu. Les modèles vivent dans un autre programme, écrit dans un
+autre langage, et l'application ne leur parle que par HTTP.
 
-Si une étape résiste, tout le cours jusqu'à la séquence 2.2 fonctionne en **mode hors-ligne**
-(étape 4) : avancez, revenez à l'installation d'Ollama plus tard.
+Comptez une vingtaine de minutes pour tout ce qui fonctionne hors-ligne. Ollama, qui fait tourner de
+vrais modèles sur votre machine, est facultatif : le mode hors-ligne suffit pour suivre tout le cours.
+
+Aucune carte graphique n'est nécessaire. Un portable avec 8 Go de RAM suffit pour le mode hors-ligne.
 
 ## 1. Le SDK .NET 8 (5 min)
 
 | Système | Comment | Vérification |
 |---|---|---|
-| Windows 10/11 | <https://dotnet.microsoft.com/download/dotnet/8.0> → « SDK 8.0.x » (installeur x64), ou `winget install Microsoft.DotNet.SDK.8` | `dotnet --version` → `8.0.…` |
-| macOS | même page (installeur .pkg, choisir Arm64 ou x64 selon la puce) ou `brew install --cask dotnet-sdk@8` | `dotnet --version` |
-| Linux (Debian/Ubuntu) | `sudo apt install dotnet-sdk-8.0` (dépôt Microsoft ou Ubuntu 22.04+) | `dotnet --version` |
+| Windows 10/11 | <https://dotnet.microsoft.com/download/dotnet/8.0>, puis « SDK 8.0.x » (installeur x64), ou `winget install Microsoft.DotNet.SDK.8` | `dotnet --version` affiche `8.0.…` |
+| macOS | la même page (installeur .pkg, Arm64 ou x64 selon la puce), ou `brew install --cask dotnet-sdk@8` | `dotnet --version` |
+| Linux (Debian/Ubuntu) | `sudo apt install dotnet-sdk-8.0` (dépôt Microsoft, ou Ubuntu 22.04 et plus) | `dotnet --version` |
 
-`global.json` accepte un SDK 8.0 ou plus récent (`rollForward: latestMajor`), mais l'application et
-les tests visent .NET 8 : il leur faut le **runtime 8**. Il est fourni avec le SDK 8 ; avec seulement
-un SDK 9 ou 10, installer aussi le runtime 8 (même page, « .NET Runtime 8.0.x »).
-**Aucun paquet NuGet dans l'application** ; le projet de tests télécharge xUnit au premier
-`dotnet test` (quelques Mo, une fois).
+`global.json` accepte aussi un SDK plus récent que le 8.0. Mais l'exemple de la séquence 1.3 vise
+.NET 8, et il lui faut donc le runtime 8. Il est livré avec le SDK 8. Si vous n'avez qu'un SDK 9 ou
+10, installez en plus le runtime 8, depuis la même page (« .NET Runtime 8.0.x »).
 
 ## 2. Python 3.11 ou plus, pour le service IA (5 min)
 
 | Système | Comment | Vérification |
 |---|---|---|
-| Windows 10/11 | <https://www.python.org/downloads/windows/> → « Windows installer (64-bit) ». Cocher **« Add python.exe to PATH »**. Ou `winget install Python.Python.3.12`. | `py --version` (ou `python --version`) |
+| Windows 10/11 | <https://www.python.org/downloads/windows/>, puis « Windows installer (64-bit) ». Cochez **« Add python.exe to PATH »**. Ou bien `winget install Python.Python.3.12`. | `py --version` (ou `python --version`) |
 | macOS | <https://www.python.org/downloads/macos/> ou `brew install python@3.12` | `python3 --version` |
-| Linux (Debian/Ubuntu) | `sudo apt install python3` (3.11+ sur Ubuntu 24.04, Debian 12) | `python3 --version` |
+| Linux (Debian/Ubuntu) | `sudo apt install python3` (3.11 ou plus sur Ubuntu 24.04 et Debian 12) | `python3 --version` |
 
-Dans la suite, `python` désigne `py` sous Windows, `python3` sous macOS et Linux.
-**Aucune bibliothèque à installer** : le service IA n'utilise que la bibliothèque standard.
+Dans la suite de ce guide, `python` désigne `py` sous Windows et `python3` sous macOS et Linux.
+
+Il n'y a aucune bibliothèque Python à installer pour suivre le cours : le service IA n'utilise que la
+bibliothèque standard.
 
 ## 3. Git et le dépôt (5 min)
 
@@ -43,137 +42,86 @@ Dans la suite, `python` désigne `py` sous Windows, `python3` sous macOS et Linu
 | macOS | `xcode-select --install` ou `brew install git` |
 | Linux | `sudo apt install git` |
 
+Récupérez le dépôt, puis lancez les tests du service IA :
+
 ```bash
 git clone https://github.com/arthur-herve/fyc-assistant-rag-csharp.git
 cd fyc-assistant-rag-csharp
-dotnet test --nologo                                   # l'application
-python -m unittest discover -s tests_python -t .       # le service IA
+python -m unittest discover -s tests_python -t .       # le service IA et l'outil d'import du corpus
 ```
 
-Attendu : `Réussi! … total : 655` (`Passed! … Total: 655` avec un SDK en anglais ; hors de Windows, 1 test
-propre à http.sys est ignoré, `Passed: 654, Skipped: 1` en anglais ; le premier `dotnet test` compile tout : 30
-à 60 secondes, ensuite une quinzaine de secondes) et `Ran 56 tests … OK`.
-Si les deux sont verts, votre poste est prêt pour les séquences 1 à 2.2.
+La commande doit se terminer sans échec.
 
 ## 4. Le mode hors-ligne (2 min)
 
-Deux terminaux, depuis la racine du dépôt.
+Ouvrez deux terminaux à la racine du dépôt.
 
-Terminal 1 — le service IA (il reste ouvert) :
+Dans le premier, lancez le service IA et laissez-le tourner :
 
 ```bash
 python -m ai_service
 ```
 
-Terminal 2 — l'application :
+Dans le second, faites répondre l'exemple de la séquence 1.3 par le service :
 
 ```bash
-dotnet run --project src/Assistant.Cli -- index
-dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?"
-dotnet run --project src/Assistant.Cli -- status
+dotnet run --project exemples/s1.3-transfert-naif -- generate extractive
 ```
 
-Attendu : une réponse citée `[1]` avec la source `teletravail`, puis un verdict « à jour ». Les
-modèles `hashing` (embeddings hachés) et `extractive` (recopie de la phrase la plus proche) sont
-déterministes et sans réseau : ce sont ceux des tests. `dotnet run` vérifie la compilation à chaque
-lancement et prend quelques secondes, même sans rien à recompiler ; pour aller plus vite, `dotnet build`
-une fois puis `dotnet run … --no-build`.
+Vous devez obtenir la phrase sur le télétravail, suivie de sa citation `[1]`.
 
-Sous Windows, si les accents du service IA s'affichent mal dans le terminal 1 :
-`set PYTHONIOENCODING=utf-8` (cmd) ou `$env:PYTHONIOENCODING = "utf-8"` (PowerShell).
-L'application C# écrit en UTF-8 quoi qu'il arrive.
+Ce mode repose sur deux modèles très simples. `hashing` calcule des embeddings par hachage des mots,
+sans rien avoir appris, et `extractive` recopie la phrase la plus proche de la question. Tous deux sont
+déterministes et se passent du réseau.
 
-## 5. Ollama et les modèles (10 min + téléchargements)
+`dotnet run` vérifie la compilation à chaque lancement, ce qui prend quelques secondes même quand il
+n'y a rien à recompiler. Pour aller plus vite, lancez `dotnet build exemples/s1.3-transfert-naif` une
+fois, puis ajoutez `--no-build` juste après `dotnet run`.
 
-Ollama exécute les modèles ouverts en local et les expose sur `http://127.0.0.1:11434`.
+Sous Windows, il arrive que les accents du service IA s'affichent mal dans le premier terminal. Tapez
+alors `set PYTHONIOENCODING=utf-8` dans cmd, ou `$env:PYTHONIOENCODING = "utf-8"` dans PowerShell,
+avant de relancer le service. L'exemple C#, lui, écrit toujours en UTF-8.
+
+## 5. Ollama, si vous le pouvez
+
+Ollama fait tourner des modèles ouverts sur votre machine et les rend accessibles à l'adresse
+`http://127.0.0.1:11434`. Si son installation résiste, ne restez pas bloqué : avancez en mode
+hors-ligne, et revenez-y plus tard.
 
 | Système | Comment |
 |---|---|
-| Windows | <https://ollama.com/download/windows> ou `winget install Ollama.Ollama` — un service démarre en arrière-plan |
-| macOS | <https://ollama.com/download/mac> ou `brew install ollama` puis `ollama serve` |
+| Windows | <https://ollama.com/download/windows> ou `winget install Ollama.Ollama`. Un service démarre ensuite en arrière-plan. |
+| macOS | <https://ollama.com/download/mac> ou `brew install ollama`, puis `ollama serve` |
 | Linux | `curl -fsSL https://ollama.com/install.sh \| sh` |
 
-Vérification : `ollama --version`, puis `ollama list` (vide au début).
+Pour vérifier l'installation, lancez `ollama --version`, puis `ollama list`. Au début, la liste est
+vide.
 
-Modèles du cours, à télécharger dans cet ordre (6 Go en tout ; les quatre ont pris une dizaine de
-minutes le 11/09/2026 sur une connexion fibre, comptez plus en ADSL) :
-
-```bash
-ollama pull bge-m3              # embeddings par défaut, 1,2 Go
-ollama pull llama3.2:3b         # génération par défaut, 2,0 Go
-ollama pull nomic-embed-text    # embeddings « de rupture », 274 Mo
-ollama pull qwen3:4b            # génération « de rupture », 2,5 Go (séquences 3.3 et 4.1)
-```
-
-Les deux premiers suffisent pour suivre le cours ; les deux autres servent aux expériences de
-changement de modèle. Si le disque ou la connexion manquent, `gemma3:1b` (815 Mo) remplace
-`llama3.2:3b` avec une qualité moindre.
-
-Sans Ollama mais avec un serveur compatible OpenAI (LM Studio, llama.cpp, vLLM, ou un service en
-ligne) : `config/ai_service.toml` a un backend `openai-compatible` (exemple `[generation.lmstudio]`,
-adresse dans `[defaults.openai-compatible]`, clé d'API lue dans une variable d'environnement si
-`api_key_env` est renseigné). L'application, elle, ne voit aucune différence : un alias.
-
-## 6. Premier vrai passage (5 min)
-
-Relancer le service IA (terminal 1, Ctrl+C puis `python -m ai_service`), puis :
+L'exemple de la séquence 1.3 peut alors appeler un vrai modèle. Téléchargez-le, puis posez-lui la
+question, le service IA toujours lancé dans le premier terminal :
 
 ```bash
-dotnet run --project src/Assistant.Cli -- index --config config/app-ollama.json
-dotnet run --project src/Assistant.Cli -- ask "Combien de jours dure le congé de paternité ?" --config config/app-ollama.json -v
+ollama pull llama3.2:3b
+dotnet run --project exemples/s1.3-transfert-naif -- generate llama3-2-3b
 ```
 
-Attendu : l'indexation du corpus réduit (50 fiches, 740 morceaux) prend **10 à 20 secondes** avec
-`bge-m3` sur la machine de référence (carte graphique) — elle ne se fait qu'une fois ; la réponse
-arrive ensuite en 1 à 3 secondes et cite une fiche sur le congé de paternité (`F3156`). Le corpus
-complet (322 fiches, `config/app-ollama-complet.json`) prend 1 à 3 minutes. Sur processeur seul,
-comptez un ordre de grandeur de plus (non mesuré : à relever sur vos machines et à nous signaler).
-
-## Déploiement sur deux machines
-
-L'application et le service IA sont deux programmes : rien n'oblige à les faire tourner sur le même
-poste. Sur la machine de calcul : `python -m ai_service --host 0.0.0.0` (et `[server] host` dans
-`config/ai_service.toml`), qui annonce « Service IA sur http://127.0.0.1:8100, à l'écoute sur toutes les
-interfaces ». Sur le serveur applicatif, `AI_SERVICE_URL` remplace `base_url` (la clé reste
-obligatoire dans `config/app.json`) :
-
-```bash
-AI_SERVICE_URL=http://machine-gpu:8100 dotnet run --project src/Assistant.Cli -- serve --host 0.0.0.0
-```
-
-L'application répond alors sur `http://<serveur>:8000` (`/health`, `/v1/ask`, `/v1/status`, `/v1/index`).
-`serve` annonce « Application sur http://127.0.0.1:8000, à l'écoute sur toutes les interfaces » : dans les deux
-annonces, 0.0.0.0 n'est pas une adresse où se connecter, 127.0.0.1 l'est depuis la machine elle-même. Pour `serve`,
-`*` et `+` disent aussi « toutes les interfaces ».
-
-⚠️ Ni le service IA ni l'application n'ont d'**authentification** : ils sont prévus pour un réseau interne.
-L'application croit l'utilisateur que déclare l'appelant (`"user": "alice"`) : les droits d'accès ne protègent
-donc que si un proxy authentifié fixe ce champ. En production, placer les deux derrière un tel proxy.
-
-Sous Windows, `HttpListener` peut demander un droit d'écoute pour `--host 0.0.0.0` : `netsh http add
-urlacl url=http://+:8000/ user=%USERNAME%` (une fois, en administrateur) ; `127.0.0.1` n'en a pas besoin.
+Le service IA connaît ce modèle sous l'alias `llama3-2-3b`, déclaré dans `config/ai_service.toml`.
 
 ## Ce qui peut coincer
 
-| Symptôme | Cause probable | Remède |
+| Symptôme | Cause probable | Que faire |
 |---|---|---|
-| `Service IA injoignable (http://127.0.0.1:8100/…)` (ask, index, status), ou `Erreur : service IA injoignable (http://127.0.0.1:8100). Lancez-le d'abord : python -m ai_service` (banc, expériences) | le terminal 1 n'est pas lancé | `python -m ai_service` |
-| `HTTP 502 — … Ollama est-il lancé sur http://127.0.0.1:11434 ?` | Ollama arrêté | `ollama serve` |
-| `HTTP 502 — empreinte de … introuvable … (modèles installés : …)` | modèle non téléchargé, ou nom écrit autrement que dans `ollama list` | `ollama pull <modèle>`, ou corriger `model` dans `config/ai_service.toml` |
-| `HTTP 502 — … a changé pendant l'appel` | un `ollama pull` pendant la requête | relancer la commande |
-| `L'index a été construit avec « … » mais le modèle d'embeddings actuel est « … »` | vous avez changé de modèle d'embeddings ; ou, sans rien changer, l'index date d'avant le 21/09/2026 et l'alias a des préfixes (`nomic`, `mxbai`, `st-e5-small` : leur identifiant finit depuis par `+prefixes-…`) | c'est voulu (séquence 2.3) : `index` avec ce modèle, ou `index --if-stale` |
-| `Erreur : prompt introuvable : … dans … (connus : answer, answer-v2)` | `--prompt` ou `generation.prompt` (configuration) mal tapé | choisir un des prompts connus |
-| `dotnet : commande introuvable` | SDK non installé ou PATH non mis à jour | rouvrir le terminal après l'installation ; `dotnet --info` |
-| `NETSDK1045` ou « version du SDK » | SDK plus ancien que 8.0 | installer le SDK 8.0 (étape 1) |
-| « You must install or update .NET to run this application » (`Microsoft.NETCore.App` 8.0) | SDK 9 ou 10 seul, sans runtime 8 | installer le runtime .NET 8 (étape 1) |
-| `python : commande introuvable` sous Windows | PATH non mis à jour à l'installation | utiliser `py`, ou réinstaller Python en cochant « Add to PATH » |
-| Réponses très lentes (> 1 min) avec `qwen3:4b` | mode réflexion, budget de jetons | normal sur CPU ; utiliser `llama3.2:3b` hors expériences |
-| `MemoryError` ou Ollama qui se ferme | modèle trop gros pour la RAM | modèle plus petit (`gemma3:1b`, `nomic-embed-text`) |
+| `Erreur : … (127.0.0.1:8100)`, avec un message de connexion refusée | le service IA ne tourne pas dans le premier terminal | lancez `python -m ai_service` |
+| `Erreur : service IA : … Ollama est-il lancé sur http://127.0.0.1:11434 ?` | Ollama est arrêté | `ollama serve` |
+| `Erreur : service IA : empreinte de llama3.2:3b introuvable …` | le modèle n'est pas téléchargé | `ollama pull llama3.2:3b` |
+| `dotnet : commande introuvable` | SDK non installé, ou PATH pas encore mis à jour | rouvrez le terminal après l'installation, puis vérifiez avec `dotnet --info` |
+| `NETSDK1045`, ou un message sur la « version du SDK » | SDK plus ancien que 8.0 | installez le SDK 8.0 (étape 1) |
+| « You must install or update .NET to run this application » (`Microsoft.NETCore.App` 8.0) | un SDK 9 ou 10 seul, sans le runtime 8 | installez le runtime .NET 8 (étape 1) |
+| `python : commande introuvable` sous Windows | PATH non mis à jour pendant l'installation | utilisez `py`, ou réinstallez Python en cochant « Add python.exe to PATH » |
 
 ## Machine de référence du cours
 
-Les durées et les rapports de `eval/resultats/` ont été mesurés sur : Windows 11, AMD Ryzen 7
-5800H, 15,4 Go de RAM, NVIDIA RTX 3070 Laptop 8 Go, Ollama 0.34, .NET SDK 8.0.425, Python 3.13.
-Installation complète des deux SDK sur cette machine : .NET SDK 8 par `winget`, 2 minutes ;
-Python déjà présent. Les temps sans carte graphique n'ont pas encore été mesurés ; le cours reste
-suivable, le mode hors-ligne couvre tout ce qui ne demande pas un vrai modèle.
+Les durées de cette page ont été mesurées sur une machine sous Windows 11 : processeur AMD
+Ryzen 7 5800H, 15,4 Go de RAM, carte graphique NVIDIA RTX 3070 Laptop de 8 Go, avec
+le SDK .NET 8.0.425 et Python 3.13. Sur cette machine, l'installation du SDK .NET 8 par `winget` a
+pris 2 minutes, et Python était déjà présent.

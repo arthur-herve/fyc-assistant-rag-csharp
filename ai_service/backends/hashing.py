@@ -2,7 +2,7 @@
 
 Ce n'est pas un modèle appris : il ne capte que le vocabulaire commun
 entre la question et le texte. Il sert au mode hors-ligne et aux tests, et
-de point de comparaison « plancher » dans le banc d'essai.
+de point de comparaison « plancher » face aux modèles appris.
 """
 
 from __future__ import annotations

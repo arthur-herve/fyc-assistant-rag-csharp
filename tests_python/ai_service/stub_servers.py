@@ -1,7 +1,7 @@
-"""Faux serveurs Ollama et « compatible OpenAI » : vérifient le format des requêtes.
+"""Faux serveurs Ollama et « compatible OpenAI », qui enregistrent les requêtes pour en vérifier le format.
 
-Une route renvoie (statut, objet JSON), ou des octets bruts : une réponse HTTP coupée en plein
-corps, ou qui n'est pas du HTTP du tout. silent_after : un moteur qui se tait au milieu de sa réponse."""
+Une route renvoie (statut, objet JSON), ou des octets bruts pour simuler une réponse HTTP coupée en plein
+corps, ou qui n'est pas du HTTP du tout. silent_after imite un moteur qui se tait au milieu de sa réponse."""
 
 from __future__ import annotations
 
@@ -45,8 +45,8 @@ class StubServer:
 
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
-        # Arrêt vérifié toutes les 50 ms (0,5 s par défaut) : chaque test qui monte un faux serveur
-        # attendrait sinon jusqu'à une demi-seconde à la sortie du `with`.
+        # L'arrêt est vérifié toutes les 50 ms au lieu de 0,5 s par défaut. Sinon, chaque test qui monte un
+        # faux serveur attendrait jusqu'à une demi-seconde à la sortie du `with`.
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05},
                                        daemon=True)
 
@@ -61,8 +61,9 @@ class StubServer:
 
 @contextmanager
 def silent_after(start: bytes, cut: bool = False):
-    """Un faux moteur qui lit la requête, envoie `start` (ses en-têtes et un début de corps), puis se tait,
-    connexion ouverte, jusqu'à ce que le client abandonne ; ou coupe la connexion (cut). Renvoie son adresse."""
+    """Faux moteur qui lit la requête, envoie `start`, soit ses en-têtes et un début de corps, puis se tait,
+    connexion ouverte, jusqu'à ce que le client abandonne. Avec `cut`, il coupe plutôt la connexion.
+    Renvoie son adresse."""
     class Silent(BaseHTTPRequestHandler):
         timeout = 10   # au pire, le faux moteur abandonne lui-même
 
