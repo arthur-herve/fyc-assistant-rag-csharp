@@ -5,8 +5,8 @@ la séquence X.Y, et sa correction est marquée par un tag, `corrige/sX.Y`. Les 
 donc dans le fil rouge lui-même, sur la branche de leur séquence.
 
 Leurs énoncés sont dans ce dossier. La section « Corrigé » d'un énoncé n'est pas sur la branche de
-départ : elle arrive avec la correction. L'exemple de S1.3 a son énoncé à côté de son programme. Les
-exercices de S2.1 et de S4.2 partent d'un gabarit rangé dans `docs/`.
+départ : elle arrive avec la correction. L'exemple de S1.3 et le cas pratique de S5.1 ont leur énoncé à
+côté de leur programme. Les exercices de S2.1 et de S4.2 partent d'un gabarit rangé dans `docs/`.
 
 | Séquence | Exercice | Forme | Où l'on travaille | Correction |
 |---|---|---|---|---|
@@ -17,6 +17,7 @@ exercices de S2.1 et de S4.2 partent d'un gabarit rangé dans `docs/`.
 | S3.1 | [Un test déterministe et une évaluation statistique](s3.1-evaluation-statistique/README.md) | tests à écrire, calcul de tolérance | `etape/s3.1` | `corrige/s3.1` |
 | S4.1 | [Ajouter un décorateur de validation](s4.1-decorateur-de-validation/README.md) | code à écrire, tests à récupérer | `etape/s4.1` | `corrige/s4.1` |
 | S4.2 | Le tableau des artefacts | [gabarit](../docs/gabarit-artefacts.md) à remplir | `etape/s4.2` | `corrige/s4.2`, avec `docs/artefacts.md` |
+| S5.1 | [Cas pratique : rendre maintenable une application IA existante](../cas-pratique/README.md) | refonte guidée par une grille | `final`, dans `cas-pratique/` | `final`, avec `cas-pratique/corrige.md` |
 
 S4.2 n'a pas d'énoncé à part : le gabarit `docs/gabarit-artefacts.md` dit ce qu'il faut remplir, et
 `docs/artefacts.md` en est le corrigé.

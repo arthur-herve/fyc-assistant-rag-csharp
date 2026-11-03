@@ -19,7 +19,8 @@ le corpus réduit, et les questions hors corpus le restent dans les deux.
 
 Un seuil de pertinence calibré sur un corpus ne vaut pas forcément pour l'autre. C'est l'effet CACE :
 changer une chose peut tout changer. Ici, la mesure a montré que les seuils tiennent sur les deux
-corpus. C'est le résultat d'une mesure, pas une règle, et le banc d'essai permet de la refaire.
+corpus (`eval/resultats/2026-09-12-reduit-calibration/`). C'est le résultat d'une mesure, pas une
+règle.
 
 CACE veut dire « Changing Anything Changes Everything ». Le principe vient de Sculley et al. (2015),
 « Hidden Technical Debt in Machine Learning Systems ». Hors ligne, `experience cace-decoupage` le montre

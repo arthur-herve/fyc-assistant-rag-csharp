@@ -9,11 +9,11 @@ namespace Assistant.Tests;
 public static class TestPorts
 {
     /// <summary>
-    /// Un HttpListener démarré sur un port libre ; son seul préfixe est http://127.0.0.1:port/. Sonder un port
-    /// libre avec le port 0 puis écouter dessus n'est pas atomique : si un autre processus prend le port entre les
-    /// deux, on réessaie, cinq fois au plus.
+    /// Crée le serveur sur un port libre, puis le démarre. Sonder un port libre avec le port 0 puis écouter
+    /// dessus n'est pas atomique : si un autre processus prend le port entre les deux, on réessaie, cinq fois
+    /// au plus.
     /// </summary>
-    public static HttpListener Listener()
+    public static T StartOnAFreePort<T>(Func<int, T> create, Action<T> start) where T : IDisposable
     {
         for (var attempt = 0; ; attempt++)
         {
@@ -21,17 +21,24 @@ public static class TestPorts
             probe.Start();
             var port = ((IPEndPoint)probe.LocalEndpoint).Port;
             probe.Stop();
-            var listener = new HttpListener();
-            listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+            var server = create(port);
             try
             {
-                listener.Start();
-                return listener;
+                start(server);
+                return server;
             }
             catch (HttpListenerException) when (attempt < 5)
             {
-                listener.Close();
+                server.Dispose();
             }
         }
     }
+
+    /// <summary>Un HttpListener démarré sur un port libre ; son seul préfixe est http://127.0.0.1:port/.</summary>
+    public static HttpListener Listener() => StartOnAFreePort(port =>
+    {
+        var listener = new HttpListener();
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        return listener;
+    }, listener => listener.Start());
 }

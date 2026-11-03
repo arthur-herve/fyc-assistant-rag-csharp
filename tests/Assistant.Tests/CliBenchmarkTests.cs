@@ -156,8 +156,9 @@ public sealed class CliBenchmarkTests : CliTestBase
         // Sans --out, le dossier de sortie est daté à la seconde, sous eval/resultats à la racine du projet : deux
         // commandes lancées dans la même seconde tomberaient sur le même. La deuxième prend donc le suivant, « -2 », et
         // laisse l'autre intact (NewOutDir pour le banc, newOutDir pour les expériences). La commande est lancée depuis
-        // une copie du projet (CopyProject, Launch) pour écrire sous le dossier du test et non dans ce dépôt. Les
-        // dossiers des 60 secondes à venir y sont créés d'avance, comme ceux d'une commande lancée juste avant.
+        // une copie du projet (CopyProject, Launch) pour écrire sous le dossier du test et non dans ce dépôt, dont
+        // BenchmarkTests lit les résultats de référence. Les dossiers des 60 secondes à venir y sont créés d'avance,
+        // comme ceux d'une commande lancée juste avant.
         using var ai = new FakeAiService();
         var root = CopyProject(ai.Url);
         var questions = WriteQuestions();

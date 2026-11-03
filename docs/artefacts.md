@@ -49,6 +49,8 @@ générateur est un détail », avec sa limite : changer de générateur change 
 | Changement | Détecté par | Moment | Réaction |
 |---|---|---|---|
 | Le modèle d'embeddings servi n'est plus celui de l'index | `SearchPassages` (`IndexModelMismatchException`) | à chaque question qui atteint le service (voir le cache plus bas) | erreur : réindexer |
+| Index reconstruit par un autre processus pendant une question | l'index lui-même (`Search(…, indexId)`), puis `SearchPassages` | à chaque question | une nouvelle tentative, puis l'erreur « Reposez la question » (409 en HTTP) |
+| Fichier d'index supprimé | `JsonVectorIndex` | à la question suivante | « aucun index » (409 en HTTP), comme en ligne de commande |
 | Corpus modifié depuis l'indexation | `assistant status` (`CheckStatus`) | à la demande | verdict « à refaire » |
 | Découpage modifié | `status` | à la demande | verdict « à refaire » |
 | Prompt modifié | version et empreinte dans chaque trace, et `snapshot compare` | à chaque réponse, et à la demande | on sait quel prompt a produit quelle réponse |
@@ -60,10 +62,11 @@ modèle entre deux appels. On s'en sert avant une démonstration, un déploiemen
 Il interroge le service IA sans passer par le cache d'embeddings. Un cache est lui-même un artefact
 lié au modèle, et il masquerait un changement du modèle servi.
 
-Ce cache, l'un des décorateurs de la séquence 4.1, dérive de l'index. Il ne sert que l'index courant
-et se vide quand cet index change. Il ne garde que des vecteurs du modèle et de la dimension de
-l'index, et ne met jamais les documents en cache, pour qu'une réindexation reflète le modèle servi au
-moment où elle a lieu.
+Ce cache, l'un des décorateurs de la séquence 4.1, dérive de l'index
+([ADR 0010](adr/0010-cache-et-identite-du-modele.md)). Il ne sert que l'index courant et se vide
+quand cet index change. Il ne garde que des vecteurs du modèle et de la dimension de l'index, et ne
+met jamais les documents en cache, pour qu'une réindexation reflète le modèle servi au moment où
+elle a lieu.
 
 Une question déjà posée peut donc être servie par le cache, avec des vecteurs du modèle de l'index,
 et la réponse reste cohérente. C'est une question nouvelle, ou `status`, qui révèle un changement

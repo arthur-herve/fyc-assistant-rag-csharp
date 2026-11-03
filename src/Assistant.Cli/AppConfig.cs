@@ -1,6 +1,6 @@
 // La configuration de l'application, lue depuis config/app.json avec System.Text.Json et rien d'autre.
 // Elle ne connaît les modèles que par leurs alias. Seuls les seuils de pertinence dépendent du modèle,
-// et c'est voulu. Une erreur de saisie se voit dès le chargement, avec le fichier et la clé.
+// et c'est voulu (ADR 0004). Une erreur de saisie se voit dès le chargement, avec le fichier et la clé.
 // JSON n'a pas de commentaires : une clé qui commence par « _ » en tient lieu, à tous les niveaux du
 // fichier, y compris dans retrieval.min_score, decorators, users et chaque users.<nom>.
 
@@ -239,7 +239,7 @@ public sealed record AppConfig(
 
     /// <summary>
     /// Un seuil est-il configuré pour cet alias ? Configuré ne veut pas dire mesuré : le
-    /// <c>_commentaire</c> de chaque configuration dit lesquels le sont.
+    /// <c>_commentaire</c> de chaque configuration dit lesquels le sont (ADR 0004).
     /// </summary>
     public bool HasThresholdFor(string embeddingModel) => MinScores.ContainsKey(embeddingModel);
 

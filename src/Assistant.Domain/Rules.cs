@@ -19,7 +19,7 @@ public sealed class EmptyQuestionException : DomainException
 /// <summary>
 /// Règle métier n° 1 : le contrôle d'accès est appliqué de façon déterministe AVANT
 /// l'appel au modèle. On ne demande jamais au modèle de « ne pas révéler » un
-/// document : un passage interdit n'entre tout simplement pas dans le prompt.
+/// document : un passage interdit n'entre tout simplement pas dans le prompt (ADR 0006).
 /// </summary>
 public sealed class AccessPolicy
 {
@@ -82,7 +82,7 @@ public sealed record OutputCheck(IReadOnlyList<string> Problems)
 /// longue, dans la mauvaise langue ou qui déverse un raisonnement n'est pas une réponse,
 /// même si elle contient « [1] ». Aucun modèle n'est nommé ici, mais les marqueurs de
 /// raisonnement ont été relevés sur les modèles qu'on a rencontrés, qwen3 en tête. Cette
-/// connaissance du modèle est assumée et testée, mais elle vieillira : il faut la
+/// connaissance du modèle est assumée et testée (ADR 0008), mais elle vieillira : il faut la
 /// revoir quand on change de modèle. Ce qui peut se régler ou se retirer mécaniquement est
 /// traité dans le service IA, qui retire les balises &lt;think&gt; quel que soit le moteur et
 /// règle le budget de réflexion d'Ollama.

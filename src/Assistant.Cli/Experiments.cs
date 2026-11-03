@@ -58,7 +58,7 @@ public sealed class Experiment
 
     /// <summary>
     /// Quand aucun seuil n'est configuré pour cet alias, c'est la valeur `default` qui s'applique. On le signale
-    /// dans la console et dans le rapport, comme le font la ligne de commande et le banc d'essai.
+    /// dans la console et dans le rapport, comme le font la ligne de commande et le banc d'essai (ADR 0004).
     /// </summary>
     public void WarnIfDefaultThreshold(string embeddingModel)
     {
@@ -67,7 +67,7 @@ public sealed class Experiment
             return;
         }
         var message = $"Attention : aucun seuil de pertinence configuré pour « {embeddingModel} » : valeur `default` "
-                      + $"{Config.MinScoreFor(embeddingModel).ToString(CultureInfo.InvariantCulture)} (à calibrer avec le banc d'essai)";
+                      + $"{Config.MinScoreFor(embeddingModel).ToString(CultureInfo.InvariantCulture)} (ADR 0004 : lancer le banc d'essai)";
         Console.Error.WriteLine(message);
         Log($"> {message}");
         Log("");
@@ -399,7 +399,7 @@ public static class Experiments
         exp.Log("## Lecture");
         exp.Log("");
         exp.Log("- Changer de modèle d'embeddings coûte une réindexation complète (voir la durée) : les vecteurs stockés vivent dans l'espace du modèle qui les a produits.");
-        exp.Log("- Le refus est explicite parce que le service IA renvoie l'identifiant concret du modèle et que l'application le compare au manifeste à chaque question. Sans cela, à dimension égale, l'index aurait répondu à côté sans rien signaler.");
+        exp.Log("- Le refus est explicite parce que le service IA renvoie l'identifiant concret du modèle et que l'application le compare au manifeste à chaque question (ADR 0003). Sans cela, à dimension égale, l'index aurait répondu à côté sans rien signaler.");
         exp.Log("- Après réindexation, le générateur n'a pas changé et pourtant les réponses bougent : il ne répond qu'à partir de ce que la recherche lui donne.");
     }
 
@@ -478,8 +478,8 @@ public static class Experiments
         exp.Log("");
         exp.Log("- La version du prompt (déclarée + empreinte du contenu) est dans chaque trace : la dérive est attribuable à cette seule modification.");
         exp.Log("- Ce que le prompt change (forme, longueur, ton) n'est pas ce que le domaine garantit (citations vérifiées, forme validée, droits filtrés). "
-                + "Ce dépôt retient une position : le prompt est construit et versionné dans l'application. "
-                + "La séquence 3.3 pose la question que ce choix laisse ouverte : le prompt est-il une configuration ou de la logique métier ?");
+                + "L'ADR 0005 fait la même distinction. Ce dépôt y retient la position suivante : le prompt est construit et versionné dans l'application. "
+                + "La séquence 3.3 pose la question que l'ADR laisse ouverte : le prompt est-il une configuration ou de la logique métier ?");
         exp.Log("- Avec `extractive` (hors-ligne), 0 % de dérive : ce générateur ignore les consignes. Un modèle qui ignore le prompt produit exactement cette signature.");
     }
 

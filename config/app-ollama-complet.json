@@ -1,5 +1,5 @@
 {
-  "_commentaire": "Configuration des expériences à l'échelle, sur le corpus complet (322 fiches Service-Public). Des modèles, elle ne connaît que les alias et l'adresse du service IA, rien de la façon dont ils sont servis. Seule exception, voulue : un seuil de pertinence par alias d'embeddings, parce que les scores ne se comparent ni d'un modèle à l'autre ni d'un corpus à l'autre. Les seuils de `nomic` et `bge-m3` ont été calibrés sur ce corpus le 11/09/2026, et `assistant benchmark` permet de refaire la mesure. Les autres sont des valeurs de départ.",
+  "_commentaire": "Configuration des expériences à l'échelle, sur le corpus complet (322 fiches Service-Public). Des modèles, elle ne connaît que les alias et l'adresse du service IA, rien de la façon dont ils sont servis. Seule exception, voulue : un seuil de pertinence par alias d'embeddings, parce que les scores ne se comparent ni d'un modèle à l'autre ni d'un corpus à l'autre (ADR 0004). Les seuils de `nomic` et `bge-m3` ont été calibrés sur ce corpus le 11/09/2026 (voir l'erratum de l'ADR 0009), et `assistant benchmark` permet de refaire la mesure. Les autres sont des valeurs de départ.",
   "ai_service": {
     "base_url": "http://127.0.0.1:8100",
     "embedding_model": "bge-m3",

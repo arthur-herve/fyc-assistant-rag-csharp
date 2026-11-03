@@ -89,8 +89,12 @@ public sealed class FakeIndex : IVectorIndex
         Vectors.AddRange(vectors);
     }
 
-    public IReadOnlyList<Passage> Search(double[] vector, int topK, Func<Chunk, bool> predicate)
+    public IReadOnlyList<Passage> Search(double[] vector, int topK, Func<Chunk, bool> predicate, string? indexId = null)
     {
+        if (indexId is not null && _manifest?.IndexId != indexId)
+        {
+            throw new IndexReplacedException();   // le port l'exige : ne jamais chercher ailleurs que dans l'index contrôlé
+        }
         static double Cosine(double[] a, double[] b)
         {
             double na = Math.Sqrt(a.Sum(x => x * x)), nb = Math.Sqrt(b.Sum(x => x * x));

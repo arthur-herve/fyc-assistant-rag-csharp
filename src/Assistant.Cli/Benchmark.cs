@@ -60,9 +60,9 @@ public sealed record BenchmarkRow(
     public const string ErrorStatus = "error";
 
     /// <summary>
-    /// Les colonnes de resultats.csv. L'en-tête et les valeurs viennent de cette seule liste, ils ne peuvent donc
-    /// pas se décaler. Les valeurs sont au format invariant de .NET (True/False, 0.5, 1), et un champ vide veut
-    /// dire « sans objet ».
+    /// Les colonnes de resultats.csv, dans l'ordre des résultats de référence (eval/resultats). L'en-tête et les
+    /// valeurs viennent de cette seule liste, ils ne peuvent donc pas se décaler. Les valeurs sont au format
+    /// invariant de .NET (True/False, 0.5, 1), et un champ vide veut dire « sans objet ».
     /// </summary>
     private static readonly (string Name, Func<BenchmarkRow, string> Value)[] Columns =
     {

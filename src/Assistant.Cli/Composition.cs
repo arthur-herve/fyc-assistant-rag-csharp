@@ -9,12 +9,14 @@ using Assistant.Infrastructure;
 namespace Assistant.Cli;
 
 public sealed record Container(
+    AppConfig Config,
     IndexCorpus IndexCorpus,
     AskQuestion AskQuestion,
     SearchPassages SearchPassages,
     CheckStatus CheckStatus,
     RecordSnapshot RecordSnapshot,
     ISnapshotStore Snapshots,
+    IVectorIndex Index,
     IPromptRepository Prompts,
     AskSettings Settings,
     string EmbeddingModel);
@@ -93,8 +95,8 @@ public static class Composition
             ["max_output_chars"] = config.DecoratorInt("max_output_chars", 1500),
         };
         var recordSnapshot = new RecordSnapshot(askQuestion, snapshots, clock, configuration);
-        return new Container(indexCorpus, askQuestion, searchPassages, checkStatus, recordSnapshot, snapshots,
-                             prompts, settings, embeddingModel);
+        return new Container(config, indexCorpus, askQuestion, searchPassages, checkStatus, recordSnapshot, snapshots,
+                             index, prompts, settings, embeddingModel);
     }
 
     /// <summary>
@@ -104,7 +106,7 @@ public static class Composition
     /// règle métier, est enveloppée par le journal des générations, pour que celui-ci montre aussi
     /// les rejets. Les cas d'usage ne voient que les ports.
     /// <paramref name="currentIndex"/> renvoie le manifeste de l'index courant : le cache
-    /// d'embeddings ne sert que cet index.
+    /// d'embeddings ne sert que cet index (ADR 0010).
     /// </summary>
     public static (IEmbedder, IGenerator) Decorate(IEmbedder embedder, IGenerator generator, AppConfig config, Action<string> log,
                                                    Func<IndexManifest?> currentIndex)

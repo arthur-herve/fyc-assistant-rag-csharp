@@ -13,7 +13,7 @@ public sealed class CliStatusTests : CliTestBase
     [InlineData("option(s) inconnue(s) pour status : -json (acceptées : --config, --embedding-model, --generation-model, --json, --prompt, --verbose, -v)",
                 "status", "-json")]
     [InlineData("option(s) inconnue(s) pour status : --jsn", "status", "--jsn")]   // et non « --jsn attend une valeur »
-    [InlineData("option(s) inconnue(s) pour status : --if-stale, --user", "status", "--if-stale", "--user", "bruno")]
+    [InlineData("option(s) inconnue(s) pour status : --if-stale, --port", "status", "--if-stale", "--port", "8000")]
     public void A_mistyped_abbreviated_or_foreign_option_is_refused_before_any_work(string message, params string[] argv) =>
         AssertRefused(message, argv);
 

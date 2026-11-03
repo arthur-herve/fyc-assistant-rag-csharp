@@ -1,0 +1,351 @@
+// L'API HTTP de l'application. C'est un adaptateur entrant, comme la ligne de commande de Program.
+//
+//     GET  /health
+//     GET  /v1/status                     -> l'index est-il cohérent avec le corpus et le modèle servi ?
+//     POST /v1/index                      -> reconstruit l'index
+//     POST /v1/ask  {"user": "alice", "question": "..."}
+//
+// Toute requête que HttpListener transmet reçoit une réponse JSON, erreurs comprises. Le tableau des statuts et des
+// codes d'erreur est dans le README, section « Servir l'application en HTTP ». Ce que HttpListener refuse lui-même
+// reçoit sa propre page HTML, que le README décrit aussi.
+// L'API ne construit aucun adaptateur : elle reçoit le Container de Composition.Build.
+// Il n'y a pas d'authentification : l'utilisateur est celui que déclare l'appelant (voir docs/installation.md).
+// Seule la bibliothèque de classes sert ici (HttpListener), sans aucun paquet (ADR 0007).
+
+using System.Globalization;
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Assistant.Application;
+using Assistant.Domain;
+
+namespace Assistant.Cli;
+
+/// <summary>Requête illisible, mal formée ou trop volumineuse : la faute est chez l'appelant (400, ou 413).</summary>
+public sealed class InvalidRequestException : Exception
+{
+    public InvalidRequestException(string code, string message, int status = 400) : base(message) => (Code, Status) = (code, status);
+
+    public string Code { get; }
+
+    public int Status { get; }
+}
+
+public sealed class HttpApi : IDisposable
+{
+    private const int MaxBody = 16 * 1024 * 1024;   // au-delà de 16 Mio, le corps est refusé (413)
+    private static readonly Dictionary<string, string> Routes = new()
+    {
+        ["/health"] = "GET", ["/v1/status"] = "GET", ["/v1/index"] = "POST", ["/v1/ask"] = "POST",
+    };
+    private static readonly Dictionary<string, string[]> Allowed = new()   // HEAD permis partout où GET l'est (RFC 9110)
+    {
+        ["GET"] = ["GET", "HEAD"], ["POST"] = ["POST"],
+    };
+
+    private readonly Container _container;
+    private readonly bool _quiet;
+    private readonly Action<string> _log;
+    private readonly HttpListener _listener = new();
+    private Thread? _thread;
+
+    /// <param name="log">Journal des requêtes et des erreurs, sur la sortie d'erreur par défaut.</param>
+    public HttpApi(Container container, string host, int port, bool quiet = false, Action<string>? log = null)
+    {
+        _container = container;
+        _quiet = quiet;
+        _log = log ?? (message => Console.Error.WriteLine($"[application] {message}"));
+        // HttpListener attend un nom d'hôte ou « + ». On accepte aussi 0.0.0.0 et « * » pour dire « toutes les
+        // interfaces ». Ce n'est pas une adresse où se connecter : on annonce alors 127.0.0.1, la machine elle-même.
+        AllInterfaces = host is "0.0.0.0" or "*" or "+";
+        _listener.Prefixes.Add($"http://{(AllInterfaces ? "+" : host)}:{port}/");
+        Url = $"http://{(AllInterfaces ? "127.0.0.1" : host)}:{port}";
+    }
+
+    /// <summary>L'adresse où se connecter : l'hôte demandé, ou 127.0.0.1 pour toutes les interfaces.</summary>
+    public string Url { get; }
+
+    /// <summary>Vrai quand on écoute sur toutes les interfaces (0.0.0.0, « * » ou « + »).</summary>
+    public bool AllInterfaces { get; }
+
+    public void Start()
+    {
+        _listener.Start();
+        _thread = new Thread(Loop) { IsBackground = true, Name = "assistant-http" };
+        _thread.Start();
+    }
+
+    public void Stop()
+    {
+        if (_listener.IsListening)
+        {
+            _listener.Stop();
+        }
+        _thread?.Join(TimeSpan.FromSeconds(2));
+    }
+
+    public void Dispose()
+    {
+        Stop();
+        _listener.Close();
+    }
+
+    private void Loop()
+    {
+        while (_listener.IsListening)
+        {
+            HttpListenerContext context;
+            try
+            {
+                context = _listener.GetContext();
+            }
+            catch (Exception e) when (e is HttpListenerException or ObjectDisposedException or InvalidOperationException)
+            {
+                return;
+            }
+            // Une requête à la fois, car les cas d'usage et le cache d'embeddings ne sont pas faits pour être
+            // partagés entre fils. Une génération longue retarde donc /health : c'est une limite assumée, suffisante
+            // pour le cours.
+            try
+            {
+                Handle(context);
+            }
+            catch (Exception error)
+            {
+                // Une requête ne doit jamais faire tomber le serveur : on journalise l'erreur et on continue.
+                Log($"erreur inattendue : {error}");
+                try { Send(context.Response, context.Request.HttpMethod, 500, Error("internal_error", error.Message)); } catch (Exception) { /* réponse déjà partie */ }
+            }
+        }
+    }
+
+    private void Handle(HttpListenerContext context)
+    {
+        var request = context.Request;
+        var path = request.Url?.AbsolutePath ?? "/";
+        var client = request.RemoteEndPoint?.ToString() ?? "?";   // lu avant l'envoi, qui libère la requête
+        var method = request.HttpMethod;
+        string? allow = null;   // l'en-tête Allow d'un 405
+        int status;
+        JsonObject body;
+        if (request.Headers["Transfer-Encoding"] is not null && request.Headers["Content-Length"] is not null)
+        {
+            // Avec Transfer-Encoding et Content-Length à la fois, la fin du corps est douteuse. Un intermédiaire a pu
+            // suivre le Content-Length, et HttpListener le suit lui-même en HTTP/1.0 : la suite pourrait alors être
+            // prise pour une autre requête (contrebande de requêtes). La RFC 9112 (§ 6.1) exige donc de fermer la
+            // connexion après la réponse, ce que HttpListener ne ferait pas. En HTTP/1.0 sans Content-Length, il
+            // refuse lui-même la requête (411).
+            context.Response.KeepAlive = false;
+        }
+        try
+        {
+            // HttpListener décode « chunked » et refuse lui-même un codage inconnu (501). Sous Windows, http.sys
+            // transmet pourtant « gzip, chunked » comme une requête sans corps : on la refuse ici plutôt que de lire
+            // un corps vide. Sous Linux, le HttpListener géré refuse déjà tout codage autre que chunked seul, avec
+            // une page HTML (501).
+            if (request.Headers["Transfer-Encoding"] is { } coding && !coding.Trim().Equals("chunked", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidRequestException("invalid_request", $"Transfer-Encoding non pris en charge : {coding} (seul chunked l'est)");
+            }
+            if (!Routes.TryGetValue(path, out var allowed))
+            {
+                (status, body) = (404, Error("not_found", path));
+            }
+            else if (!Allowed[allowed].Contains(method))
+            {
+                (status, body, allow) = (405, Error("method_not_allowed", method), string.Join(", ", Allowed[allowed]));
+            }
+            else
+            {
+                // HEAD reçoit les mêmes en-têtes que GET, sans le corps (voir Send).
+                (status, body) = allowed == "GET" ? Get(path) : Post(path, ReadBody(request));
+            }
+        }
+        catch (InvalidRequestException error)
+        {
+            // Seul le corps de la requête est la faute de l'appelant : un index illisible est une erreur 500.
+            (status, body) = (error.Status, Error(error.Code, error.Message));
+        }
+        catch (UnknownUserException error)
+        {
+            (status, body) = (403, Error("unknown_user", error.Message));
+        }
+        catch (DomainException error)
+        {
+            (status, body) = (400, Error("invalid_question", error.Message));
+        }
+        catch (Exception error) when (error is IndexNotBuiltException or IndexModelMismatchException or IndexReplacedException)
+        {
+            (status, body) = (409, Error("index_unusable", error.Message));
+        }
+        catch (AiServiceException error)
+        {
+            (status, body) = (502, Error("ai_service_error", error.Message));
+        }
+        catch (IndexWriteException error)
+        {
+            (status, body) = (500, Error("index_write_failed", error.Message));   // l'index en service reste le précédent
+        }
+        catch (Exception error) when (error is FormatException or AssistantApplicationException or IOException or UnauthorizedAccessException)
+        {
+            // Corpus mal formé ou vide, prompt ou index illisible. CorpusFormatException est une FormatException.
+            (status, body) = (500, Error("unreadable_state", error.Message));
+        }
+        Send(context.Response, method, status, body, allow);
+        Log($"{client} \"{method} {path}\" {status}");
+    }
+
+    private (int, JsonObject) Get(string path)
+    {
+        if (path == "/health")
+        {
+            var manifest = _container.Index.Manifest();
+            return (200, new JsonObject { ["status"] = "ok", ["index"] = manifest is null ? null : Presenter.ManifestToJson(manifest) });
+        }
+        var report = _container.CheckStatus.Execute();   // /v1/status, l'autre route GET
+        return (report.UpToDate ? 200 : report.Unverified ? 503 : 409, Presenter.StatusToJson(report));
+    }
+
+    private (int, JsonObject) Post(string path, JsonObject payload)
+    {
+        if (path == "/v1/index")
+        {
+            return (200, Presenter.ManifestToJson(_container.IndexCorpus.Execute()));
+        }
+        var user = _container.Config.User(TextField(payload, "user"));   // /v1/ask, l'autre route POST
+        var answer = _container.AskQuestion.Execute(user, TextField(payload, "question"));
+        return (200, Presenter.AnswerToJson(answer));
+    }
+
+    private static string TextField(JsonObject payload, string name) =>
+        payload[name] switch
+        {
+            null => "",
+            JsonValue value when value.TryGetValue<string>(out var text) => text,
+            _ => throw new InvalidRequestException("invalid_request", $"le champ « {name} » doit être une chaîne"),
+        };
+
+    private static JsonObject ReadBody(HttpListenerRequest request)
+    {
+        // Plus de 16 Mio annoncés : on refuse sans rien lire. La taille vient de l'en-tête et non de ContentLength64,
+        // car sous Windows, http.sys transmet un Content-Length de 2^63 à 2^64 − 1 comme une requête sans corps
+        // (ContentLength64 vaut 0). Au-delà de 2^64 − 1, HttpListener refuse lui-même la requête (413, en HTML).
+        // Dans un envoi en morceaux, le Content-Length ne compte pas (RFC 9112), même si http.sys le transmet : la
+        // lecture s'arrête dès que la limite est franchie.
+        if (request.Headers["Transfer-Encoding"] is null
+            && ulong.TryParse(request.Headers["Content-Length"], NumberStyles.None, CultureInfo.InvariantCulture, out var announced)
+            && announced > MaxBody)
+        {
+            throw TooLarge();
+        }
+        using var bytes = new MemoryStream();
+        var buffer = new byte[64 * 1024];
+        try
+        {
+            for (int read; (read = request.InputStream.Read(buffer)) > 0;)
+            {
+                bytes.Write(buffer, 0, read);
+                if (bytes.Length > MaxBody)
+                {
+                    throw TooLarge();
+                }
+            }
+        }
+        catch (Exception error) when (error is HttpListenerException or IOException)
+        {
+            // La lecture échoue quand l'envoi s'arrête avant la fin annoncée, quand les morceaux sont mal formés ou
+            // quand la connexion est réinitialisée. On répond 400 plutôt qu'une erreur inattendue (500, avec sa pile
+            // au journal). Sous Windows, http.sys a déjà répondu lui-même (400, en HTML), tout comme le HttpListener
+            // géré de Linux à un envoi en morceaux mal formé : il ne reste que la ligne de la requête au journal.
+            throw new InvalidRequestException("invalid_request", request.Headers["Transfer-Encoding"] is null
+                ? $"corps de requête incomplet : {bytes.Length} octets reçus sur {request.ContentLength64} annoncés (Content-Length)"
+                : "envoi en morceaux mal formé ou interrompu (Transfer-Encoding: chunked)");
+        }
+        string text;
+        try
+        {
+            // UTF-8 strict, comme pour les fichiers, avec le BOM UTF-8 accepté. Tout autre encodage est refusé avec
+            // l'octet fautif, y compris UTF-16 et UTF-32 annoncés par leur BOM.
+            text = TextFiles.DecodeUtf8(bytes.ToArray());
+        }
+        catch (FormatException error)
+        {
+            throw new InvalidRequestException("invalid_json", error.Message);
+        }
+        if (text.Length == 0)   // pas de corps du tout, alors que des espaces seuls ne sont pas du JSON (400)
+        {
+            return new JsonObject();
+        }
+        try
+        {
+            CheckJson(text);
+            return JsonNode.Parse(text) as JsonObject ?? throw new InvalidRequestException("invalid_json", "le corps doit être un objet JSON");
+        }
+        catch (JsonException error)
+        {
+            throw new InvalidRequestException("invalid_json", error.Message);
+        }
+    }
+
+    private static InvalidRequestException TooLarge() =>
+        new("payload_too_large", $"corps de requête trop volumineux : {MaxBody} octets au plus (16 Mio)", 413);
+
+    /// <summary>
+    /// Vérifie que le corps est du JSON strict, avec les mêmes contrôles que pour les fichiers (JsonText). Sans
+    /// cela, une clé en double ne lèverait une ArgumentException qu'au premier accès à l'objet, et un « \ud800 »
+    /// isolé, valide en JSON mais qui n'est pas du texte, lèverait une InvalidOperationException à la lecture du
+    /// champ. Les deux finiraient en erreur 500. Une erreur de syntaxe, NaN compris, reste une JsonException, donc
+    /// un 400 elle aussi.
+    /// </summary>
+    private static void CheckJson(string text)
+    {
+        try
+        {
+            JsonText.Check(text, strings: true);
+        }
+        catch (FormatException error)
+        {
+            throw new InvalidRequestException("invalid_json", error.Message);
+        }
+    }
+
+    private static JsonObject Error(string code, string message) =>
+        new() { ["error"] = new JsonObject { ["code"] = code, ["message"] = message } };
+
+    private static void Send(HttpListenerResponse response, string method, int status, JsonObject body, string? allow = null)
+    {
+        var data = Encoding.UTF8.GetBytes(Presenter.ToJson(body));
+        try
+        {
+            response.StatusCode = status;
+            response.ContentType = "application/json; charset=utf-8";
+            response.ContentLength64 = data.Length;
+            if (allow is not null)
+            {
+                response.Headers["Allow"] = allow;   // obligatoire avec un 405 (RFC 9110)
+            }
+            if (method != "HEAD")   // HEAD n'envoie que les en-têtes : HttpListener refuserait le corps
+            {
+                response.OutputStream.Write(data, 0, data.Length);
+            }
+        }
+        catch (Exception e) when (e is HttpListenerException or IOException or ObjectDisposedException)
+        {
+            // Le client est parti, ou HttpListener a déjà répondu lui-même : sous Linux, il répond 400 à un envoi en
+            // morceaux mal formé, puis fait échouer la lecture du corps. Il n'y a plus rien à faire.
+        }
+        finally
+        {
+            response.Close();
+        }
+    }
+
+    private void Log(string message)
+    {
+        if (!_quiet)
+        {
+            _log(message);
+        }
+    }
+}

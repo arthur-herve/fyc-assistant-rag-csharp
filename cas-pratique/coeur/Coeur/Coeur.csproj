@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Le cœur métier fourni pour le cas pratique. Il ne référence aucun projet et aucun paquet. -->
+</Project>

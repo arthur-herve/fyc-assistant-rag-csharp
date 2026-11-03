@@ -10,7 +10,7 @@ namespace Assistant.Infrastructure;
 
 /// <summary>
 /// Garde en mémoire, dans le processus, les vecteurs des questions déjà posées. La séquence 4.2 en tire
-/// une leçon : un cache d'embeddings dérive de l'index, comme l'index dérive du modèle.
+/// une leçon : un cache d'embeddings dérive de l'index, comme l'index dérive du modèle (ADR 0010).
 /// Ce cache ne sert donc que l'index courant, que lui donne <c>currentIndex</c>. Un nouvel index le vide,
 /// même quand le nom du modèle n'a pas changé, comme avec un moteur qui ne fournit pas d'empreinte. Le cache
 /// ne mélange ainsi jamais deux index.
@@ -20,6 +20,7 @@ namespace Assistant.Infrastructure;
 /// <i>maintenant</i>, pas celui d'une indexation précédente.
 /// Limite assumée : une question déjà posée ne repart pas au service. C'est donc une question nouvelle
 /// qui révèle un changement du modèle servi, ou bien <c>status</c>, qui n'utilise pas ce cache.
+/// Pas de verrou : l'API HTTP de l'application (HttpApi) traite une requête à la fois.
 /// </summary>
 public sealed class CachedEmbedder : IEmbedder
 {

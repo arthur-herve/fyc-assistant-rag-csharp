@@ -7,6 +7,8 @@ __pycache__/
 *.pyc
 data/
 eval/instantanes/
-eval/resultats/
+*.tmp
+# Les rapports du banc et des expériences sont versionnés, les index reconstruits ne le sont pas
+eval/resultats/*/index-*.json
 # Archive de la DILA téléchargée par tools/import_service_public.py --download
 vosdroits-latest.zip

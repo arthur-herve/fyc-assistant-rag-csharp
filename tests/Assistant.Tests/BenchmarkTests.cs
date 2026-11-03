@@ -21,6 +21,15 @@ public class BenchmarkTests
         Assert.Equal("e,g,2,q,False,no_relevant_source,0,3,,,,False,1,,\"a\rb\"", whole.CsvLine());
     }
 
+    [Fact]
+    public void Csv_columns_are_those_of_the_reference_results()
+    {
+        // Mêmes colonnes, dans le même ordre, que les résultats de référence.
+        var references = Directory.GetFiles(Path.Combine(AppConfig.ProjectRoot, "eval", "resultats"), "resultats.csv", SearchOption.AllDirectories);
+        Assert.NotEmpty(references);
+        Assert.All(references, path => Assert.Equal(File.ReadLines(path).First().Split(','), BenchmarkRow.CsvFields));
+    }
+
     /// <summary>Une réponse générée en 900 ms, en une tentative, et deux refus de 2 et 3 ms.</summary>
     private static readonly List<BenchmarkRow> Rows = new()
     {

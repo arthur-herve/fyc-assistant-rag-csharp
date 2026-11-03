@@ -21,6 +21,10 @@ jobs:
         run: dotnet build FycAssistantRag.sln -warnaserror --nologo
       - name: Tests (sans IA, sans réseau) — fil rouge
         run: dotnet test FycAssistantRag.sln --no-build --nologo
+      - name: Cas pratique S5.1 — le cœur fourni passe ses tests
+        run: dotnet test cas-pratique/coeur --nologo
+      - name: Cas pratique S5.1 — la version de départ compile
+        run: dotnet build cas-pratique/depart --nologo
   python:
     name: Python ${{ matrix.python }} (service IA, outil d'import) · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

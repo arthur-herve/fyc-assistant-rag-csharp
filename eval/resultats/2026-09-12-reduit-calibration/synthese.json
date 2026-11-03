@@ -1,0 +1,84 @@
+{
+  "retrieval": [
+    {
+      "embedding": "bge-m3",
+      "model_id": "ollama:bge-m3@790764642607",
+      "dimension": 1024,
+      "chunks": 740,
+      "index_seconds": 19.9,
+      "hit@1": 0.969,
+      "hit@k": 0.969,
+      "top_k": 4,
+      "top1_median_answerable": 0.737,
+      "top1_median_unanswerable": 0.535,
+      "configured_threshold": 0.65,
+      "suggested_threshold": 0.635,
+      "separation_accuracy": 1,
+      "threshold_used": 0.65,
+      "validation": {
+        "questions": 16,
+        "hit@1": 0.923,
+        "kept_answerable": 0.923,
+        "correct_refusals": 1,
+        "threshold": 0.65
+      }
+    },
+    {
+      "embedding": "nomic",
+      "model_id": "ollama:nomic-embed-text@0a109f422b47",
+      "dimension": 768,
+      "chunks": 740,
+      "index_seconds": 8.5,
+      "hit@1": 0.875,
+      "hit@k": 0.938,
+      "top_k": 4,
+      "top1_median_answerable": 0.801,
+      "top1_median_unanswerable": 0.697,
+      "configured_threshold": 0.73,
+      "suggested_threshold": 0.708,
+      "separation_accuracy": 0.905,
+      "threshold_used": 0.73,
+      "validation": {
+        "questions": 16,
+        "hit@1": 0.846,
+        "kept_answerable": 1,
+        "correct_refusals": 0.667,
+        "threshold": 0.73
+      }
+    }
+  ],
+  "generation": [
+    {
+      "embedding": "bge-m3",
+      "generation": "llama3-2-3b",
+      "calls": 42,
+      "errors": 0,
+      "answer_rate": 0.969,
+      "source_hit_rate": 1,
+      "keyword_coverage": 0.871,
+      "unsourced_rate": 0.024,
+      "correct_refusal_rate": 1,
+      "forbidden_leaks": 0,
+      "stability": null,
+      "mean_attempts": 1.094,
+      "latency_median_ms": 925,
+      "latency_p90_ms": 1763
+    },
+    {
+      "embedding": "nomic",
+      "generation": "llama3-2-3b",
+      "calls": 42,
+      "errors": 0,
+      "answer_rate": 0.906,
+      "source_hit_rate": 0.931,
+      "keyword_coverage": 0.862,
+      "unsourced_rate": 0.071,
+      "correct_refusal_rate": 0.7,
+      "forbidden_leaks": 0,
+      "stability": null,
+      "mean_attempts": 1.118,
+      "latency_median_ms": 1124,
+      "latency_p90_ms": 1720
+    }
+  ]
+}

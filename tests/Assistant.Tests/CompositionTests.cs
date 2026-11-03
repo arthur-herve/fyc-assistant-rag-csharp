@@ -1,5 +1,5 @@
 // La racine de composition, montée avec la configuration livrée, cache d'embeddings compris, contre un faux service IA
-// dont on change ce qu'il sert en cours de route (séquence 4.2).
+// dont on change ce qu'il sert en cours de route (ADR 0003 et 0010, séquence 4.2).
 
 using Assistant.Application;
 using Assistant.Cli;
@@ -8,8 +8,8 @@ using Xunit;
 namespace Assistant.Tests;
 
 /// <summary>
-/// Le cas d'un processus qui dure plus longtemps qu'une commande : ce qui est servi derrière l'alias change, le modèle
-/// ou seulement ses vecteurs, puis on réindexe. Le cache d'embeddings ne doit pas masquer le changement.
+/// Le cas d'un processus long comme <c>serve</c> : ce qui est servi derrière l'alias change, le modèle ou seulement
+/// ses vecteurs, puis on réindexe. Le cache d'embeddings ne doit pas masquer le changement.
 /// </summary>
 public sealed class CompositionTests : IDisposable
 {

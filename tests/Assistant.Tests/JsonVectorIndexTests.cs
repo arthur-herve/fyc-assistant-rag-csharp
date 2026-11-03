@@ -45,7 +45,7 @@ public class JsonVectorIndexTests
     [Fact]
     public void Forbidden_passages_take_no_place_in_the_top_k()
     {
-        // Pré-filtrage : un passage interdit mieux classé ne masque pas le passage autorisé.
+        // Pré-filtrage (ADR 0006) : un passage interdit mieux classé ne masque pas le passage autorisé.
         var index = new InMemoryVectorIndex();
         index.Replace(Manifest2, TwoChunks, new[] { new[] { 1.0, 0.0 }, new[] { 0.0, 1.0 } });
         var hits = index.Search(new[] { 0.0, 1.0 }, 1, c => !c.AllowedGroups.Contains("rh"));
@@ -76,6 +76,50 @@ public class JsonVectorIndexTests
             var index = new JsonVectorIndex(path);
             Assert.Throws<IndexUnreadableException>(() => index.Manifest());
             Assert.Throws<IndexUnreadableException>(() => index.Manifest());   // pas « aucun index » la deuxième fois
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void An_index_rebuilt_by_another_process_is_seen()
+    {
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(dir.FullName, "index.json");
+            new JsonVectorIndex(path).Replace(Manifest2, TwoChunks, new[] { new[] { 1.0, 0.0 }, new[] { 0.0, 1.0 } });
+            var server = new JsonVectorIndex(path);   // le processus `serve`
+            Assert.Equal("id", server.Manifest()!.IndexId);
+            new JsonVectorIndex(path).Replace(Manifest2 with { IndexId = "id-2", ChunkCount = 1 }, TwoChunks[..1], new[] { new[] { 1.0, 0.0 } });
+            File.SetLastWriteTimeUtc(path, File.GetLastWriteTimeUtc(path).AddSeconds(1));   // une seconde plus tard
+            Assert.Equal("id-2", server.Manifest()!.IndexId);
+            Assert.Single(server.Search(new[] { 1.0, 0.0 }, 5, _ => true));
+        }
+        finally
+        {
+            dir.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void An_index_rebuilt_with_the_same_size_and_date_is_seen()
+    {
+        // Même taille, même date : seule la reconstruction (created_at) distingue les deux fichiers.
+        var dir = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(dir.FullName, "index.json");
+            var vectors = new[] { new[] { 1.0, 0.0 }, new[] { 0.0, 1.0 } };
+            new JsonVectorIndex(path).Replace(Manifest2 with { CreatedAt = "t1" }, TwoChunks, vectors);
+            var server = new JsonVectorIndex(path);   // le processus `serve`
+            Assert.Equal("t1", server.Manifest()!.CreatedAt);
+            var date = File.GetLastWriteTimeUtc(path);
+            new JsonVectorIndex(path).Replace(Manifest2 with { CreatedAt = "t2" }, TwoChunks, vectors);
+            File.SetLastWriteTimeUtc(path, date);
+            Assert.Equal("t2", server.Manifest()!.CreatedAt);
         }
         finally
         {

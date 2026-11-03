@@ -55,7 +55,7 @@ public class JsonTextTests
     [Fact]
     public void A_string_that_is_not_text_is_refused_only_when_asked()
     {
-        // Ce contrôle est demandé par la configuration, l'index, les instantanés, les jeux de questions et
+        // Ce contrôle est demandé par la configuration, l'index, les instantanés, les jeux de questions, l'API HTTP et
         // GET /v1/models. Les réponses du service IA et les prompts s'en passent, ils ont leurs propres contrôles.
         const string json = "{\"a\": \"x\\ud800\"}";
         Assert.NotNull(JsonText.Parse(json));

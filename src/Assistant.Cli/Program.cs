@@ -1,10 +1,11 @@
-// La ligne de commande de l'application. C'est un adaptateur entrant.
+// La ligne de commande de l'application. C'est un adaptateur entrant, comme l'API HTTP de HttpApi.
 //
 //     dotnet run --project src/Assistant.Cli -- index [--if-stale]
 //     dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail ?" --user alice -v
 //     dotnet run --project src/Assistant.Cli -- status
 //     dotnet run --project src/Assistant.Cli -- snapshot record reference --questions eval/questions.json
 //     dotnet run --project src/Assistant.Cli -- snapshot compare reference candidat
+//     dotnet run --project src/Assistant.Cli -- serve            (API HTTP de l'application, port 8000)
 //
 // Le service IA (python -m ai_service) doit tourner : c'est un autre programme, dans un autre langage.
 
@@ -27,6 +28,7 @@ public static class Program
           snapshot record <nom>          enregistrer un instantané   (--questions eval/questions.json, --limit N, au moins 1)
           snapshot compare <a> <b>       comparer deux instantanés
           snapshot list                  lister les instantanés
+          serve                          API HTTP de l'application   (--host 127.0.0.1, --port 8000, --quiet) : /health, /v1/status, /v1/index, /v1/ask
           benchmark                      mesurer recherche et génération   (--embedding a b, --generation x y — défaut : la configuration ; --questions, --validate-with, --runs, --limit, --min-score config|auto|<n de [-1, 1]>, --max-chars, --overlap-chars, --seed, --out)
           experience <nom>               une expérience reproductible   (--questions, --limit, --out, et selon l'expérience :)
                                            cace-decoupage (--max-chars, --overlap-chars) · changement-embeddings --other <alias>
@@ -64,6 +66,11 @@ public static class Program
             Console.Error.WriteLine($"Erreur : service IA — {error.Message}");
             return 1;
         }
+        catch (Exception error) when (error is System.Net.HttpListenerException or System.Net.Sockets.SocketException)
+        {
+            Console.Error.WriteLine($"Erreur : impossible d'écouter (port déjà pris, adresse inconnue ou non autorisée) — {error.Message}");
+            return 1;
+        }
     }
 
     private static int Run(string[] argv)
@@ -94,6 +101,10 @@ public static class Program
         // trop, et avant toute autre vérification de valeur.
         args.EnsureIntegers();
         command.EnsureArguments(args.Positional);
+        if (args.Int("--port") is { } requested && requested is < 1 or > 65535)
+        {
+            throw new ArgumentException($"l'option --port attend un port entre 1 et 65535, pas « {requested} »");
+        }
         var verbose = args.Has("-v") || args.Has("--verbose");
         Action<string> log = verbose || Environment.GetEnvironmentVariable("ASSISTANT_LOG") is "INFO" or "info"
             ? message => Console.Error.WriteLine($"[assistant] {message}")
@@ -105,7 +116,7 @@ public static class Program
         if (command.Searches && !config.HasThresholdFor(container.EmbeddingModel))
         {
             Console.Error.WriteLine($"Attention : aucun seuil de pertinence configuré pour « {container.EmbeddingModel} » : valeur `default` "
-                                    + $"{config.MinScoreFor(container.EmbeddingModel).ToString(System.Globalization.CultureInfo.InvariantCulture)} (à calibrer avec le banc d'essai)");
+                                    + $"{config.MinScoreFor(container.EmbeddingModel).ToString(System.Globalization.CultureInfo.InvariantCulture)} (ADR 0004 : lancer le banc d'essai)");
         }
         switch (args.Positional[0])
         {
@@ -156,6 +167,13 @@ public static class Program
                 return Snapshot(args, config, container);
             case "benchmark":
                 return RunBenchmark(args, config);
+            case "serve":
+            {
+                using var api = new HttpApi(container, args.Value("--host") ?? "127.0.0.1", args.Int("--port") ?? 8000, quiet: args.Has("--quiet"));
+                using var stop = new ManualResetEventSlim(false);
+                Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Set(); };
+                return Serve(api, config.AiBaseUrl, stop.WaitHandle);
+            }
             default:   // experience <nom> (Find ne connaît pas d'autre commande)
             {
                 var common = new Overrides(args.NonEmpty("--embedding-model"), args.NonEmpty("--generation-model"),
@@ -166,6 +184,18 @@ public static class Program
                 return Experiments.Run(args.Positional[1], args, config, common, configPath, log);
             }
         }
+    }
+
+    /// <summary>Démarre l'API, annonce l'adresse où se connecter, puis attend l'arrêt.</summary>
+    internal static int Serve(HttpApi api, string aiBaseUrl, WaitHandle stop)
+    {
+        api.Start();
+        var listening = api.AllInterfaces ? ", à l'écoute sur toutes les interfaces" : "";
+        Console.WriteLine($"Application sur {api.Url}{listening} (service IA : {aiBaseUrl}) — Ctrl+C pour arrêter");
+        stop.WaitOne();
+        api.Stop();
+        Console.WriteLine("\nArrêt de l'application.");
+        return 0;
     }
 
     /// <summary>Les arguments qu'une commande attend après son nom, et le message s'il en manque.</summary>
@@ -209,6 +239,7 @@ public static class Program
             Searches: true),
         new("snapshot compare", Common, new(2, "snapshot compare attend deux noms")),
         new("snapshot list", Common),
+        new("serve", Common.Concat(new[] { "--host", "--port", "--quiet" }).ToArray(), Searches: true),
         // Le banc construit ses propres compositions, sans journal : -v n'y changerait rien.
         new("benchmark", new[] { "--config", "--embedding-model", "--generation-model", "--prompt", "--embedding", "--generation",
                                  "--questions", "--validate-with", "--runs", "--limit", "--min-score", "--max-chars",
@@ -311,10 +342,10 @@ public static class Program
 /// <summary>Analyse minimale des arguments : positionnels, drapeaux, options à une ou plusieurs valeurs.</summary>
 public sealed class Args
 {
-    private static readonly HashSet<string> Flags = new() { "-v", "--verbose", "--json", "--help", "-h", "--if-stale" };
+    private static readonly HashSet<string> Flags = new() { "-v", "--verbose", "--json", "--help", "-h", "--if-stale", "--quiet" };
     private static readonly HashSet<string> MultiValued = new() { "--embedding", "--generation" };
     // Les options entières de toutes les commandes : voir EnsureIntegers.
-    private static readonly HashSet<string> Integers = new() { "--limit", "--runs", "--max-chars", "--overlap-chars", "--seed" };
+    private static readonly HashSet<string> Integers = new() { "--port", "--limit", "--runs", "--max-chars", "--overlap-chars", "--seed" };
     // « -1 » ou « -0.5 » est une valeur (un nombre négatif), pas une option.
     private static readonly Regex NegativeNumber = new(@"^-([0-9]+|[0-9]*\.[0-9]+)\z", RegexOptions.Compiled);
     private readonly string[] _argv;

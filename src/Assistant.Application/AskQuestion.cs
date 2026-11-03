@@ -14,7 +14,7 @@ using Assistant.Domain;
 namespace Assistant.Application;
 
 public sealed record AskSettings(
-    // Attention : ce seuil n'a de sens que pour UN modèle d'embeddings et UN corpus donnés.
+    // Attention : ce seuil n'a de sens que pour UN modèle d'embeddings et UN corpus donnés (ADR 0004).
     // La racine de composition passe en général celui que la configuration donne pour l'alias utilisé.
     // Si l'alias n'en a pas, elle prend `default`, et la ligne de commande, le banc d'essai et les
     // expériences le signalent.
@@ -44,8 +44,8 @@ public sealed class AskQuestion
 
     /// <summary>
     /// Numérote les passages pour que le modèle puisse les citer. Quand le découpage a déjà mis le titre dans
-    /// le morceau, il apparaît deux fois. On garde cette redondance de quelques mots : la retirer changerait les
-    /// prompts, et donc les mesures déjà faites.
+    /// le morceau, il apparaît deux fois. On garde cette redondance de quelques mots pour que les prompts restent
+    /// ceux des mesures de référence (eval/resultats).
     /// </summary>
     public static string FormatPassages(IReadOnlyList<Passage> passages)
     {

@@ -21,7 +21,7 @@ public class PromptRepositoryTests
     [Fact]
     public void Prompt_versions_of_the_repository_keep_their_value()
     {
-        // Ces valeurs sont figées : les réponses et les instantanés les tracent.
+        // Ces valeurs sont figées : les réponses et les instantanés les tracent, et eval/resultats/README.md les cite.
         // La formule de l'empreinte ne doit donc pas changer d'une version du code à l'autre.
         var prompts = new FilePromptRepository(Composition.PromptsDir);
         Assert.Equal("v1+085b70e7", prompts.Get("answer").Version);

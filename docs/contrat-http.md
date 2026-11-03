@@ -5,12 +5,13 @@ Le service IA ne connaît rien au métier. Il reçoit des textes et renvoie des 
 l'application s'aperçoit qu'un index n'est plus compatible avec le modèle.
 
 Ce contrat est la seule chose que partagent l'application C# et le service IA écrit en Python.
-C'est lui, et non le langage, qui fait la frontière entre les deux. Il en est à sa
-version 1, figée le 11/09/2026.
+C'est lui, et non le langage, qui fait la frontière entre les deux (séquence 5.3,
+[ADR 0009](adr/0009-application-csharp-modeles-python.md)). Il en est à sa version 1, figée le
+11/09/2026.
 
 Le service expose quatre routes. Deux servent à vérifier qu'il répond et à savoir ce qu'il sert,
 les deux autres font le travail : l'une produit des vecteurs, l'autre du texte. L'index, lui, reste
-du côté de l'application.
+du côté de l'application ([ADR 0002](adr/0002-index-cote-application.md)).
 
 Une exploration antérieure de l'équipe faisait l'inverse : l'index vivait dans le service, avec les
 routes `/index/reset`, `/index/upsert` et `/index/search`, cette dernière filtrant par droits
@@ -70,7 +71,8 @@ Réponse :
 Le champ `model` donne l'identifiant concret du modèle, pas seulement son alias. Quand le moteur
 fournit une empreinte du modèle, elle en fait partie. C'est le cas avec Ollama : le service relit
 alors cette empreinte avant et après chaque inférence. Quand l'alias déclare des préfixes, leur
-propre empreinte s'ajoute à la fin (`+prefixes-…`), parce qu'ils changent les vecteurs.
+propre empreinte s'ajoute à la fin (`+prefixes-…`), parce qu'ils changent les vecteurs
+([ADR 0010](adr/0010-cache-et-identite-du-modele.md)).
 
 Concrètement, si l'équipe qui exploite le service met à jour le modèle derrière le même alias,
 `model` change. L'application refuse alors de chercher dans l'ancien index avec des vecteurs du
@@ -100,7 +102,8 @@ Réponse :
 ```
 
 Le prompt est construit côté application, parce qu'il dépend du métier : numérotation des passages,
-obligation de citer. Le service se contente de le transmettre au modèle.
+obligation de citer ([ADR 0005](adr/0005-prompt-dans-l-application.md)). Le service se contente de
+le transmettre au modèle.
 
 `max_tokens` fixe le budget de la réponse. Un modèle à réflexion, déclaré avec `think = true` dans
 `config/ai_service.toml`, reçoit en plus un budget de réflexion (`thinking_tokens`) que

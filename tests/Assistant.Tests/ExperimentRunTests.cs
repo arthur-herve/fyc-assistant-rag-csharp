@@ -74,12 +74,12 @@ public sealed class ExperimentRunTests : EvalRunTestBase
     public void An_experiment_says_when_the_default_threshold_applies()
     {
         // Ni le modèle principal ni --other n'ont de seuil configuré : `default` s'applique, et l'expérience le dit en
-        // console et dans le rapport.
+        // console et dans le rapport (ADR 0004).
         var outDir = Path.Combine(_dir, "exp-embeddings");
         var (code, _, errors) = Captured(() => Experiment("changement-embeddings", "--other", "hashing-512", "--out", outDir));
         Assert.Equal(0, code);
         var warnings = new[] { "hashing", "hashing-512" }
-            .Select(alias => $"Attention : aucun seuil de pertinence configuré pour « {alias} » : valeur `default` 0.15 (à calibrer avec le banc d'essai)")
+            .Select(alias => $"Attention : aucun seuil de pertinence configuré pour « {alias} » : valeur `default` 0.15 (ADR 0004 : lancer le banc d'essai)")
             .ToArray();
         Assert.Equal(warnings, errors.Split('\n', StringSplitOptions.RemoveEmptyEntries));
         var report = File.ReadAllText(Path.Combine(outDir, "rapport.md"));

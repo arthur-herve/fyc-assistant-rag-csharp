@@ -2,7 +2,8 @@
 
 Le projet a besoin de deux environnements : .NET 8 pour l'application et Python 3.11 ou plus récent
 pour le service IA. C'est un choix voulu. Les modèles vivent dans un autre programme, écrit dans un
-autre langage, et l'application ne leur parle que par HTTP.
+autre langage, et l'application ne leur parle que par HTTP
+([ADR 0009](adr/0009-application-csharp-modeles-python.md)).
 
 Comptez une vingtaine de minutes pour tout ce qui fonctionne hors-ligne. Ollama, qui fait tourner de
 vrais modèles sur votre machine, est facultatif : le mode hors-ligne suffit pour suivre tout le cours.
@@ -51,19 +52,20 @@ bibliothèque standard.
 | Linux | `sudo apt install git` |
 
 Récupérez le dépôt. Le clone vous place sur `main`, le point de départ du cours, où l'application
-n'est pas encore écrite. Pour tester l'application, passez sur la branche de votre séquence, par
-exemple `etape/s4.2`. Lancez ensuite les tests des deux programmes :
+n'est pas encore écrite. Pour tester l'application, passez sur `final`, la branche de la version
+complète. Lancez ensuite les tests des deux programmes :
 
 ```bash
 git clone https://github.com/arthur-herve/fyc-assistant-rag-csharp.git
 cd fyc-assistant-rag-csharp
-git switch etape/s4.2
+git switch final
 dotnet test --nologo                                   # l'application
 python -m unittest discover -s tests_python -t .       # le service IA et l'outil d'import du corpus
 ```
 
 Les deux commandes doivent se terminer sans échec. La première fois, la commande compile tout : elle
-est plus lente, c'est normal.
+est plus lente, c'est normal. Sous macOS et Linux, un test propre à Windows est ignoré : c'est
+normal aussi.
 
 Si tout passe, les deux programmes sont prêts.
 
@@ -164,19 +166,34 @@ Sur la machine de calcul, faites écouter le service IA sur toutes les interface
 de `config/ai_service.toml`. Il annonce alors « Service IA sur http://127.0.0.1:8100, à l'écoute sur
 toutes les interfaces ».
 
-Sur le poste de l'application, la variable d'environnement `AI_SERVICE_URL` remplace l'adresse `base_url`
+Sur le serveur applicatif, la variable d'environnement `AI_SERVICE_URL` remplace l'adresse `base_url`
 de `config/app.json`. Gardez quand même `base_url` dans le fichier : l'application la vérifie toujours.
 
 ```bash
-AI_SERVICE_URL=http://machine-gpu:8100 dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?"
+AI_SERVICE_URL=http://machine-gpu:8100 dotnet run --project src/Assistant.Cli -- serve --host 0.0.0.0
 ```
 
-L'annonce du service affiche 127.0.0.1 et non 0.0.0.0, et c'est voulu. 0.0.0.0 veut dire « toutes les
+L'application répond alors sur `http://<serveur>:8000`, avec les routes `/health`, `/v1/ask`,
+`/v1/status` et `/v1/index`. Au démarrage, `serve` annonce « Application sur http://127.0.0.1:8000,
+à l'écoute sur toutes les interfaces ».
+
+Les deux annonces affichent 127.0.0.1 et non 0.0.0.0, et c'est voulu. 0.0.0.0 veut dire « toutes les
 interfaces » : ce n'est pas une adresse où se connecter. 127.0.0.1 en est une, mais seulement depuis
 la machine elle-même. Depuis une autre machine, on utilise le nom ou l'adresse du serveur.
 
-**Attention : le service IA n'a pas d'authentification.** Il est prévu pour un réseau interne. En
-production, placez-le derrière un proxy authentifié.
+**Attention : ni le service IA ni l'application n'ont d'authentification.** Ils sont prévus pour un
+réseau interne. L'application croit sur parole l'utilisateur que déclare l'appelant
+(`"user": "alice"`). Les droits d'accès ne protègent donc vraiment que si un proxy authentifié fixe
+ce champ lui-même. En production, placez les deux programmes derrière un tel proxy.
+
+Sous Windows, `HttpListener` peut demander un droit d'écoute pour `--host 0.0.0.0`. Accordez-le une
+fois, dans une invite de commandes (cmd) ouverte en administrateur :
+
+```
+netsh http add urlacl url=http://+:8000/ user=%USERNAME%
+```
+
+Avec `127.0.0.1`, ce droit n'est pas nécessaire.
 
 ## Ce qui peut coincer
 
@@ -197,10 +214,10 @@ production, placez-le derrière un proxy authentifié.
 
 ## Machine de référence du cours
 
-Les durées de cette page ont été mesurées sur une machine sous Windows 11 : processeur AMD
-Ryzen 7 5800H, 15,4 Go de RAM, carte graphique NVIDIA RTX 3070 Laptop de 8 Go, avec Ollama 0.34,
-le SDK .NET 8.0.425 et Python 3.13. Sur cette machine, l'installation du SDK .NET 8 par `winget` a
-pris 2 minutes, et Python était déjà présent.
+Les durées de cette page et les rapports de `eval/resultats/` ont été mesurés sur une machine sous
+Windows 11 : processeur AMD Ryzen 7 5800H, 15,4 Go de RAM, carte graphique NVIDIA RTX 3070 Laptop de
+8 Go, avec Ollama 0.34, le SDK .NET 8.0.425 et Python 3.13. Sur cette machine, l'installation du SDK
+.NET 8 par `winget` a pris 2 minutes, et Python était déjà présent.
 
 Les temps sans carte graphique n'ont pas encore été mesurés. Le cours reste suivable sans : le mode
 hors-ligne couvre tout ce qui ne demande pas un vrai modèle.

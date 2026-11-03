@@ -4,6 +4,8 @@ namespace Assistant.Application;
 public class AssistantApplicationException : Exception
 {
     public AssistantApplicationException(string message) : base(message) { }
+
+    public AssistantApplicationException(string message, Exception? inner) : base(message, inner) { }
 }
 
 public sealed class IndexNotBuiltException : AssistantApplicationException
@@ -18,9 +20,30 @@ public sealed class EmptyCorpusException : AssistantApplicationException
 }
 
 /// <summary>
+/// Un autre processus a reconstruit l'index entre le contrôle du modèle et la recherche. Le port
+/// <see cref="IVectorIndex"/> prévoit cette exception : plutôt que de chercher dans un index qui n'a pas été
+/// contrôlé, la recherche la lève. <see cref="SearchPassages"/> recommence une fois, puis la laisse remonter.
+/// </summary>
+public sealed class IndexReplacedException : AssistantApplicationException
+{
+    public IndexReplacedException()
+        : base("L'index a été reconstruit pendant la recherche. Reposez la question.") { }
+}
+
+/// <summary>
+/// L'index n'a pas pu être écrit. Le port <see cref="IVectorIndex"/> prévoit cette exception et garantit
+/// que l'index en service reste alors le précédent, en mémoire comme sur le disque.
+/// </summary>
+public sealed class IndexWriteException : AssistantApplicationException
+{
+    public IndexWriteException(string location, string detail, Exception? inner = null)
+        : base($"écriture impossible de l'index ({location}) : {detail}", inner) { }
+}
+
+/// <summary>
 /// Le modèle d'embeddings a changé depuis la construction de l'index. C'est le cœur
 /// de la problématique : l'index est une donnée persistée qui dépend du modèle.
-/// On ne peut pas « juste changer une ligne de config ».
+/// On ne peut pas « juste changer une ligne de config » (ADR 0003).
 /// </summary>
 public sealed class IndexModelMismatchException : AssistantApplicationException
 {

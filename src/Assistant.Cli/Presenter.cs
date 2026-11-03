@@ -70,7 +70,7 @@ public static class Presenter
     }
 
     /// <summary>
-    /// Le JSON affiché par index, ask --json et status --json.
+    /// Le JSON affiché par index, ask --json et status --json, qui sert aussi de corps aux réponses de l'API HTTP.
     /// Il est indenté et garde les accents tels quels.
     /// </summary>
     public static string ToJson(JsonNode node) => node.ToJsonString(Json);

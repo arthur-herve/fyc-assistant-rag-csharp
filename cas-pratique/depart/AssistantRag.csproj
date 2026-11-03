@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Version de départ du cas pratique : un programme qui marche, écrit en un après-midi.
+       Le projet fixe lui-même toutes ses options, si bien qu'il compile de la même façon dans le
+       dépôt et une fois copié ailleurs. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>assistant_rag</AssemblyName>
+    <RootNamespace>AssistantRag</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Nullable>disable</Nullable>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>
