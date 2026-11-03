@@ -5,6 +5,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using Assistant.Application;
+using Assistant.Domain;
 using Assistant.Infrastructure;
 using Xunit;
 
@@ -15,6 +16,8 @@ public class AiServiceResponseTests
     private const string Missing = "Réponse du service IA incomplète, champs manquants : ";
     private const string Incoherent = "Réponse du service IA incohérente : ";
     private const string NotVectors = Incoherent + "« vectors » doit être une liste de listes de nombres";
+
+    private static readonly GenerationRequest Request = new("s", "p", 0.2, 100);
 
     private static JsonTransport Answering(string json) => (_, _) =>
     {
@@ -54,6 +57,16 @@ public class AiServiceResponseTests
         { """{"model": "m", "dimension": 2, "vectors": [[0.1, 0.2], [0.3, 0.4]]}""", Incoherent + "1 vecteurs de 2 dimensions attendus, reçu 2 de [2] dimensions" },
     };
 
+    public static TheoryData<string, string> MalformedGenerations => new()
+    {
+        { "null", Missing + "[model, text]" },
+        { """{"text": "Deux jours [1]."}""", Missing + "[model]" },
+        { """{"model": "m", "text": null}""", Incoherent + "« text » doit être un texte" },
+        { """{"model": "m", "text": 5}""", Incoherent + "« text » doit être un texte" },
+        { """{"model": "m", "text": "\udc00 ok"}""", Incoherent + "« text » doit être un texte" },
+        { """{"model": ["m"], "text": "Deux jours [1]."}""", Incoherent + "« model » doit être un texte" },
+    };
+
     private const string Problem = """{"error": {"code": "backend_error", "message": "modele absent", "retryable": false}}""";
 
     /// <summary>
@@ -90,6 +103,23 @@ public class AiServiceResponseTests
         var error = Assert.Throws<AiServiceException>(() => new HttpEmbedder("http://ia", "m", transport: Answering(json)).EmbedQuery("x"));
         Assert.Equal(message, error.Message);
         Assert.False(error.Transient);   // réessayer ne changerait rien
+    }
+
+    [Theory]
+    [MemberData(nameof(MalformedGenerations))]
+    public void A_generation_response_of_another_shape_is_a_non_transient_error_not_a_crash(string json, string message)
+    {
+        var error = Assert.Throws<AiServiceException>(() => new HttpGenerator("http://ia", "m", transport: Answering(json)).Generate(Request));
+        Assert.Equal(message, error.Message);
+        Assert.False(error.Transient);
+    }
+
+    [Fact]
+    public void A_character_outside_the_basic_plane_is_text()
+    {
+        // « \ud83d\ude00 » est une paire complète, un emoji : c'est bien du texte.
+        var text = new HttpGenerator("http://ia", "m", transport: Answering("""{"model": "m", "text": "Bravo \ud83d\ude00"}""")).Generate(Request);
+        Assert.Equal("Bravo " + char.ConvertFromUtf32(0x1F600), text);
     }
 
     [Theory]
@@ -190,6 +220,31 @@ public class AiServiceResponseTests
             using var sent = JsonDocument.Parse(body);
             Assert.Equal(texts, sent.RootElement.GetProperty("inputs").EnumerateArray().Select(t => t.GetString()));
         }
+    }
+
+    /// <summary>
+    /// Le passage, la question et la réponse sont bordés d'un blanc, que Trim() retire, puis de U+001C, qu'il
+    /// garde parce que char.IsWhiteSpace ne le compte pas comme un blanc. Le test regarde ce que le cas d'usage
+    /// envoie vraiment au service IA, et ce qui reste dans la réponse.
+    /// </summary>
+    [Fact]
+    public void Separators_at_the_edges_reach_the_ai_service_and_stay_in_the_answer()
+    {
+        var index = new FakeIndex();
+        index.Replace(new[] { new Chunk("a#0", "a", "A", "\u2028\u001cDeux jours par semaine.\u001c ", 0, new HashSet<string> { "tous" }) },
+            new[] { new[] { 1.0 } });
+        using var embedder = new FixedAnswerService(Encoding.UTF8.GetBytes("""{"model": "m", "dimension": 1, "vectors": [[1.0]]}"""));
+        using var generator = new FixedAnswerService(Encoding.UTF8.GetBytes("""{"model": "m", "text": " \u001cDeux jours [1].\u001c\n"}"""));
+        var ask = new AskQuestion(new HttpEmbedder(embedder.Url, "m", TimeSpan.FromSeconds(5)), index,
+            new HttpGenerator(generator.Url, "m", TimeSpan.FromSeconds(5)), new StaticPrompts(), new AskSettings(MinScore: 0.5));
+        var answer = ask.Execute(Fakes.Alice, "\u3000\u001cCombien de jours ?\u001c\t");
+        using var query = JsonDocument.Parse(Assert.Single(embedder.Requests));
+        Assert.Equal(new[] { "\u001cCombien de jours ?\u001c" }, query.RootElement.GetProperty("inputs").EnumerateArray().Select(t => t.GetString()));
+        using var generation = JsonDocument.Parse(Assert.Single(generator.Requests));
+        Assert.Equal("Passages :\n[1] A\n\u001cDeux jours par semaine.\u001c\n\nQuestion : \u001cCombien de jours ?\u001c",
+                     generation.RootElement.GetProperty("prompt").GetString());
+        Assert.Equal(("\u001cCombien de jours ?\u001c", AnswerStatus.Answered, "\u001cDeux jours [1].\u001c"),
+                     (answer.Question, answer.Status, answer.Text));
     }
 
     [Theory]

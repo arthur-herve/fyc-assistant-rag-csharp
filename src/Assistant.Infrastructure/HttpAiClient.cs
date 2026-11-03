@@ -1,5 +1,5 @@
 // Adaptateurs HTTP : le modèle est derrière une frontière réseau. Le service IA (ai_service/, en
-// Python) se déploie à part, et ces adaptateurs traduisent le port IEmbedder en
+// Python) se déploie à part, et ces adaptateurs traduisent les ports IEmbedder et IGenerator en
 // appels HTTP selon docs/contrat-http.md. Seul ce contrat compte : le service pourrait être écrit
 // dans n'importe quel langage.
 
@@ -194,5 +194,35 @@ public sealed class HttpEmbedder : IEmbedder
             vectors.Add(values.ToArray());
         }
         return vectors;
+    }
+}
+
+public sealed class HttpGenerator : IGenerator
+{
+    private readonly string _url;
+    private readonly string _model;
+    private readonly JsonTransport _post;
+
+    public HttpGenerator(string baseUrl, string model, TimeSpan? timeout = null, JsonTransport? transport = null)
+    {
+        _url = baseUrl.TrimEnd('/') + "/v1/generate";
+        _model = model;
+        _post = transport ?? HttpTransport.Create(timeout ?? TimeSpan.FromSeconds(300));
+    }
+
+    public string Generate(GenerationRequest request)
+    {
+        var payload = _post(_url, new JsonObject
+        {
+            ["model"] = _model,
+            ["system"] = request.System,
+            ["prompt"] = request.Prompt,
+            ["temperature"] = request.Temperature,
+            ["max_tokens"] = request.MaxTokens,
+        });
+        HttpTransport.Require(payload, "model", "text");
+        // « model » est vérifié comme « text ».
+        _ = HttpTransport.Text(payload, "model");
+        return HttpTransport.Text(payload, "text");
     }
 }

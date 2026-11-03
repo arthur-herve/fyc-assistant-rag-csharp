@@ -1,75 +1,36 @@
-# Fil rouge, étape S2.3 : brancher le modèle
+# Fil rouge, correction de S2.3 : brancher le modèle
 
-> **Branche d'étape.** Cette branche est l'état du fil rouge au début de la séquence S2.3. Il y manque
-> exprès une pièce, l'adaptateur de génération : la séquence vous le fait écrire, et sa correction le
-> donne. L'application complète, avec toute sa documentation, est sur la branche `final`.
+> **Correction de la séquence S2.3.** Ce tag, `corrige/s2.3`, est l'état du fil rouge à la fin de la
+> séquence. Il sert à comparer votre travail et à récupérer les tests attendus. L'application complète,
+> avec toute sa documentation, est sur la branche `final`.
 
 ## Où en est le fil rouge
 
-L'application est complète, sauf son générateur. Le cœur est celui de S2.2, et les adaptateurs sont en
-place autour de lui : le corpus en Markdown, le découpage, l'index en JSON, les prompts et le calcul des
-embeddings auprès du service IA. Le générateur, lui, est un bouchon : `index` fonctionne, mais `ask`
-s'arrête dès qu'il faut générer une réponse. La séquence part de là : vous écrivez le seul adaptateur qui
-manque, puis vous changez de générateur sans toucher au cœur.
+Le fil rouge fonctionne de bout en bout, dans sa version idéale : le cœur ne connaît le modèle que par
+ses ports, les droits sont filtrés avant le prompt, et chaque réponse doit citer ses sources. On change
+de générateur par une option, sans toucher au cœur ni à l'index. La séquence S3.1 part de là, avec une
+question : un cas d'usage qui appelle un modèle reste-t-il une fonction déterministe, et sinon,
+comment le tester ?
 
-## Ce que vous faites dans cette séquence
+## Ce que la correction a changé
 
-1. Lisez le corrigé de S2.2, à la fin de
-   [`exercices/s2.2-coeur-metier/README.md`](exercices/s2.2-coeur-metier/README.md), puis suivez le
-   live-coding de la séquence.
+Au départ de la séquence, le générateur était un bouchon, `MissingGenerator`, et `ask` s'arrêtait dès
+qu'il fallait générer. La correction écrit `HttpGenerator` dans
+`src/Assistant.Infrastructure/HttpAiClient.cs`, d'après `docs/contrat-http.md`. Il envoie à la route
+`/v1/generate` le prompt construit par l'application, vérifie que la réponse porte `model` et `text`, et
+rend le texte. `src/Assistant.Cli/Composition.cs` le construit à la place du bouchon, qui
+disparaît, et ni le domaine ni l'application ne bougent. Les tests de l'exercice vérifient le contrat du
+côté de la génération et lancent `ask` contre un faux service IA.
 
-2. Voyez ensuite le bouchon à l'œuvre. Lancez le service IA hors ligne dans un premier terminal avec
-   `python -m ai_service`, puis construisez l'index et posez une question dans un second :
+Pour lire la correction dans le code et dans les tests :
 
-   ```bash
-   dotnet run --project src/Assistant.Cli -- index
-   dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?"
-   ```
+```bash
+git diff origin/etape/s2.3 corrige/s2.3 -- src tests
+```
 
-   `index` fonctionne, puisqu'il n'a pas besoin du modèle. La question, elle, s'arrête sur le message
-   « Erreur : le générateur HTTP reste à écrire », qui renvoie à l'énoncé. Une question sans passage
-   pertinent est refusée normalement, puisque le modèle n'est pas appelé. Essayez avec alice, qui n'est
-   que dans le groupe `tous` :
-
-   ```bash
-   dotnet run --project src/Assistant.Cli -- ask "Quelle est la grille des salaires ?" --user alice -v
-   ```
-
-   alice reçoit un refus, et la trace affichée par `-v` montre que la grille ne figure pas parmi ses
-   passages : elle a été écartée avant même la construction du prompt. Posée par bruno, qui est aussi
-   aux RH, la même question trouve la grille et s'arrête sur le bouchon.
-
-3. L'exercice est décrit dans
-   [`exercices/s2.3-adaptateur-de-generation/README.md`](exercices/s2.3-adaptateur-de-generation/README.md).
-   Créez votre branche, puis récupérez les tests attendus en nommant les fichiers :
-
-   ```bash
-   git switch -c mon-s2.3 origin/etape/s2.3
-   git restore --source corrige/s2.3 -- tests/Assistant.Tests/HttpContractTests.cs tests/Assistant.Tests/AiServiceResponseTests.cs tests/Assistant.Tests/CliAskTests.cs
-   ```
-
-   La compilation échoue sur `HttpGenerator`, qui n'existe pas encore : c'est votre tâche.
-
-4. Écrivez `HttpGenerator` dans `src/Assistant.Infrastructure/HttpAiClient.cs`, d'après
-   `docs/contrat-http.md`, puis branchez-le dans `src/Assistant.Cli/Composition.cs` à la place du
-   bouchon. L'énoncé donne la signature du constructeur et les deux fonctions qui lisent la réponse du
-   service. Ni le domaine ni l'application ne changent.
-
-5. Quand tous les tests passent, ceux de l'architecture compris, faites tourner l'application complète
-   hors ligne : `index`, puis `ask` avec `--user alice`, puis avec `--user bruno`. L'énoncé donne les
-   questions à poser et ce que la trace doit montrer.
-
-6. Changez enfin de générateur sur le même index, sans toucher au cœur ni réindexer :
-
-   ```bash
-   dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" --generation-model extractive-variante -v
-   dotnet run --project src/Assistant.Cli -- ask "En combien de temps un incident P1 est-il pris en charge ?" --generation-model extractive-variante -v
-   ```
-
-   `extractive-variante` est un autre générateur hors ligne, qui choisit sa phrase autrement
-   qu'`extractive`. L'énoncé vous fait comparer les deux générateurs sur ces deux questions, puis
-   prédire par écrit ce que la variante donnera sur trois autres, avant de les poser. Avec Ollama,
-   essayez de même `--generation-model llama3-2-3b` sur la question du P1.
+`docs/contrat-http.md` dit maintenant comment l'application lit les réponses du service. Le corrigé de
+l'énoncé, à la fin de `exercices/s2.3-adaptateur-de-generation/README.md`, répond aux questions de la
+séquence.
 
 ## Démarrer
 
@@ -88,16 +49,54 @@ premier terminal, et laissez-le tourner :
 python -m ai_service
 ```
 
-Dans un second terminal, construisez l'index :
+Dans un second terminal, construisez l'index, puis posez une question :
 
 ```bash
 dotnet run --project src/Assistant.Cli -- index
+dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?"
 ```
 
-`index` affiche le nombre de documents et de morceaux qu'il a indexés. Après chaque changement de
-branche, reconstruisez l'index avec `index` : le dossier `data/` n'est pas versionné, et l'index d'une
-autre étape n'a pas forcément le même format. Dans ce cas, l'application refuse de le lire et donne la
-commande qui le reconstruit.
+`index` affiche le nombre de documents et de morceaux qu'il a indexés. La réponse cite sa source avec
+`[1]`, ici la politique de télétravail, et se termine par une ligne qui donne son statut. Après chaque
+changement de branche, reconstruisez l'index avec `index` : le dossier `data/` n'est pas versionné, et
+l'index d'une autre étape n'a pas forcément le même format. Dans ce cas, l'application refuse de le lire
+et donne la commande qui le reconstruit.
+
+Posez ensuite la même question à alice et à bruno. alice n'est que dans le groupe `tous`, bruno est
+aussi aux RH. L'option `-v` affiche la trace de la réponse : les passages retrouvés, leurs scores et la
+sortie brute, c'est-à-dire le texte que `HttpGenerator` a rendu.
+
+```bash
+dotnet run --project src/Assistant.Cli -- ask "Quelle est la grille des salaires ?" --user alice -v
+dotnet run --project src/Assistant.Cli -- ask "Quelle est la grille des salaires ?" --user bruno -v
+```
+
+alice reçoit un refus : aucun document qu'elle a le droit de lire ne répond. La trace montre que la
+grille ne figure pas parmi ses passages, car elle a été écartée avant même la construction du prompt.
+bruno, lui, reçoit une réponse qui cite la grille des rémunérations.
+
+Posée autrement, « Quelle est la fourchette de salaire d'un consultant senior ? », la question donne la
+fourchette à bruno. alice n'obtient pas de refus, mais une phrase sans rapport tirée de la fiche des
+congés, avec un score de 0,154 pour un seuil de 0,15. La règle des droits tient, puisque la grille
+n'entre jamais dans son prompt.
+
+Enfin, le générateur se remplace sur le même index, sans toucher au cœur ni réindexer :
+
+```bash
+dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" --generation-model extractive-variante -v
+dotnet run --project src/Assistant.Cli -- ask "En combien de temps un incident P1 est-il pris en charge ?" --generation-model extractive-variante -v
+```
+
+`extractive-variante` est un autre générateur hors ligne. Il choisit sa phrase autrement
+qu'`extractive`, mais il cite toujours sa source et redonne la même réponse à chaque fois. Relancez les
+deux commandes sans `--generation-model` pour comparer : les passages retrouvés et leurs scores n'ont pas
+bougé, seule la réponse change. Sur la première question, la variante répond moins bien : sa phrase vient
+de la fiche du télétravail, mais elle ne donne pas le nombre de jours. Sur la seconde, elle répond mieux :
+elle donne le délai de prise en charge, là où `extractive` ne donne que le titre de la fiche. Ces
+questions ont été choisies pour montrer les deux sens : sur d'autres, quand la variante ne répond pas
+comme `extractive`, elle répond le plus souvent moins bien. Changer de générateur change les réponses,
+dans un sens ou dans l'autre, pas le cœur. Avec Ollama, essayez de même `--generation-model llama3-2-3b`
+sur la question du P1.
 
 ## Les branches du cours
 

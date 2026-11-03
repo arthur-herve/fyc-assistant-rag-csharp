@@ -161,3 +161,93 @@ Gardez-les en tête pendant que vous codez : le corrigé y répond.
   réponses qui changent ?
 - Pourquoi peut-on changer de générateur sur le même index, alors qu'il faudrait réindexer pour changer
   de modèle d'embeddings ?
+
+## Corrigé
+
+La correction est le tag `corrige/s2.3`. Sur `src/`, elle ne touche que deux fichiers :
+
+```bash
+git diff origin/etape/s2.3 corrige/s2.3 -- src
+```
+
+Dans `HttpAiClient.cs`, `HttpGenerator` suit `HttpEmbedder` pas à pas. Voici sa méthode `Generate` :
+
+```csharp
+public string Generate(GenerationRequest request)
+{
+    var payload = _post(_url, new JsonObject
+    {
+        ["model"] = _model,
+        ["system"] = request.System,
+        ["prompt"] = request.Prompt,
+        ["temperature"] = request.Temperature,
+        ["max_tokens"] = request.MaxTokens,
+    });
+    HttpTransport.Require(payload, "model", "text");
+    // « model » est vérifié comme « text ».
+    _ = HttpTransport.Text(payload, "model");
+    return HttpTransport.Text(payload, "text");
+}
+```
+
+Le constructeur calcule l'adresse `<baseUrl>/v1/generate`, garde l'alias et prend le transport donné, ou
+en crée un, avec un délai par défaut plus long que celui d'`HttpEmbedder`. Dans `Composition.cs`, la
+ligne du bouchon devient la construction d'`HttpGenerator`, et `MissingGenerator` disparaît.
+
+Les tests restaurés vérifient les deux côtés du contrat.
+`Generation_request_sends_the_prompt_built_by_the_application` contrôle le corps envoyé, champ par champ.
+`A_generation_response_of_another_shape_is_a_non_transient_error_not_a_crash` passe en revue les
+réponses mal formées et les messages attendus. `docs/contrat-http.md` gagne, avec la correction, une
+section qui décrit cette lecture stricte.
+
+Vous avez maintenant la version du fil rouge où « le modèle est un détail » tient : on change de
+générateur par une option, et le cœur ne bouge pas. La suite du cours la met sous tension.
+
+Voici les réponses aux questions.
+
+Une réponse sans `model` n'est pas une réponse du contrat. L'accepter quand même cacherait un service
+qui ne parle pas ce contrat, ou une page d'erreur renvoyée par un intermédiaire.
+
+Une réponse mal formée le restera si l'on repose la même question au même service : réessayer ne
+changerait rien, sinon le temps perdu. Les erreurs passagères sont d'une autre nature, un service
+injoignable, un délai dépassé, une erreur 5xx. C'est `HttpTransport.Create` qui les reconnaît.
+
+Vous avez modifié `HttpAiClient.cs`, dans l'infrastructure, et `Composition.cs`, la racine de
+composition. Le domaine et l'application n'ont pas bougé : `AskQuestion` ne connaît que le port
+`IGenerator`, et ce qu'il y a derrière ne le regarde pas. C'est l'argument de l'approche, et la commande
+suivante ne montre aucune différence :
+
+```bash
+git diff origin/etape/s2.3 corrige/s2.3 -- src/Assistant.Domain src/Assistant.Application
+```
+
+À l'étape 6, la variante répond moins bien qu'`extractive` sur le télétravail et l'urgence, et mieux sur
+le P1. La question des congés reçoit la même réponse des deux générateurs, et celle de la recette le même
+refus. Pour la recette, `-v` n'affiche aucune sortie brute : aucun passage n'atteint le seuil, et le
+modèle n'est pas appelé. L'urgence est le miroir du P1, sur le même passage : cette fois, c'est la
+variante qui répond par le titre de la fiche. Elle ne « comprend » donc pas mieux le P1. Ces générateurs
+sont des doubles de test, pas de vrais modèles : pour certaines questions, la variante prend la deuxième
+phrase la mieux classée au lieu de la première. Sur le P1, la première était le titre de la fiche. Sur
+l'urgence, c'était la bonne phrase.
+
+On ne peut pas classer deux générateurs sur cinq questions, d'autant qu'elles ont été choisies pour
+montrer chaque cas. Posez-leur d'autres questions sur le corpus : le plus souvent, quand leurs réponses
+diffèrent, c'est la variante qui répond moins bien.
+
+Si vous posez la question du P1 pour un incident P2 ou P3, sous la même forme, la variante donne le délai
+du P1, avec une citation valide. Sous une autre forme, comme « Quel est le délai de prise en charge d'un
+incident P2 ? », c'est `extractive` qui donne le délai du P1, et la variante celui du P2. Une citation dit
+d'où vient une phrase, pas que cette phrase répond à la question. Le cœur garantit qu'une réponse publiée
+cite ses sources parmi les passages fournis au modèle, ceux qui atteignent le seuil, et que les droits
+sont filtrés avant le prompt. La justesse de la réponse, le prompt la demande, mais rien ne la vérifie.
+
+Pour votre adaptateur, la trace montre les mêmes passages et les mêmes scores avec les deux générateurs.
+Le prompt est donc le même, puisque c'est le cœur qui le construit. Dans votre code, c'est le même
+`HttpGenerator` dans les deux cas, et seul l'alias change. Les tests restaurés vérifient qu'il envoie
+l'alias reçu et qu'il rend le texte de la réponse. La sortie brute, à elle seule, ne le disculpe pas :
+c'est le texte que votre adaptateur a rendu.
+
+Enfin, l'index contient des vecteurs calculés par un modèle d'embeddings. Une question doit être
+vectorisée par le même modèle pour être comparée à eux : avec un autre, les vecteurs ne vivent plus dans
+le même espace. Le générateur, lui, ne reçoit que du texte, le prompt construit par l'application. Il ne
+voit jamais les vecteurs, et n'importe quel générateur peut donc travailler sur le même index.

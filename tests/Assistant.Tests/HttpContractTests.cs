@@ -49,17 +49,29 @@ public class HttpContractTests : IDisposable
             }
             string response;
             var status = 200;
-            if (body["model"]!.GetValue<string>() != "inconnu")
+            if (context.Request.Url.AbsolutePath == "/v1/embeddings")
             {
                 var n = body["inputs"]!.AsArray().Count;
                 var dimension = body["model"]!.GetValue<string>() == "dimension-fausse" ? 4 : 3;   // annonce 4, envoie 3
                 response = JsonSerializer.Serialize(new { model = "ollama:nomic-embed-text@0a109f422b47", alias = "nomic", dimension,
                                                          vectors = Enumerable.Repeat(new[] { 0.1, 0.2, 0.3 }, n) });
             }
-            else
+            else if (body["model"]!.GetValue<string>() == "inconnu")
             {
                 status = 404;
-                response = """{"error": {"code": "unknown_model", "message": "modèle d'embeddings inconnu : inconnu"}}""";
+                response = """{"error": {"code": "unknown_model", "message": "modèle de génération inconnu : inconnu"}}""";
+            }
+            else if (body["model"]!.GetValue<string>() is "absent" or "surcharge")
+            {
+                status = 502;
+                response = JsonSerializer.Serialize(new
+                {
+                    error = new { code = "backend_error", message = "moteur en échec", retryable = body["model"]!.GetValue<string>() == "surcharge" },
+                });
+            }
+            else
+            {
+                response = JsonSerializer.Serialize(new { model = "ollama:llama3.2:3b@a80c", alias = "llama3-2-3b", text = "Deux jours [1].", duration_ms = 5 });
             }
             var bytes = Encoding.UTF8.GetBytes(response);
             context.Response.StatusCode = status;
@@ -109,11 +121,34 @@ public class HttpContractTests : IDisposable
     }
 
     [Fact]
+    public void Generation_request_sends_the_prompt_built_by_the_application()
+    {
+        new HttpGenerator(_url, "llama3-2-3b", Short).Generate(new GenerationRequest("sys", "prompt", 0.2, 150));
+        var (path, body) = _requests.Single();
+        Assert.Equal("/v1/generate", path);
+        Assert.Equal("llama3-2-3b", body["model"]!.GetValue<string>());
+        Assert.Equal("sys", body["system"]!.GetValue<string>());
+        Assert.Equal("prompt", body["prompt"]!.GetValue<string>());
+        Assert.Equal(0.2, body["temperature"]!.GetValue<double>());
+        Assert.Equal(150, body["max_tokens"]!.GetValue<int>());
+    }
+
+    [Fact]
     public void A_refused_request_is_not_transient()
     {
-        var error = Assert.Throws<AiServiceException>(() => new HttpEmbedder(_url, "inconnu", Short).EmbedQuery("a"));
+        var error = Assert.Throws<AiServiceException>(() => new HttpGenerator(_url, "inconnu", Short).Generate(new GenerationRequest("s", "p", 0.2, 10)));
         Assert.Contains("HTTP 404", error.Message);
         Assert.False(error.Transient);
+    }
+
+    [Theory]
+    [InlineData("surcharge", true)]
+    [InlineData("absent", false)]
+    public void A_502_is_transient_unless_the_service_says_retrying_is_useless(string model, bool transient)
+    {
+        // Modèle absent : le service le signale (retryable = false), le client ne réessaie pas pour rien.
+        var error = Assert.Throws<AiServiceException>(() => new HttpGenerator(_url, model, Short).Generate(new GenerationRequest("s", "p", 0.2, 10)));
+        Assert.Equal(transient, error.Transient);
     }
 
     [Fact]

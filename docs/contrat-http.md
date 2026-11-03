@@ -152,6 +152,25 @@ Au démarrage, si le port est déjà pris, `python -m ai_service` s'arrête avec
 impossible d'écouter (port déjà pris, adresse inconnue ou non autorisée) — … » et le code de
 retour 1.
 
+## Comment l'application lit les réponses
+
+L'application ne lit une erreur que si elle suit le format du contrat, avec un `error.message` qui
+est un texte. Sinon, elle cite le corps tel quel dans son propre message, et une erreur 5xx reste
+considérée comme passagère.
+
+Une réponse 200 doit, elle aussi, respecter le contrat : du JSON strict en UTF-8, avec tous les
+champs attendus, chacun du bon type. `model` et `text` sont des textes, `dimension` est un entier,
+et `vectors` contient autant de listes de nombres que de textes envoyés, toutes de la dimension
+annoncée. Si ce n'est pas le cas, l'application lève une erreur non passagère et ne réessaie pas :
+la même requête recevrait la même réponse.
+
+Un service qui ne répond pas, un délai dépassé ou une connexion coupée au milieu d'une réponse
+donnent en revanche une erreur passagère. Son message commence par « Service IA injoignable … ».
+
+Le contrat porte sur les valeurs, pas sur la façon de les écrire. L'application envoie du JSON en
+UTF-8 et le service en lit les valeurs : les espaces, des accents écrits tels quels ou échappés
+(`\u00e9`), un réel entier écrit `1.0` ou `1`, rien de tout cela ne change la requête.
+
 ## Évolution du contrat
 
 Une nouvelle route, ou toute modification incompatible comme un champ renommé ou un sens changé,

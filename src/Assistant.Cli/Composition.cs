@@ -34,7 +34,7 @@ public static class Composition
 
         var index = new JsonVectorIndex(config.IndexPath);
         var embedder = new HttpEmbedder(config.AiBaseUrl, embeddingModel, config.Timeout);
-        var generator = new MissingGenerator();   // un bouchon : generationModel attend l'adaptateur HTTP
+        var generator = new HttpGenerator(config.AiBaseUrl, generationModel, config.Timeout);
         var source = new MarkdownCorpus(config.CorpusDir);
         var splitter = new ParagraphSplitter(config.SplitterMaxChars,
                                              config.SplitterOverlapChars,
@@ -51,15 +51,4 @@ public static class Composition
         var askQuestion = new AskQuestion(embedder, index, generator, prompts, settings);
         return new Container(indexCorpus, askQuestion);
     }
-}
-
-/// <summary>
-/// Le générateur, tant que son adaptateur HTTP n'est pas écrit. <c>index</c> n'en a pas besoin, et une question sans
-/// passage pertinent est refusée sans lui. Seule une question qui demande une réponse générée s'arrête sur ce message.
-/// </summary>
-public sealed class MissingGenerator : IGenerator
-{
-    public string Generate(GenerationRequest request) =>
-        throw new AssistantApplicationException(
-            "le générateur HTTP reste à écrire : voir exercices/s2.3-adaptateur-de-generation/README.md");
 }

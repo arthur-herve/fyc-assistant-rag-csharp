@@ -6,8 +6,13 @@ autre langage, et l'application ne leur parle que par HTTP.
 
 Comptez une vingtaine de minutes pour tout ce qui fonctionne hors-ligne. Ollama, qui fait tourner de
 vrais modèles sur votre machine, est facultatif : le mode hors-ligne suffit pour suivre tout le cours.
+Les vrais modèles demandent 30 à 60 minutes de plus, téléchargements compris, selon votre connexion.
 
 Aucune carte graphique n'est nécessaire. Un portable avec 8 Go de RAM suffit pour le mode hors-ligne.
+Avec 16 Go, les vrais modèles tournent plus confortablement.
+
+Si une étape résiste, ne restez pas bloqué : avancez en mode hors-ligne (étape 4), et revenez à
+l'installation d'Ollama plus tard.
 
 ## 1. Le SDK .NET 8 (5 min)
 
@@ -72,14 +77,15 @@ Dans le premier, lancez le service IA et laissez-le tourner :
 python -m ai_service
 ```
 
-Dans le second, construisez l'index :
+Dans le second, utilisez l'application :
 
 ```bash
 dotnet run --project src/Assistant.Cli -- index
+dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?"
 ```
 
-Vous devez obtenir « Index construit : 9 documents, 15 morceaux. », pour les 9 documents du corpus
-Solvéo. La commande `ask`, elle, attend encore son générateur : c'est l'exercice de la séquence 2.3.
+Vous devez obtenir une réponse qui cite sa source avec `[1]`, ici le document `teletravail` du corpus
+Solvéo.
 
 Ce mode repose sur deux modèles très simples. `hashing` calcule des embeddings par hachage des mots,
 sans rien avoir appris, et `extractive` recopie la phrase la plus proche de la question. Tous deux sont
@@ -93,11 +99,10 @@ Sous Windows, il arrive que les accents du service IA s'affichent mal dans le pr
 alors `set PYTHONIOENCODING=utf-8` dans cmd, ou `$env:PYTHONIOENCODING = "utf-8"` dans PowerShell,
 avant de relancer le service. L'application C#, elle, écrit toujours en UTF-8.
 
-## 5. Ollama, si vous le pouvez
+## 5. Ollama et les modèles (10 min + téléchargements)
 
 Ollama fait tourner des modèles ouverts sur votre machine et les rend accessibles à l'adresse
-`http://127.0.0.1:11434`. Si son installation résiste, ne restez pas bloqué : avancez en mode
-hors-ligne, et revenez-y plus tard.
+`http://127.0.0.1:11434`.
 
 | Système | Comment |
 |---|---|
@@ -108,13 +113,44 @@ hors-ligne, et revenez-y plus tard.
 Pour vérifier l'installation, lancez `ollama --version`, puis `ollama list`. Au début, la liste est
 vide.
 
-Téléchargez ensuite le modèle de génération du cours :
+Voici les modèles du cours, à télécharger dans cet ordre. Il y en a pour environ 6 Go. Sur une
+connexion fibre, les quatre ont pris une dizaine de minutes. En ADSL, comptez davantage.
 
 ```bash
-ollama pull llama3.2:3b
+ollama pull bge-m3              # embeddings par défaut, 1,2 Go
+ollama pull llama3.2:3b         # génération par défaut, 2,0 Go
+ollama pull nomic-embed-text    # autre modèle d'embeddings, 274 Mo
+ollama pull qwen3:4b            # autre modèle de génération, 2,5 Go
 ```
 
-Le service IA connaît ce modèle sous l'alias `llama3-2-3b`, déclaré dans `config/ai_service.toml`.
+Les deux premiers suffisent pour suivre le cours. Les deux autres servent aux manipulations où l'on
+change de modèle. Si la place sur le disque ou la connexion manquent, `gemma3:1b` (815 Mo) peut
+remplacer `llama3.2:3b`, au prix de réponses de moins bonne qualité. Il se choisit avec
+`--generation-model gemma3-1b`.
+
+Vous n'utilisez pas Ollama, mais un serveur compatible OpenAI comme LM Studio, llama.cpp, vLLM ou un
+service en ligne ? Le service IA sait aussi leur parler, avec le moteur `openai-compatible` de
+`config/ai_service.toml`. Le bloc `[generation.lmstudio]` sert d'exemple, et l'adresse du serveur se
+règle dans `[defaults.openai-compatible]`. Si le serveur demande une clé d'API, indiquez dans
+`api_key_env` le nom de la variable d'environnement qui la contient. L'application ne voit aucune
+différence : pour elle, ce n'est qu'un alias de plus.
+
+## 6. Premier vrai passage (5 min)
+
+Relancez le service IA dans le premier terminal (Ctrl+C, puis `python -m ai_service`). Dans le
+second, lancez ensuite :
+
+```bash
+dotnet run --project src/Assistant.Cli -- index --config config/app-ollama.json
+dotnet run --project src/Assistant.Cli -- ask "Combien de jours dure le congé de paternité ?" --config config/app-ollama.json -v
+```
+
+Sur la machine de référence, qui a une carte graphique, l'indexation du corpus réduit (50 fiches)
+prend une vingtaine de secondes avec `bge-m3`. Elle ne se fait qu'une fois. La réponse arrive ensuite
+en 1 à 3 secondes et cite une fiche sur le congé de paternité, `F3156`.
+
+Sur un processeur seul, comptez environ dix fois plus. Cette estimation n'a pas été mesurée : relevez
+vos temps sur vos machines et signalez-les-nous.
 
 ## Déploiement sur deux machines
 
@@ -130,7 +166,7 @@ Sur le poste de l'application, la variable d'environnement `AI_SERVICE_URL` remp
 de `config/app.json`. Gardez quand même `base_url` dans le fichier : l'application la vérifie toujours.
 
 ```bash
-AI_SERVICE_URL=http://machine-gpu:8100 dotnet run --project src/Assistant.Cli -- index
+AI_SERVICE_URL=http://machine-gpu:8100 dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?"
 ```
 
 L'annonce du service affiche 127.0.0.1 et non 0.0.0.0, et c'est voulu. 0.0.0.0 veut dire « toutes les
@@ -147,15 +183,21 @@ production, placez-le derrière un proxy authentifié.
 | `Service IA injoignable (http://127.0.0.1:8100/…)` | le service IA ne tourne pas dans le premier terminal | lancez `python -m ai_service` |
 | `HTTP 502 — … Ollama est-il lancé sur http://127.0.0.1:11434 ?` | Ollama est arrêté | `ollama serve` |
 | `HTTP 502 — empreinte de … introuvable … (modèles installés : …)` | le modèle n'est pas téléchargé, ou son nom n'est pas écrit comme dans `ollama list` | `ollama pull <modèle>`, ou corrigez `model` dans `config/ai_service.toml` |
+| `HTTP 502 — … a changé pendant l'appel` | un `ollama pull` a eu lieu pendant la requête | relancez la commande |
 | `Erreur : prompt introuvable : … dans … (connus : answer)` | nom mal tapé dans `generation.prompt` de la configuration | choisissez un des prompts connus |
 | `dotnet : commande introuvable` | SDK non installé, ou PATH pas encore mis à jour | rouvrez le terminal après l'installation, puis vérifiez avec `dotnet --info` |
 | `NETSDK1045`, ou un message sur la « version du SDK » | SDK plus ancien que 8.0 | installez le SDK 8.0 (étape 1) |
 | « You must install or update .NET to run this application » (`Microsoft.NETCore.App` 8.0) | un SDK 9 ou 10 seul, sans le runtime 8 | installez le runtime .NET 8 (étape 1) |
 | `python : commande introuvable` sous Windows | PATH non mis à jour pendant l'installation | utilisez `py`, ou réinstallez Python en cochant « Add python.exe to PATH » |
+| Réponses très lentes, plus d'une minute, avec `qwen3:4b` | le mode réflexion et son budget de jetons | c'est normal sur processeur seul. En dehors des manipulations qui changent de modèle, gardez `llama3.2:3b` |
+| `MemoryError`, ou Ollama qui se ferme | modèle trop gros pour la mémoire | prenez un modèle plus petit (`gemma3:1b`, `nomic-embed-text`) |
 
 ## Machine de référence du cours
 
 Les durées de cette page ont été mesurées sur une machine sous Windows 11 : processeur AMD
-Ryzen 7 5800H, 15,4 Go de RAM, carte graphique NVIDIA RTX 3070 Laptop de 8 Go, avec
+Ryzen 7 5800H, 15,4 Go de RAM, carte graphique NVIDIA RTX 3070 Laptop de 8 Go, avec Ollama 0.34,
 le SDK .NET 8.0.425 et Python 3.13. Sur cette machine, l'installation du SDK .NET 8 par `winget` a
 pris 2 minutes, et Python était déjà présent.
+
+Les temps sans carte graphique n'ont pas encore été mesurés. Le cours reste suivable sans : le mode
+hors-ligne couvre tout ce qui ne demande pas un vrai modèle.

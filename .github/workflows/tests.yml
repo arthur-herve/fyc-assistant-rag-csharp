@@ -53,7 +53,7 @@ jobs:
           python-version: "3.13"
       - name: Compilation de l'application
         run: dotnet build src/Assistant.Cli --nologo
-      - name: Service IA hors ligne, index, puis une question qui s'arrête sur le bouchon
+      - name: Service IA hors ligne, index, puis une question sur le corpus Solvéo
         shell: bash
         run: |
           # Le service IA écoute sur un port libre, choisi par le système, et AI_SERVICE_URL donne son adresse à l'application.
@@ -64,14 +64,8 @@ jobs:
           trap 'kill "$SERVICE"' EXIT
           curl -fs --retry 30 --retry-delay 1 --retry-connrefused "$AI_SERVICE_URL/health" > /dev/null || { echo "Le service IA ne répond pas sur $AI_SERVICE_URL."; cat service-ia.log; exit 1; }
           dotnet run --project src/Assistant.Cli --no-build -- index
-          # Le générateur est encore un bouchon : la question doit s'arrêter sur son message, avec le code 1.
-          CODE=0
-          dotnet run --project src/Assistant.Cli --no-build -- ask "Combien de jours de télétravail par semaine ?" > reponse.txt 2>&1 || CODE=$?
-          cat reponse.txt
-          if [ "$CODE" -ne 1 ] || ! grep -q -F "le générateur HTTP reste à écrire" reponse.txt; then
-            echo "La question devait s'arrêter sur le message du bouchon, avec le code 1 (code obtenu : $CODE)."
-            exit 1
-          fi
+          dotnet run --project src/Assistant.Cli --no-build -- ask "Combien de jours de télétravail par semaine ?" | tee reponse.txt
+          grep -q -F "statut=answered" reponse.txt || { echo "La question devait recevoir une réponse."; exit 1; }
   exercice:
     name: exercice S2.3 — rouge au départ, vert avec la correction
     # Sur la branche de départ seulement : là où l'exercice est fait, le rouge attendu n'existe plus.
