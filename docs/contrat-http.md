@@ -140,7 +140,7 @@ donne une erreur passagère (`"retryable": true`) : il suffit de réessayer.
 | 500 | `internal_error` | erreur imprévue dans le service |
 
 Le service ne lit pas les envois en morceaux (`Transfer-Encoding`). Un client doit donc annoncer la
-taille de son corps avec `Content-Length`. Le JSON est lu de façon
+taille de son corps avec `Content-Length`, comme le fait l'application. Le JSON est lu de façon
 stricte : une clé en double ou une valeur comme `NaN`, que certains analyseurs tolèrent, est
 refusée.
 
@@ -157,5 +157,7 @@ retour 1.
 Une nouvelle route, ou toute modification incompatible comme un champ renommé ou un sens changé,
 passe par une nouvelle version du contrat, sous le préfixe `/v2/`.
 
-Du côté du service, le contrat est vérifié par `tests_python/ai_service/test_server.py`, qui
-contrôle ce que le service accepte et renvoie.
+Le contrat est vérifié des deux côtés. Les tests `HttpContractTests`
+(`tests/Assistant.Tests/HttpContractTests.cs`) contrôlent ce que l'application envoie et ce
+qu'elle attend. `tests_python/ai_service/test_server.py` contrôle ce que le service accepte et
+renvoie.

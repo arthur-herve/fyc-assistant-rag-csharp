@@ -1,0 +1,48 @@
+{
+  "_commentaire": "Configuration de l'application C#, sur le corpus Solvéo. Des modèles, elle ne connaît que les alias et l'adresse du service IA, rien de la façon dont ils sont servis. Le seuil de pertinence est celui de `hashing`.",
+  "ai_service": {
+    "base_url": "http://127.0.0.1:8100",
+    "embedding_model": "hashing",
+    "generation_model": "extractive",
+    "timeout_seconds": 300
+  },
+  "corpus": {
+    "directory": "corpus/solveo"
+  },
+  "index": {
+    "path": "data/index.json"
+  },
+  "splitter": {
+    "max_chars": 800,
+    "overlap_chars": 120,
+    "include_title": true
+  },
+  "retrieval": {
+    "top_k": 4,
+    "min_score": 0.15
+  },
+  "generation": {
+    "prompt": "answer",
+    "temperature": 0.2,
+    "max_tokens": 400
+  },
+  "users": {
+    "alice": {
+      "groups": [
+        "tous"
+      ]
+    },
+    "bruno": {
+      "groups": [
+        "tous",
+        "rh"
+      ]
+    },
+    "claire": {
+      "groups": [
+        "tous",
+        "direction"
+      ]
+    }
+  }
+}

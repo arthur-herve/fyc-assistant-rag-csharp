@@ -36,10 +36,46 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Tests du service IA et de l'outil d'import
         run: python -m unittest discover -s tests_python -t . -v
+  demonstration:
+    name: démonstration hors ligne · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compilation de l'application
+        run: dotnet build src/Assistant.Cli --nologo
+      - name: Service IA hors ligne, index, puis une question qui s'arrête sur le bouchon
+        shell: bash
+        run: |
+          # Le service IA écoute sur un port libre, choisi par le système, et AI_SERVICE_URL donne son adresse à l'application.
+          PORT=$(python -c "import socket; s = socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1], end='')")
+          export AI_SERVICE_URL="http://127.0.0.1:$PORT"
+          python -m ai_service --port "$PORT" > service-ia.log 2>&1 &
+          SERVICE=$!
+          trap 'kill "$SERVICE"' EXIT
+          curl -fs --retry 30 --retry-delay 1 --retry-connrefused "$AI_SERVICE_URL/health" > /dev/null || { echo "Le service IA ne répond pas sur $AI_SERVICE_URL."; cat service-ia.log; exit 1; }
+          dotnet run --project src/Assistant.Cli --no-build -- index
+          # Le générateur est encore un bouchon : la question doit s'arrêter sur son message, avec le code 1.
+          CODE=0
+          dotnet run --project src/Assistant.Cli --no-build -- ask "Combien de jours de télétravail par semaine ?" > reponse.txt 2>&1 || CODE=$?
+          cat reponse.txt
+          if [ "$CODE" -ne 1 ] || ! grep -q -F "le générateur HTTP reste à écrire" reponse.txt; then
+            echo "La question devait s'arrêter sur le message du bouchon, avec le code 1 (code obtenu : $CODE)."
+            exit 1
+          fi
   exercice:
-    name: exercice S2.2 — rouge au départ, vert avec la correction
+    name: exercice S2.3 — rouge au départ, vert avec la correction
     # Sur la branche de départ seulement : là où l'exercice est fait, le rouge attendu n'existe plus.
-    if: github.ref_name == 'etape/s2.2' || github.base_ref == 'etape/s2.2'
+    if: github.ref_name == 'etape/s2.3' || github.base_ref == 'etape/s2.3'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +85,7 @@ jobs:
         with:
           dotnet-version: "8.0.x"
       - name: Tests attendus, restaurés comme le dit l'énoncé
-        run: git restore --source corrige/s2.2 -- tests/Assistant.Tests/DomainTests.cs tests/Assistant.Tests/AskQuestionTests.cs
+        run: git restore --source corrige/s2.3 -- tests/Assistant.Tests/HttpContractTests.cs tests/Assistant.Tests/AiServiceResponseTests.cs tests/Assistant.Tests/CliAskTests.cs
       - name: Rouge attendu — la compilation ou les tests échouent
         run: |
           # Les paquets d'abord, pour qu'un échec de téléchargement ne passe pas pour le rouge attendu.
@@ -62,7 +98,7 @@ jobs:
           fi
       - name: Solution de la correction — src/
         # Le dossier entier, cette fois : src/ devient celui de la correction, y compris pour les fichiers qu'elle retire.
-        run: git restore --source corrige/s2.2 -- src/
+        run: git restore --source corrige/s2.3 -- src/
       - name: Vert attendu — tout passe, documents du départ compris
         run: |
           dotnet build FycAssistantRag.sln -warnaserror --nologo

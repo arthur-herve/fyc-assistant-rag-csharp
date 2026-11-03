@@ -1,37 +1,75 @@
-# Fil rouge, correction de S2.2 : le cœur sans IA
+# Fil rouge, étape S2.3 : brancher le modèle
 
-> **Correction de la séquence S2.2.** Ce tag, `corrige/s2.2`, est l'état du fil rouge à la fin de la
-> séquence. Il sert à comparer votre travail et à récupérer les tests attendus. L'application complète,
-> avec toute sa documentation, est sur la branche `final`.
+> **Branche d'étape.** Cette branche est l'état du fil rouge au début de la séquence S2.3. Il y manque
+> exprès une pièce, l'adaptateur de génération : la séquence vous le fait écrire, et sa correction le
+> donne. L'application complète, avec toute sa documentation, est sur la branche `final`.
 
 ## Où en est le fil rouge
 
-Le cœur est écrit : le domaine, avec ses deux règles métier, et les deux cas d'usage de l'application,
-qui ne connaissent le modèle, l'index et les fichiers que par leurs ports. Il se teste en entier avec
-les doubles de `tests/Assistant.Tests/Fakes.cs`, sans modèle, sans réseau et sans disque. Tout ce qui
-l'entoure manque encore : `Assistant.Infrastructure` est vide, et `Assistant.Cli` ne fait qu'annoncer
-l'application. La séquence S2.3 branche ce cœur sur le corpus, l'index et le service IA. Elle pose
-une question : peut-on ensuite changer de modèle sans toucher au cœur ?
+L'application est complète, sauf son générateur. Le cœur est celui de S2.2, et les adaptateurs sont en
+place autour de lui : le corpus en Markdown, le découpage, l'index en JSON, les prompts et le calcul des
+embeddings auprès du service IA. Le générateur, lui, est un bouchon : `index` fonctionne, mais `ask`
+s'arrête dès qu'il faut générer une réponse. La séquence part de là : vous écrivez le seul adaptateur qui
+manque, puis vous changez de générateur sans toucher au cœur.
 
-## Ce que la correction a changé
+## Ce que vous faites dans cette séquence
 
-Au départ de la séquence, les deux règles métier de `src/Assistant.Domain/Rules.cs` et le cas d'usage
-de `src/Assistant.Application/AskQuestion.cs` levaient `NotImplementedException`. La correction les
-écrit dans leur version la plus simple. La question vide est refusée, et la recherche est filtrée par
-les droits, puis par le seuil de pertinence, avant la construction du prompt. Sans passage pertinent, le
-cas d'usage refuse sans appeler le modèle. Sinon, il appelle le générateur, et une réponse aux citations
-invalides devient une réponse non sourcée, accompagnée des passages.
+1. Lisez le corrigé de S2.2, à la fin de
+   [`exercices/s2.2-coeur-metier/README.md`](exercices/s2.2-coeur-metier/README.md), puis suivez le
+   live-coding de la séquence.
 
-Les tests attendus sont dans `DomainTests.cs` et `AskQuestionTests.cs`, et le test de référence de la
-trace d'un refus dans `AnswerTraceTests.cs`. Pour lire la correction dans le code et dans les tests :
+2. Voyez ensuite le bouchon à l'œuvre. Lancez le service IA hors ligne dans un premier terminal avec
+   `python -m ai_service`, puis construisez l'index et posez une question dans un second :
 
-```bash
-git diff origin/etape/s2.2 corrige/s2.2 -- src tests
-```
+   ```bash
+   dotnet run --project src/Assistant.Cli -- index
+   dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?"
+   ```
 
-Le corrigé de l'énoncé, à la fin de
-[`exercices/s2.2-coeur-metier/README.md`](exercices/s2.2-coeur-metier/README.md), répond aux questions
-de la séquence.
+   `index` fonctionne, puisqu'il n'a pas besoin du modèle. La question, elle, s'arrête sur le message
+   « Erreur : le générateur HTTP reste à écrire », qui renvoie à l'énoncé. Une question sans passage
+   pertinent est refusée normalement, puisque le modèle n'est pas appelé. Essayez avec alice, qui n'est
+   que dans le groupe `tous` :
+
+   ```bash
+   dotnet run --project src/Assistant.Cli -- ask "Quelle est la grille des salaires ?" --user alice -v
+   ```
+
+   alice reçoit un refus, et la trace affichée par `-v` montre que la grille ne figure pas parmi ses
+   passages : elle a été écartée avant même la construction du prompt. Posée par bruno, qui est aussi
+   aux RH, la même question trouve la grille et s'arrête sur le bouchon.
+
+3. L'exercice est décrit dans
+   [`exercices/s2.3-adaptateur-de-generation/README.md`](exercices/s2.3-adaptateur-de-generation/README.md).
+   Créez votre branche, puis récupérez les tests attendus en nommant les fichiers :
+
+   ```bash
+   git switch -c mon-s2.3 origin/etape/s2.3
+   git restore --source corrige/s2.3 -- tests/Assistant.Tests/HttpContractTests.cs tests/Assistant.Tests/AiServiceResponseTests.cs tests/Assistant.Tests/CliAskTests.cs
+   ```
+
+   La compilation échoue sur `HttpGenerator`, qui n'existe pas encore : c'est votre tâche.
+
+4. Écrivez `HttpGenerator` dans `src/Assistant.Infrastructure/HttpAiClient.cs`, d'après
+   `docs/contrat-http.md`, puis branchez-le dans `src/Assistant.Cli/Composition.cs` à la place du
+   bouchon. L'énoncé donne la signature du constructeur et les deux fonctions qui lisent la réponse du
+   service. Ni le domaine ni l'application ne changent.
+
+5. Quand tous les tests passent, ceux de l'architecture compris, faites tourner l'application complète
+   hors ligne : `index`, puis `ask` avec `--user alice`, puis avec `--user bruno`. L'énoncé donne les
+   questions à poser et ce que la trace doit montrer.
+
+6. Changez enfin de générateur sur le même index, sans toucher au cœur ni réindexer :
+
+   ```bash
+   dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" --generation-model extractive-variante -v
+   dotnet run --project src/Assistant.Cli -- ask "En combien de temps un incident P1 est-il pris en charge ?" --generation-model extractive-variante -v
+   ```
+
+   `extractive-variante` est un autre générateur hors ligne, qui choisit sa phrase autrement
+   qu'`extractive`. L'énoncé vous fait comparer les deux générateurs sur ces deux questions, puis
+   prédire par écrit ce que la variante donnera sur trois autres, avant de les poser. Avec Ollama,
+   essayez de même `--generation-model llama3-2-3b` sur la question du P1.
 
 ## Démarrer
 
@@ -43,15 +81,23 @@ dotnet test
 python -m unittest discover -s tests_python -t .
 ```
 
-Les deux commandes doivent se terminer sans échec. Pour ne lancer qu'une classe de tests, filtrez-la
-par son nom :
+Les deux commandes doivent se terminer sans échec. Lancez ensuite le service IA hors ligne dans un
+premier terminal, et laissez-le tourner :
 
 ```bash
-dotnet test --filter "FullyQualifiedName~AskQuestionTests"
+python -m ai_service
 ```
 
-Il n'y a pas encore d'application à lancer. Le service IA, `python -m ai_service`, ne sert pour
-l'instant qu'à l'exemple de S1.3.
+Dans un second terminal, construisez l'index :
+
+```bash
+dotnet run --project src/Assistant.Cli -- index
+```
+
+`index` affiche le nombre de documents et de morceaux qu'il a indexés. Après chaque changement de
+branche, reconstruisez l'index avec `index` : le dossier `data/` n'est pas versionné, et l'index d'une
+autre étape n'a pas forcément le même format. Dans ce cas, l'application refuse de le lire et donne la
+commande qui le reconstruit.
 
 ## Les branches du cours
 
@@ -74,9 +120,7 @@ jamais un dossier.
 
 ## Les choix de cette étape
 
-- Le domaine ne dépend de rien. Les ports sont déclarés dans l'application, à côté des cas d'usage qui
-  s'en servent.
-- L'index vit dans l'application, derrière le port `IVectorIndex`, et le service IA reste un programme
-  à part, joint par le contrat de `docs/contrat-http.md`.
-- Le seuil de pertinence est un réglage du cas d'usage.
+- L'application C# et le service IA en Python ne partagent que le contrat de `docs/contrat-http.md`.
+- L'index vit dans l'application, dans un fichier JSON.
+- Le seuil de pertinence est un réglage de la configuration.
 - Les droits sont filtrés avant le prompt, et le prompt est construit dans l'application.

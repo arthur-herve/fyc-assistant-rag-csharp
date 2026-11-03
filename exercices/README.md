@@ -13,6 +13,7 @@ L'exercice de S2.1 part d'un gabarit rangé dans `docs/`.
 | S1.3 | [Le transfert naïf](../exemples/s1.3-transfert-naif/README.md) | l'adaptateur HTTP à réécrire d'après le contrat, une lecture guidée et un changement de générateur, puis, pour aller plus loin, un adaptateur sans réseau à écrire | `main`, dans `exemples/s1.3-transfert-naif/`, un programme à part | `HttpGenerator` pour l'adaptateur HTTP, et pour l'adaptateur sans réseau une solution possible, dans le README de l'exemple |
 | S2.1 | Le découpage de l'application, d'après le [cahier des charges](../docs/cahier-des-charges.md) | [gabarit](../docs/gabarit-decoupage.md) à remplir | `main` | `corrige/s2.1`, avec `docs/decoupage.md` |
 | S2.2 | [Construire le cœur métier sans IA](s2.2-coeur-metier/README.md) | code à écrire, tests à récupérer | `etape/s2.2` | `corrige/s2.2` |
+| S2.3 | [Écrire l'adaptateur de génération](s2.3-adaptateur-de-generation/README.md) | code à écrire, tests à récupérer | `etape/s2.3` | `corrige/s2.3` |
 
 Les QCM et le test final ne sont pas dans le dépôt : vous les trouverez sur Moodle.
 
@@ -54,3 +55,14 @@ ajoute à la branche de départ, sans votre travail.
 
 Avant de passer à une autre étape, commitez votre travail sur votre branche. Sinon, `git switch` refuse
 de partir dès qu'un de vos fichiers entre en conflit avec la branche d'arrivée.
+
+## Réindexer après un changement de branche
+
+Le dossier `data/`, où l'application range son index, n'est pas versionné. Il ne bouge donc pas quand
+vous changez de branche, et l'index construit sur l'étape précédente reste en place, alors qu'il a pu
+être fait avec un autre découpage ou dans un autre format. À partir d'`etape/s2.3`, reconstruisez-le
+après chaque `git switch`, le service IA lancé :
+
+```bash
+dotnet run --project src/Assistant.Cli -- index
+```

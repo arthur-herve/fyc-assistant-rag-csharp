@@ -7,5 +7,13 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Assistant.Infrastructure/Assistant.Infrastructure.csproj" />
+    <InternalsVisibleTo Include="Assistant.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- La lecture stricte est compilée ici en copie interne, comme dans l'infrastructure. Ainsi la ligne de
+         commande n'a pas à nommer l'infrastructure : seule Composition la connaît, et InfrastructureLeakTests
+         le vérifie. -->
+    <Compile Include="../Shared/TextFiles.cs" Link="Shared/TextFiles.cs" />
+    <Compile Include="../Shared/JsonText.cs" Link="Shared/JsonText.cs" />
   </ItemGroup>
 </Project>

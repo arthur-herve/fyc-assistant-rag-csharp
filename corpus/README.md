@@ -1,19 +1,22 @@
 # Corpus documentaires
 
-Le dépôt contient trois corpus.
+Le dépôt contient trois corpus. Chaque fichier `config/app*.json` choisit le sien avec la clé
+`"corpus": {"directory": …}`.
 
 | Dossier | Contenu | Usage |
 |---|---|---|
-| `solveo/` | 9 documents fictifs de Solvéo, une entreprise imaginaire (RH et informatique), dont 3 à accès restreint | démarrage hors-ligne, exercices courts |
-| `service-public-reduit/` | 50 fiches réelles de Service-Public.gouv.fr, tirées du corpus complet : c'est le corpus du cours | fil rouge avec de vrais modèles, exercices |
-| `service-public/` | 322 fiches réelles du thème « Travail - Formation », secteur privé | mesures à plus grande échelle |
+| `solveo/` | 9 documents fictifs de Solvéo, une entreprise imaginaire (RH et informatique), dont 3 à accès restreint | tests automatisés, démarrage hors-ligne, exercices courts (`config/app.json`) |
+| `service-public-reduit/` | 50 fiches réelles de Service-Public.gouv.fr, tirées du corpus complet : c'est le corpus du cours | fil rouge avec de vrais modèles, exercices (`config/app-ollama.json`) |
+| `service-public/` | 322 fiches réelles du thème « Travail - Formation », secteur privé | mesures à plus grande échelle, avec une configuration à écrire : aucune de celles de `config/` ne le choisit |
 
 Le corpus réduit a la taille que demande le cahier des charges de la séquence S2.1 : « quelques
-dizaines de documents ».
+dizaines de documents ». Il s'indexe en une vingtaine de secondes avec `bge-m3` sur la machine de
+référence, qui dispose d'une carte graphique, et presque instantanément avec `hashing`.
 
 ## Format des documents
 
-Chaque document est un fichier Markdown qui commence par un en-tête placé entre deux lignes `---` :
+Chaque document est un fichier Markdown qui commence par un en-tête placé entre deux lignes `---`.
+C'est `src/Assistant.Infrastructure/MarkdownCorpus.cs` qui le lit :
 
 ```markdown
 ---
@@ -26,16 +29,18 @@ Texte du document…
 
 La ligne `groupes` est obligatoire. Elle vaut `tous` pour un document public. Sinon, elle donne des
 noms de groupes en minuscules, séparés par des virgules (`rh, direction`), sans commentaire en fin de
-ligne. Si elle manque, si elle est vide ou mal écrite, le document n'est pas valide : un oubli ne doit
-jamais rendre un document public.
+ligne. Si elle manque, si elle est vide ou mal écrite, le chargement du corpus s'arrête avec un
+message d'erreur : un oubli ne rend jamais un document public.
 
 Une faute de frappe dans un nom de groupe, en revanche, passe sans erreur si le nom reste bien formé,
 par exemple `rhh` au lieu de `rh`. Le document devient alors illisible pour tout le monde. C'est sans
-danger, mais rien ne le signale.
+danger, mais rien ne le signale : vérifiez les droits avec `ask --user`.
 
-Les autres clés de l'en-tête (source, date, thème…) sont conservées pour information.
+Les autres clés de l'en-tête (source, date, thème…) sont conservées pour information. L'application
+n'en tient pas compte.
 
-Les fichiers doivent être enregistrés en UTF-8.
+Les fichiers doivent être enregistrés en UTF-8. Un document enregistré dans un autre encodage, en
+latin-1 par exemple, arrête le chargement, et le message indique le fichier à corriger.
 
 Un dossier de corpus ne contient que des documents, puisque tout fichier `.md` doit porter cet
 en-tête. C'est pour cette raison que la source et la licence des fiches sont décrites ici, et non
@@ -94,9 +99,8 @@ donc une règle pédagogique. Ils sont attribués par dossier, dans le tableau `
 | `rh` | Recrutement, Licenciement pour motif personnel, Licenciement économique, Rupture du contrat de travail | 61 |
 | `direction` | Conflits du travail | 13 |
 
-Les utilisateurs de démonstration sont ceux du cahier des charges, `docs/cahier-des-charges.md`.
-`alice` lit le groupe `tous`, `bruno` les groupes `tous` et `rh`, `claire` les groupes `tous` et
-`direction`.
+Les utilisateurs de démonstration sont définis dans `config/app-ollama.json`. `alice` lit le groupe
+`tous`, `bruno` les groupes `tous` et `rh`, `claire` les groupes `tous` et `direction`.
 
 ### `service-public-reduit/` : comment les 50 fiches ont été choisies
 

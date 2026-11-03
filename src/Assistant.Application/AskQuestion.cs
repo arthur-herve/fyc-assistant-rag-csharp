@@ -13,6 +13,7 @@ using Assistant.Domain;
 namespace Assistant.Application;
 
 public sealed record AskSettings(
+    // La racine de composition passe la valeur de la configuration.
     double MinScore,
     int TopK = 4,
     double Temperature = 0.2,

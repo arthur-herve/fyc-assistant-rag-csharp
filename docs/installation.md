@@ -47,12 +47,12 @@ bibliothèque standard.
 
 Récupérez le dépôt. Le clone vous place sur `main`, le point de départ du cours, où l'application
 n'est pas encore écrite. Pour tester l'application, passez sur la branche de votre séquence, par
-exemple `etape/s2.2`, la première qui la contient. Lancez ensuite les tests des deux programmes :
+exemple `etape/s2.3`. Lancez ensuite les tests des deux programmes :
 
 ```bash
 git clone https://github.com/arthur-herve/fyc-assistant-rag-csharp.git
 cd fyc-assistant-rag-csharp
-git switch etape/s2.2
+git switch etape/s2.3
 dotnet test --nologo                                   # l'application
 python -m unittest discover -s tests_python -t .       # le service IA et l'outil d'import du corpus
 ```
@@ -72,17 +72,18 @@ Dans le premier, lancez le service IA et laissez-le tourner :
 python -m ai_service
 ```
 
-Dans le second, faites répondre l'exemple de la séquence 1.3 par le service :
+Dans le second, construisez l'index :
 
 ```bash
-dotnet run --project exemples/s1.3-transfert-naif -- generate extractive
+dotnet run --project src/Assistant.Cli -- index
 ```
 
-Vous devez obtenir la phrase sur le télétravail, suivie de sa citation `[1]`.
+Vous devez obtenir « Index construit : 9 documents, 15 morceaux. », pour les 9 documents du corpus
+Solvéo. La commande `ask`, elle, attend encore son générateur : c'est l'exercice de la séquence 2.3.
 
 Ce mode repose sur deux modèles très simples. `hashing` calcule des embeddings par hachage des mots,
 sans rien avoir appris, et `extractive` recopie la phrase la plus proche de la question. Tous deux sont
-déterministes et se passent du réseau.
+déterministes et se passent du réseau. Ce sont aussi ceux qu'utilisent les tests.
 
 `dotnet run` vérifie la compilation à chaque lancement, ce qui prend quelques secondes même quand il
 n'y a rien à recompiler. Pour aller plus vite, lancez `dotnet build` une fois, puis ajoutez
@@ -107,23 +108,46 @@ hors-ligne, et revenez-y plus tard.
 Pour vérifier l'installation, lancez `ollama --version`, puis `ollama list`. Au début, la liste est
 vide.
 
-L'exemple de la séquence 1.3 peut alors appeler un vrai modèle. Téléchargez-le, puis posez-lui la
-question, le service IA toujours lancé dans le premier terminal :
+Téléchargez ensuite le modèle de génération du cours :
 
 ```bash
 ollama pull llama3.2:3b
-dotnet run --project exemples/s1.3-transfert-naif -- generate llama3-2-3b
 ```
 
 Le service IA connaît ce modèle sous l'alias `llama3-2-3b`, déclaré dans `config/ai_service.toml`.
+
+## Déploiement sur deux machines
+
+L'application et le service IA sont deux programmes : rien n'oblige à les faire tourner sur le même
+poste.
+
+Sur la machine de calcul, faites écouter le service IA sur toutes les interfaces, soit avec
+`python -m ai_service --host 0.0.0.0`, soit en mettant `host = "0.0.0.0"` dans la section `[server]`
+de `config/ai_service.toml`. Il annonce alors « Service IA sur http://127.0.0.1:8100, à l'écoute sur
+toutes les interfaces ».
+
+Sur le poste de l'application, la variable d'environnement `AI_SERVICE_URL` remplace l'adresse `base_url`
+de `config/app.json`. Gardez quand même `base_url` dans le fichier : l'application la vérifie toujours.
+
+```bash
+AI_SERVICE_URL=http://machine-gpu:8100 dotnet run --project src/Assistant.Cli -- index
+```
+
+L'annonce du service affiche 127.0.0.1 et non 0.0.0.0, et c'est voulu. 0.0.0.0 veut dire « toutes les
+interfaces » : ce n'est pas une adresse où se connecter. 127.0.0.1 en est une, mais seulement depuis
+la machine elle-même. Depuis une autre machine, on utilise le nom ou l'adresse du serveur.
+
+**Attention : le service IA n'a pas d'authentification.** Il est prévu pour un réseau interne. En
+production, placez-le derrière un proxy authentifié.
 
 ## Ce qui peut coincer
 
 | Symptôme | Cause probable | Que faire |
 |---|---|---|
-| `Erreur : … (127.0.0.1:8100)`, avec un message de connexion refusée | le service IA ne tourne pas dans le premier terminal | lancez `python -m ai_service` |
-| `Erreur : service IA : … Ollama est-il lancé sur http://127.0.0.1:11434 ?` | Ollama est arrêté | `ollama serve` |
-| `Erreur : service IA : empreinte de llama3.2:3b introuvable …` | le modèle n'est pas téléchargé | `ollama pull llama3.2:3b` |
+| `Service IA injoignable (http://127.0.0.1:8100/…)` | le service IA ne tourne pas dans le premier terminal | lancez `python -m ai_service` |
+| `HTTP 502 — … Ollama est-il lancé sur http://127.0.0.1:11434 ?` | Ollama est arrêté | `ollama serve` |
+| `HTTP 502 — empreinte de … introuvable … (modèles installés : …)` | le modèle n'est pas téléchargé, ou son nom n'est pas écrit comme dans `ollama list` | `ollama pull <modèle>`, ou corrigez `model` dans `config/ai_service.toml` |
+| `Erreur : prompt introuvable : … dans … (connus : answer)` | nom mal tapé dans `generation.prompt` de la configuration | choisissez un des prompts connus |
 | `dotnet : commande introuvable` | SDK non installé, ou PATH pas encore mis à jour | rouvrez le terminal après l'installation, puis vérifiez avec `dotnet --info` |
 | `NETSDK1045`, ou un message sur la « version du SDK » | SDK plus ancien que 8.0 | installez le SDK 8.0 (étape 1) |
 | « You must install or update .NET to run this application » (`Microsoft.NETCore.App` 8.0) | un SDK 9 ou 10 seul, sans le runtime 8 | installez le runtime .NET 8 (étape 1) |
