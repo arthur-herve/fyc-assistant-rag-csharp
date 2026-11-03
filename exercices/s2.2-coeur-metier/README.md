@@ -133,3 +133,72 @@ Gardez-les en tête pendant que vous codez : le corrigé y répond.
 - Bonus C# : `Assistant.Domain.csproj` ne contient aucune `ProjectReference`, et
   `Assistant.Application.csproj` une seule, vers le domaine. Qu'est-ce que le compilateur interdit
   alors au cœur ? Et pourquoi cela ne suffit-il pas, comme l'a montré l'étape 6 ?
+
+## Corrigé
+
+La correction est le tag `corrige/s2.2`. `git diff origin/etape/s2.2 corrige/s2.2` montre ce qu'elle
+ajoute : `Rules.cs` et `AskQuestion.cs` écrits, les tests attendus, le test de référence de la trace et
+ce corrigé.
+
+Les deux règles tiennent en quelques lignes. `AccessPolicy.CanRead` accepte un morceau ouvert à `tous`,
+puis cherche un groupe commun. `Citations.Check` relève les numéros avec une expression régulière, les lit
+avec `int.TryParse`, sans quoi un numéro démesuré ferait lever une exception, garde chacun une seule fois
+et les range en valides et invalides selon le nombre de passages fournis.
+L'expression régulière écrit `[0-9]` et non `\d`. En .NET, `\d` reconnaît aussi les chiffres d'autres
+écritures : `[١]` deviendrait alors une citation invalide, au lieu de ne pas être une citation du tout.
+
+`AskQuestion.Execute` est écrit dans sa version la plus simple :
+
+- la question vide est refusée, avant tout le reste ;
+- la recherche est filtrée par les droits avant la construction du prompt : un passage interdit n'y
+  entre jamais ;
+- le seuil de pertinence est celui d'`AskSettings` ;
+- sans passage pertinent, le cas d'usage rend `NoRelevantSource` sans appeler le modèle ;
+- sinon, il appelle le modèle, et une réponse aux citations invalides devient `Unsourced`, avec les
+  passages en guise de sources.
+
+Le test de référence de la trace est
+`AnswerTraceTests.A_refusal_without_relevant_source_keeps_the_passages_and_their_scores`. Il vit dans
+`AnswerTraceTests.cs`, un fichier que la commande de restauration ne nomme pas. Il n'est donc pas arrivé
+avec les tests attendus, et vous avez pu écrire le vôtre sans le voir. Pour le comparer au vôtre :
+
+```bash
+git show corrige/s2.2:tests/Assistant.Tests/AnswerTraceTests.cs
+```
+
+Le même fichier vérifie à part, dans `A_refusal_without_relevant_source_keeps_the_threshold`, que la
+trace garde le seuil.
+
+Ce que vous venez d'écrire est le vrai cœur de l'assistant. C'est lui qui tourne derrière de vrais
+modèles dès S2.3.
+
+Voici les réponses aux questions.
+
+Les tests font répondre le cas d'usage grâce aux doubles de `Fakes.cs`. Ils construisent `AskQuestion`
+avec des objets qui implémentent les ports : `KeywordEmbedder : IEmbedder`, `ScriptedGenerator :
+IGenerator`, `FakeIndex : IVectorIndex`, `StaticPrompts : IPromptRepository`. Le cas d'usage ne voit que
+les interfaces de `Ports.cs`. Qu'on lui donne un vrai adaptateur HTTP ou un double en mémoire, c'est
+pareil pour lui. C'est l'inversion des dépendances : le cœur définit ce dont il a besoin, et l'extérieur
+s'y conforme. En C#, le double déclare qu'il implémente le port, et le compilateur le vérifie.
+
+Le test des droits, `Restricted_passages_never_reach_the_prompt`, inspecte le prompt parce que la règle
+métier va plus loin que la réponse. Un document interdit ne doit jamais atteindre le modèle, et il ne
+suffit pas qu'il ne soit pas cité. Un générateur scripté peut renvoyer n'importe quoi : ce qui compte,
+c'est ce qu'il a reçu. Le test regarde donc les requêtes enregistrées dans `ScriptedGenerator.Requests`.
+
+Confier les citations au prompt reviendrait à remplacer une garantie par une consigne. Le modèle peut
+l'ignorer, inventer un `[7]` ou citer un passage sans l'avoir lu. `Citations.Check`, au contraire, est
+déterministe, se teste en quelques microsecondes, et c'est elle qui décide du statut de la réponse. Le
+prompt essaie d'obtenir une sortie acceptable, le domaine vérifie qu'elle l'est.
+
+La trace d'un refus garde ce que la recherche a trouvé, même sous le seuil. Elle permet de dire si le
+seuil était trop haut, parce qu'un bon passage n'a manqué le seuil que de peu, ou si le corpus n'a tout
+simplement pas la réponse. Sans elle, il faudrait reposer la question, et rien ne garantit que la
+recherche rendrait la même chose une fois les documents ou le modèle changés.
+
+Enfin, comme le domaine ne référence aucun projet et l'application seulement le domaine, le compilateur
+interdit au cœur d'utiliser ce qui vit ailleurs : les doubles des tests, un adaptateur, un client pour
+Ollama. Mais `HttpClient` fait partie du framework : il reste disponible partout, et l'étape 6 a compilé
+sans un mot. C'est pourquoi `The_core_does_not_touch_the_network` lit le code compilé, et non les
+sources. La règle de dépendance tient donc de deux façons : par les références entre projets, et par des
+tests qui regardent ce que le code utilise vraiment.

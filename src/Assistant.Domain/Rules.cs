@@ -1,6 +1,9 @@
 // Les deux règles métier : le contrôle d'accès et les citations obligatoires. Ce sont des
 // fonctions pures, testables en microsecondes.
 
+using System.Globalization;
+using System.Text.RegularExpressions;
+
 namespace Assistant.Domain;
 
 public class DomainException : Exception
@@ -17,10 +20,6 @@ public sealed class EmptyQuestionException : DomainException
 /// Règle métier n° 1 : le contrôle d'accès est appliqué de façon déterministe AVANT
 /// l'appel au modèle. On ne demande jamais au modèle de « ne pas révéler » un
 /// document : un passage interdit n'entre tout simplement pas dans le prompt.
-///
-/// La règle à écrire : un morceau dont les groupes contiennent <see cref="PublicGroup"/>
-/// se lit par tout le monde. Pour les autres, l'utilisateur doit avoir au moins un groupe
-/// en commun avec le morceau.
 /// </summary>
 public sealed class AccessPolicy
 {
@@ -28,7 +27,11 @@ public sealed class AccessPolicy
 
     public bool CanRead(User user, Chunk chunk)
     {
-        throw new NotImplementedException("AccessPolicy.CanRead : à écrire (exercice S2.2)");
+        if (chunk.AllowedGroups.Contains(PublicGroup))
+        {
+            return true;
+        }
+        return user.Groups.Overlaps(chunk.AllowedGroups);
     }
 }
 
@@ -42,17 +45,28 @@ public sealed record CitationCheck(IReadOnlyList<int> Cited, IReadOnlyList<int> 
 /// Règle métier n° 2 : le modèle est probabiliste, la vérification ne l'est pas.
 /// On contrôle que la réponse contient au moins une citation et que chaque
 /// citation renvoie à un passage réellement fourni. Formats acceptés : [1], [2, 3], [2,3].
-///
-/// La fonction à écrire rend d'un côté les numéros valides, de 1 à <c>passageCount</c>,
-/// de l'autre les numéros invalides, chacun une seule fois et dans l'ordre où il apparaît.
-/// Une sortie inattendue ne doit jamais faire lever d'exception : un nombre trop grand
-/// pour un int est une citation invalide. Seuls les chiffres de 0 à 9 comptent : « [١] », écrit dans
-/// une autre écriture, n'est pas une citation.
 /// </summary>
 public static class Citations
 {
+    private static readonly Regex Citation = new(@"\[([0-9]+(?:\s*,\s*[0-9]+)*)\]", RegexOptions.Compiled);
+
     public static CitationCheck Check(string text, int passageCount)
     {
-        throw new NotImplementedException("Citations.Check : à écrire (exercice S2.2)");
+        var numbers = new List<int>();
+        foreach (Match match in Citation.Matches(text))
+        {
+            foreach (var part in match.Groups[1].Value.Split(','))
+            {
+                // Un nombre trop grand pour un int ([33612345678]) est une citation invalide, pas un plantage.
+                var number = int.TryParse(part.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) ? parsed : int.MaxValue;
+                if (!numbers.Contains(number))
+                {
+                    numbers.Add(number);
+                }
+            }
+        }
+        var valid = numbers.Where(n => n >= 1 && n <= passageCount).ToList();
+        var invalid = numbers.Where(n => n < 1 || n > passageCount).ToList();
+        return new CitationCheck(valid, invalid);
     }
 }

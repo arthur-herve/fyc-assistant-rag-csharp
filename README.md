@@ -1,65 +1,37 @@
-# Fil rouge, étape S2.2 : le cœur sans IA
+# Fil rouge, correction de S2.2 : le cœur sans IA
 
-> **Branche d'étape.** Cette branche est l'état du fil rouge au début de la séquence S2.2. Il y manque
-> exprès le cœur de l'assistant, les deux règles métier et le cas d'usage qui répond à une question : la
-> séquence vous les fait écrire, et sa correction les donne. L'application complète, avec toute sa
-> documentation, est sur la branche `final`.
+> **Correction de la séquence S2.2.** Ce tag, `corrige/s2.2`, est l'état du fil rouge à la fin de la
+> séquence. Il sert à comparer votre travail et à récupérer les tests attendus. L'application complète,
+> avec toute sa documentation, est sur la branche `final`.
 
 ## Où en est le fil rouge
 
-Le découpage de S2.1 est en place : la solution `FycAssistantRag.sln`, ses quatre projets et leurs
-références, le modèle du domaine et les ports de l'application. Le départ de la séquence y ajoute les
-erreurs de l'application, le cas d'usage d'indexation, déjà écrit, et un double de test pour chaque port.
-Les deux règles métier de `src/Assistant.Domain/Rules.cs` et le cas d'usage de
-`src/Assistant.Application/AskQuestion.cs` lèvent encore `NotImplementedException`. `Assistant.Infrastructure`
-est vide, et `Assistant.Cli` ne fait qu'annoncer l'application : la séquence montre que le cœur s'écrit
-et se teste sans eux, sans modèle, sans réseau et sans disque.
+Le cœur est écrit : le domaine, avec ses deux règles métier, et les deux cas d'usage de l'application,
+qui ne connaissent le modèle, l'index et les fichiers que par leurs ports. Il se teste en entier avec
+les doubles de `tests/Assistant.Tests/Fakes.cs`, sans modèle, sans réseau et sans disque. Tout ce qui
+l'entoure manque encore : `Assistant.Infrastructure` est vide, et `Assistant.Cli` ne fait qu'annoncer
+l'application. La séquence S2.3 branche ce cœur sur le corpus, l'index et le service IA. Elle pose
+une question : peut-on ensuite changer de modèle sans toucher au cœur ?
 
-## Ce que vous faites dans cette séquence
+## Ce que la correction a changé
 
-L'exercice est décrit dans
-[`exercices/s2.2-coeur-metier/README.md`](exercices/s2.2-coeur-metier/README.md). En voici les étapes.
+Au départ de la séquence, les deux règles métier de `src/Assistant.Domain/Rules.cs` et le cas d'usage
+de `src/Assistant.Application/AskQuestion.cs` levaient `NotImplementedException`. La correction les
+écrit dans leur version la plus simple. La question vide est refusée, et la recherche est filtrée par
+les droits, puis par le seuil de pertinence, avant la construction du prompt. Sans passage pertinent, le
+cas d'usage refuse sans appeler le modèle. Sinon, il appelle le générateur, et une réponse aux citations
+invalides devient une réponse non sourcée, accompagnée des passages.
 
-1. Comparez votre gabarit de S2.1 à `docs/decoupage.md`, aux quatre projets et à leurs références. Pour
-   chaque port de `src/Assistant.Application/Ports.cs`, dites qui le déclare, qui l'implémente et pourquoi
-   il vit dans l'application.
+Les tests attendus sont dans `DomainTests.cs` et `AskQuestionTests.cs`, et le test de référence de la
+trace d'un refus dans `AnswerTraceTests.cs`. Pour lire la correction dans le code et dans les tests :
 
-2. Créez votre branche à partir de la branche d'étape :
+```bash
+git diff origin/etape/s2.2 corrige/s2.2 -- src tests
+```
 
-   ```bash
-   git switch -c mon-s2.2 origin/etape/s2.2
-   ```
-
-3. Écrivez d'abord votre test, dans `tests/Assistant.Tests/MesTests.cs`, classe `MesTests`. Il vérifie
-   que la trace d'un refus « aucune source pertinente » garde les passages retrouvés et leurs scores.
-   L'énoncé dit pourquoi le fichier et la classe sont imposés.
-
-4. Récupérez les tests attendus depuis la correction, en nommant les fichiers :
-
-   ```bash
-   git restore --source corrige/s2.2 -- tests/Assistant.Tests/DomainTests.cs tests/Assistant.Tests/AskQuestionTests.cs
-   ```
-
-5. Faites passer les tests un par un : `AccessPolicy.CanRead` et `Citations.Check` dans
-   `src/Assistant.Domain/Rules.cs`, puis `AskQuestion.FormatPassages` et `AskQuestion.Execute` dans
-   `src/Assistant.Application/AskQuestion.cs`. Les commentaires de ces méthodes disent ce qu'elles doivent
-   faire.
-
-6. Vérifiez que le cœur ne dépend de rien d'extérieur :
-
-   ```bash
-   dotnet test --filter "FullyQualifiedName~ArchitectureTests"
-   ```
-
-   Utilisez ensuite un `HttpClient` au début d'`Execute` : `The_core_does_not_touch_the_network` échoue.
-   Retirez-le.
-
-7. Lisez la correction, puis comparez-la à votre travail :
-
-   ```bash
-   git diff origin/etape/s2.2 corrige/s2.2
-   git diff corrige/s2.2
-   ```
+Le corrigé de l'énoncé, à la fin de
+[`exercices/s2.2-coeur-metier/README.md`](exercices/s2.2-coeur-metier/README.md), répond aux questions
+de la séquence.
 
 ## Démarrer
 
@@ -71,12 +43,11 @@ dotnet test
 python -m unittest discover -s tests_python -t .
 ```
 
-Les deux commandes doivent se terminer sans échec : les tests des règles et du cas d'usage ne sont pas
-encore là. `IndexCorpusTests` montre comment on teste un cas d'usage avec les doubles de
-`tests/Assistant.Tests/Fakes.cs`. Pour ne lancer qu'une classe de tests, filtrez-la par son nom :
+Les deux commandes doivent se terminer sans échec. Pour ne lancer qu'une classe de tests, filtrez-la
+par son nom :
 
 ```bash
-dotnet test --filter "FullyQualifiedName~IndexCorpusTests"
+dotnet test --filter "FullyQualifiedName~AskQuestionTests"
 ```
 
 Il n'y a pas encore d'application à lancer. Le service IA, `python -m ai_service`, ne sert pour
