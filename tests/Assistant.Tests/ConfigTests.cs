@@ -92,6 +92,7 @@ public sealed class ConfigTests : IDisposable
     [InlineData("\"index\"", "\"generation\": { \"max_attempts\": 0 }, \"index\"", " [generation] : « max_attempts » = 0, doit valoir au moins 1")]
     [InlineData("\"index\"", "\"generation\": { \"seed\": \"42\" }, \"index\"", " [generation] : « seed » doit être un entier, pas \"42\"")]
     [InlineData("\"index\"", "\"generation\": { \"prompt\": 3 }, \"index\"", " [generation] : « prompt » doit être une chaîne, pas 3")]
+    [InlineData("\"index\"", "\"decorators\": { \"retries\": -1 }, \"index\"", " [decorators] : « retries » = -1, doit valoir au moins 0")]
     [InlineData("\"index\"", "\"splitter\": { \"max_chars\": 99 }, \"index\"", " [splitter] : « max_chars » = 99, doit valoir au moins 100")]
     [InlineData("\"index\"", "\"splitter\": { \"overlap_chars\": 400 }, \"index\"",
                 " [splitter] : « overlap_chars » = 400, doit être compris entre 0 et 399")]
@@ -259,9 +260,11 @@ public sealed class ConfigTests : IDisposable
         var config = Load(Valid
             .Replace("\"base_url\"", "\"_note\": \"x\", \"base_url\"")
             .Replace("\"min_score\": {", "\"_note\": \"x\", \"min_score\": { \"_calibre\": \"le 11/09\", \"hashing\": 0.15,")
+            .Replace("\"index\"", "\"decorators\": { \"_note\": \"x\", \"cache_embeddings\": true }, \"index\"")
             .Replace("\"index\"", "\"users\": { \"_note\": \"x\", \"_modele\": { \"groupes\": [\"tous\"] }, "
                                   + "\"alice\": { \"_note\": \"x\", \"groups\": [\"tous\"] } }, \"index\""));
         Assert.Equal(new[] { "default", "hashing" }, config.MinScores.Keys.Order());
+        Assert.Equal(new[] { "cache_embeddings" }, config.Decorators.Keys);
         Assert.Equal(new[] { "alice" }, config.Users.Keys);   // « _modele » est un commentaire : ni vérifié, ni utilisateur
     }
 

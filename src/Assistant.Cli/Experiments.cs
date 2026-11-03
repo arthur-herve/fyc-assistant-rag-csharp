@@ -25,6 +25,7 @@ public sealed class Experiment
     public AppConfig Config { get; }
     public IReadOnlyList<EvalQuestion> Questions { get; }
     private readonly List<string> _lines = new();
+    private readonly Action<string> _log;
     private readonly Overrides _common;
 
     /// <summary>
@@ -33,11 +34,12 @@ public sealed class Experiment
     /// de suite (<see cref="AppConfig.CreateNewDir"/>). Un dossier donné par --out peut déjà exister.
     /// </summary>
     public Experiment(string name, AppConfig config, IReadOnlyList<EvalQuestion> questions, string outDir, string questionsPath, string configPath,
-                      Overrides? common = null, bool newOutDir = false)
+                      Action<string> log, Overrides? common = null, bool newOutDir = false)
     {
         Name = name;
         Config = config;
         Questions = questions;
+        _log = log;
         _common = common ?? new Overrides();
         if (questions.Count == 0)
         {
@@ -91,7 +93,7 @@ public sealed class Experiment
             PromptName = o.PromptName ?? _common.PromptName,
             IndexPath = Path.Combine(OutDir, $"index-{indexName}.json"),
             SnapshotsDir = Path.Combine(OutDir, "instantanes"),
-        });
+        }, _log);
     }
 
     /// <summary>Indexe le corpus et affiche une ligne de progression en console, comme <see cref="Record"/>.</summary>
@@ -216,7 +218,7 @@ public static class Experiments
 {
     public static readonly string[] Names = { "cace-decoupage", "changement-embeddings", "changement-generateur", "prompt-v2", "stabilite" };
 
-    public static int Run(string name, Args args, AppConfig config, Overrides common, string configPath)
+    public static int Run(string name, Args args, AppConfig config, Overrides common, string configPath, Action<string> log)
     {
         if (!Names.Contains(name))
         {
@@ -265,7 +267,7 @@ public static class Experiments
         // Sans --out, le dossier va sous la racine du projet et il est toujours neuf (newOutDir).
         var outDir = args.NonEmpty("--out");
         var exp = new Experiment(name, config, questions, outDir ?? AppConfig.ResultsDir($"exp-{name}-", DateTime.Now), questionsPath, configPath,
-                                 common, newOutDir: outDir is null);
+                                 log, common, newOutDir: outDir is null);
         switch (name)
         {
             case "cace-decoupage": CaceDecoupage(exp, args); break;

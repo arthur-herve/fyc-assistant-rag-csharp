@@ -100,7 +100,7 @@ public class ExperimentTests
         try
         {
             var config = AppConfig.Load();
-            var exp = new Experiment("test", config, questions, dir.FullName, "questions", "config");
+            var exp = new Experiment("test", config, questions, dir.FullName, "questions", "config", _ => { });
             var snapshot = new Application.Snapshot("s", "2026-09-12T00:00:00+00:00", new Dictionary<string, object?>(), new[]
             {
                 new Application.SnapshotEntry("q1", "alice", "Q1", "answered", new[] { "teletravail" }, "Deux jours [1]", 1),

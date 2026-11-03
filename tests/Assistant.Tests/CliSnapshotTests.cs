@@ -95,6 +95,7 @@ public sealed class CliSnapshotTests : CliTestBase
     [Theory]
     [InlineData("snapshot", "record", "x", "--questions", "q.json", "--limit", "2")]
     [InlineData("snapshot", "compare", "a", "b", "--prompt", "answer-v2")]
+    [InlineData("snapshot", "list", "-v")]
     // La borne : --limit 1.
     [InlineData("snapshot", "record", "x", "--limit", "1")]
     public void The_options_of_each_command_reach_the_configuration(params string[] argv)

@@ -19,7 +19,8 @@ public static class Fakes
 /// <summary>Un axe par mot du vocabulaire : les scores sont prévisibles à la main.</summary>
 public sealed class KeywordEmbedder : IEmbedder
 {
-    public string Model { get; }
+    public string Model { get; set; }   // modifiable : imite un changement de modèle derrière l'alias
+    public List<(string Kind, IReadOnlyList<string> Texts)> Calls { get; } = new();
 
     public KeywordEmbedder(string model = "fake-keywords") => Model = model;
 
@@ -29,10 +30,17 @@ public sealed class KeywordEmbedder : IEmbedder
         return Fakes.Vocabulary.Select(w => lowered.Contains(w) ? 1.0 : 0.0).ToArray();
     }
 
-    public EmbeddingBatch EmbedDocuments(IReadOnlyList<string> texts) =>
-        new(Model, Fakes.Vocabulary.Length, texts.Select(Vector).ToList());
+    public EmbeddingBatch EmbedDocuments(IReadOnlyList<string> texts)
+    {
+        Calls.Add(("document", texts));
+        return new EmbeddingBatch(Model, Fakes.Vocabulary.Length, texts.Select(Vector).ToList());
+    }
 
-    public EmbeddingBatch EmbedQuery(string text) => new(Model, Fakes.Vocabulary.Length, new[] { Vector(text) });
+    public EmbeddingBatch EmbedQuery(string text)
+    {
+        Calls.Add(("query", new[] { text }));
+        return new EmbeddingBatch(Model, Fakes.Vocabulary.Length, new[] { Vector(text) });
+    }
 }
 
 /// <summary>Renvoie des réponses écrites à l'avance et enregistre les requêtes reçues.</summary>

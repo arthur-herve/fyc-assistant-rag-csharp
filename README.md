@@ -1,70 +1,71 @@
-# Fil rouge, étape S3.3 : frontière métier et modèle
+# Fil rouge, étape S4.1 : stratégies d'isolation
 
-> **Branche d'étape.** Cette branche est l'état du fil rouge au début de la séquence S3.3. Cette
-> séquence est un débat : elle n'a pas de correction. L'application complète, avec toute sa
-> documentation, est sur la branche `final`.
+> **Branche d'étape.** Cette branche est l'état du fil rouge au début de la séquence S4.1. Certains
+> défauts y sont laissés exprès : la séquence les montre, et sa correction les pare. L'application
+> complète, avec toute sa documentation, est sur la branche `final`.
 
 ## Où en est le fil rouge
 
 Le fil rouge a les parades des séquences précédentes : les droits filtrés avant le prompt, les citations
-vérifiées, les tentatives et la graine, le manifeste de l'index et un seuil par modèle d'embeddings. Il a
-aussi un banc d'essai et des expériences qui rejouent les ruptures. Cette étape n'ajoute presque rien au
-code : un second prompt, `prompts/answer-v2.json`, l'option `--prompt` qui choisit le prompt, et
-l'expérience `prompt-v2` qui compare les deux. Le débat porte sur la frontière entre le métier et le
-modèle, et rien dans cette branche ne tranche la question à votre place.
+vérifiées, les tentatives et la graine, le manifeste de l'index et un seuil par modèle d'embeddings. Des
+décorateurs entourent maintenant les ports : un cache pour les embeddings des questions, un journal des
+appels, et de nouvelles tentatives quand le service IA a une panne passagère. Il manque, exprès, un
+contrôle de la sortie du modèle : seules ses citations sont vérifiées, si bien qu'un texte qui n'a pas la
+forme d'une réponse arrive jusqu'à l'utilisateur. La séquence part de là pour distinguer ce qui isole la
+technologie de ce qui isole l'incertitude.
 
 ## Ce que vous faites dans cette séquence
 
-1. Relisez la parade de S3.2 sur les seuls fichiers qui la montrent :
+1. Lisez le support : isoler la technologie ou isoler l'incertitude, la couche anticorruption, la
+   validation de schéma. Lisez ensuite les décorateurs fournis, dans
+   `src/Assistant.Infrastructure/Decorators.cs`, et la façon dont `Composition.Decorate` les empile selon
+   la section `decorators` de la configuration : ce sont les exemples commentés de la séquence. Le cache
+   ne sert que l'index courant, qu'il reconnaît à son manifeste. Ce lien protège surtout un processus qui
+   dure plus longtemps qu'une commande. Ici, chaque commande construit son conteneur et son cache, comme
+   le banc d'essai et les expériences le font pour chaque configuration.
+
+2. Voyez la fuite, hors ligne. L'alias `extractive-bavard` du service IA fait précéder sa réponse d'un
+   raisonnement en anglais, comme certains modèles qui « réfléchissent » à voix haute. Le service IA
+   lancé, construisez l'index, puis posez-lui une question :
 
    ```bash
-   git diff origin/etape/s3.2 corrige/s3.2 -- src/Assistant.Application/Ports.cs src/Assistant.Application/SearchPassages.cs src/Assistant.Application/IndexCorpus.cs src/Assistant.Domain
+   dotnet run --project src/Assistant.Cli -- index
+   dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" --generation-model extractive-bavard -v
    ```
 
-   Regardez ce que le port a dû changer pour que l'index sache quel modèle l'a construit. Sur tout `src`,
-   ce diff serait noyé dans le banc d'essai, `src/Assistant.Cli/Benchmark.cs`, qui compte à lui seul plus
-   de 600 lignes.
+   La réponse commence par « Okay, let me check the documents. » et se termine par la citation [1]. Elle
+   reçoit le statut `answered`, et l'utilisateur la lit telle quelle. Le journal affiché par `-v` montre
+   une seule génération, sans erreur ni nouvelle tentative : aucun décorateur ne regarde ce que le modèle
+   a répondu. Ces décorateurs isolent la technologie : ils s'occupent des pannes du réseau, de la durée
+   des appels et des embeddings déjà calculés, sans rien savoir de ce qu'est une bonne réponse.
+   Qu'est-ce qui, dans le fil rouge, isole l'incertitude ? Gardez la question en tête pendant toute la
+   séquence.
 
-2. Le service IA lancé, rejouez hors ligne les deux expériences de S3.2 :
+3. Lancez le test de caractérisation qui fige ce comportement. Il est dans `AskQuestionTests.cs`, avec les
+   autres tests du cas d'usage, et il passe, parce qu'il affirme ce que fait le code aujourd'hui, pas ce
+   qu'il devrait faire :
 
    ```bash
-   dotnet run --project src/Assistant.Cli -- experience changement-embeddings --other hashing-512
-   dotnet run --project src/Assistant.Cli -- experience cace-decoupage
+   dotnet test --filter "FullyQualifiedName~AskQuestionTests"
    ```
 
-   La première montre le refus explicite : l'index construit avec `hashing-256-stem6` n'est pas interrogé
-   avec `hashing-512-stem6`, et l'application demande de réindexer. La seconde ne change que le découpage :
-   les morceaux passent de 800 à 300 caractères, et leur recouvrement de 120 à 50. Un tiers des réponses
-   changent, et la part des refus justes tombe de 0,80 à 0,40. Chaque expérience écrit un rapport et en
-   affiche le chemin à la fin.
-
-3. Lisez le support de la séquence et les extraits proposés, dont *Software 2.0* d'Andrej Karpathy.
-
-4. Regardez où vivent les règles du fil rouge, et demandez-vous de quel côté de la frontière chacune se
-   trouve :
-   - le seuil de pertinence, dans la table `retrieval.min_score` de chaque fichier `config/*.json`, dit
-     quand l'assistant doit refuser de répondre. C'est une règle métier, mais sa valeur dépend des poids du
-     modèle d'embeddings ;
-   - les consignes de `prompts/answer.json` demandent de répondre en français, en trois phrases au plus,
-     en citant les passages. Ce sont des exigences du métier, écrites dans un texte réglé pour un modèle.
-
-5. Comparez les deux prompts. `prompts/answer-v2.json` demande une seule phrase, qui commence par la
-   valeur demandée. Avec Ollama, lancez l'expérience avec un vrai générateur. Les embeddings restent
-   ceux de `config/app.json`, et les deux prompts sont comparés sur le même index :
+4. Faites l'exercice décrit dans
+   [`exercices/s4.1-decorateur-de-validation/README.md`](exercices/s4.1-decorateur-de-validation/README.md).
+   Créez votre branche, puis récupérez les tests attendus en nommant les fichiers :
 
    ```bash
-   dotnet run --project src/Assistant.Cli -- experience prompt-v2 --generation-model llama3-2-3b
+   git switch -c mon-s4.1 origin/etape/s4.1
+   git restore --source corrige/s4.1 -- tests/Assistant.Tests/DecoratorTests.cs tests/Assistant.Tests/AskQuestionTests.cs tests/Assistant.Tests/CompositionRootTests.cs tests/Assistant.Tests/ConfigTests.cs
    ```
 
-   Regardez la dérive et la longueur moyenne des réponses. Avec un vrai modèle, changer les consignes
-   change les réponses, sans qu'une ligne de code ait bougé. Hors ligne, la même commande sans
-   `--generation-model` donne 0 % de dérive, parce qu'`extractive` recopie une phrase des passages et
-   ignore les consignes. L'effet du prompt ne se voit donc qu'avec un vrai modèle. Pour une seule
-   question, l'option `--prompt answer-v2` de `ask` fait la même substitution.
+   Les erreurs de compilation forment votre liste de tâches. L'énoncé donne les signatures, l'ordre dans
+   lequel faire passer les tests et la place de la validation parmi les décorateurs. Le test de
+   caractérisation disparaît avec la restauration : la version d'`AskQuestionTests.cs` de la correction le
+   remplace par un test qui affirme le contraire.
 
-6. Prenez position par écrit, en quelques lignes. Le prompt est-il de la configuration ou de la logique
-   métier ? Le modèle est-il un détail, une entité, ou une catégorie que le schéma classique de la Clean
-   Architecture ne prévoit pas ? Confrontez ensuite votre position au QCM, sur Moodle.
+5. Quand tous les tests passent, ceux de l'architecture compris, relancez la démonstration avec
+   `extractive-bavard`. La réponse doit maintenant être refusée après deux tentatives : elle reçoit le
+   statut `unsourced`, et l'utilisateur lit « Je n'ai pas pu produire de réponse correctement sourcée ».
 
 ## Démarrer
 
@@ -120,8 +121,8 @@ jamais un dossier.
 - L'application C# et le service IA en Python ne partagent que le contrat de `docs/contrat-http.md`.
   L'index vit dans l'application. Construit par un autre modèle, il est refusé au lieu de répondre à côté.
 - Le seuil de pertinence se règle par modèle d'embeddings et par corpus, dans la configuration.
-- Les droits sont filtrés avant le prompt, et le prompt est construit dans l'application.
+- Les droits sont filtrés avant le prompt, et le prompt est construit dans l'application. Il se choisit
+  par son nom, dans la configuration ou avec `--prompt`.
 - La recherche, déterministe, se teste par assertion. La génération a droit à une seconde tentative,
   et une graine peut la rendre reproductible.
-- Le prompt se choisit par son nom, dans la configuration ou avec `--prompt`. Ce choix ne dit pas encore
-  si le prompt relève de la configuration ou du métier : c'est la question de la séquence.
+- Les décorateurs entourent les ports sans que les cas d'usage le sachent, et le cache suit l'index courant.

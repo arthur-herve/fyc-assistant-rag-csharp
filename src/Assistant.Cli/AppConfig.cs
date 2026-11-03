@@ -2,7 +2,7 @@
 // Elle ne connaît les modèles que par leurs alias. Seuls les seuils de pertinence dépendent du modèle,
 // et c'est voulu. Une erreur de saisie se voit dès le chargement, avec le fichier et la clé.
 // JSON n'a pas de commentaires : une clé qui commence par « _ » en tient lieu, à tous les niveaux du
-// fichier, y compris dans retrieval.min_score, users et chaque users.<nom>.
+// fichier, y compris dans retrieval.min_score, decorators, users et chaque users.<nom>.
 
 using System.Globalization;
 using System.Text.Json;
@@ -42,16 +42,28 @@ public sealed record AppConfig(
     int MaxTokens,
     int MaxAttempts,
     int? Seed,
+    IReadOnlyDictionary<string, string> Decorators,
     IReadOnlyDictionary<string, IReadOnlySet<string>> Users)
 {
     /// <summary>
-    /// Les clés attendues, section par section, la clé "" désignant le premier niveau. Une faute comme « topk » ou
-    /// « max_char » ne doit pas laisser la valeur par défaut s'appliquer sans rien dire. Les clés de commentaire, qui
-    /// commencent par « _ », ne sont pas concernées.
+    /// Les décorateurs connus, avec le type et le minimum de leur valeur : une faute de frappe ou une valeur comme
+    /// « oui » ne doit pas couper un décorateur en silence.
+    /// </summary>
+    private static readonly Dictionary<string, (bool IsBool, int Minimum)> DecoratorKinds = new(StringComparer.Ordinal)
+    {
+        ["cache_embeddings"] = (true, 0),
+        ["log"] = (true, 0),
+        ["retries"] = (false, 0),
+    };
+
+    /// <summary>
+    /// Les clés attendues, section par section, la clé "" désignant le premier niveau. Même raison que pour les
+    /// décorateurs : une faute comme « topk » ou « max_char » ne doit pas laisser la valeur par défaut s'appliquer
+    /// sans rien dire. Les clés de commentaire, qui commencent par « _ », ne sont pas concernées.
     /// </summary>
     private static readonly Dictionary<string, string[]> KnownKeys = new(StringComparer.Ordinal)
     {
-        [""] = new[] { "ai_service", "corpus", "index", "snapshots", "splitter", "retrieval", "generation", "users" },
+        [""] = new[] { "ai_service", "corpus", "index", "snapshots", "splitter", "retrieval", "generation", "decorators", "users" },
         ["ai_service"] = new[] { "base_url", "embedding_model", "generation_model", "timeout_seconds" },
         ["corpus"] = new[] { "directory" },
         ["index"] = new[] { "path" },
@@ -59,6 +71,7 @@ public sealed record AppConfig(
         ["splitter"] = new[] { "max_chars", "overlap_chars", "include_title" },
         ["retrieval"] = new[] { "top_k", "min_score" },
         ["generation"] = new[] { "prompt", "temperature", "max_tokens", "max_attempts", "seed" },
+        ["decorators"] = DecoratorKinds.Keys.ToArray(),
     };
 
     /// <summary>
@@ -209,6 +222,7 @@ public sealed record AppConfig(
             MaxTokens: Value(gen, "max_tokens", Where("generation"), 400, min: 1),
             MaxAttempts: Value(gen, "max_attempts", Where("generation"), 2, min: 1),
             Seed: gen["seed"] is null ? null : Value<int>(gen, "seed", Where("generation")),
+            Decorators: LoadDecorators(Section(raw, "decorators", path, required: false), Where("decorators")),
             Users: Entries(users).ToDictionary(
                 kv => kv.Key,
                 kv => (IReadOnlySet<string>)Groups(Section(users, kv.Key, path, parent: "users"), Where($"users.{kv.Key}")),
@@ -229,6 +243,12 @@ public sealed record AppConfig(
 
     public User User(string name) =>
         Users.TryGetValue(name, out var groups) ? new User(name, groups) : throw new UnknownUserException(name, Users.Keys.Order());
+
+    public bool Decorator(string key, bool fallback) =>
+        Decorators.TryGetValue(key, out var value) ? value == "true" : fallback;
+
+    public int DecoratorInt(string key, int fallback) =>
+        Decorators.TryGetValue(key, out var value) && int.TryParse(value, CultureInfo.InvariantCulture, out var parsed) ? parsed : fallback;
 
     private static void CheckKnownKeys(JsonObject raw, string path)
     {
@@ -317,6 +337,15 @@ public sealed record AppConfig(
 
     /// <summary>La valeur en JSON. Un nombre garde son écriture du fichier, par exemple « 1e300 ».</summary>
     private static string Show(JsonNode? node) => node?.ToJsonString(OneLine) ?? "null";
+
+    /// <summary>Les valeurs typées des décorateurs. CheckKnownKeys a déjà refusé les clés inconnues.</summary>
+    private static Dictionary<string, string> LoadDecorators(JsonObject section, string where) =>
+        Entries(section).ToDictionary(
+            kv => kv.Key,
+            kv => DecoratorKinds[kv.Key].IsBool
+                ? Typed<bool>(kv.Value, kv.Key, where, null, null) ? "true" : "false"
+                : Typed<int>(kv.Value, kv.Key, where, DecoratorKinds[kv.Key].Minimum, null).ToString(CultureInfo.InvariantCulture),
+            StringComparer.Ordinal);
 
     private static HashSet<string> Groups(JsonObject user, string where) =>
         user["groups"] switch

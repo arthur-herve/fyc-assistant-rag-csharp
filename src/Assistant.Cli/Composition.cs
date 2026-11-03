@@ -1,6 +1,6 @@
 // Racine de composition : le seul endroit qui connaît toutes les couches.
-// Elle part de la configuration, instancie les adaptateurs et les injecte dans les
-// cas d'usage. Changer de moteur, de stockage ou de modèle
+// Elle part de la configuration, instancie les adaptateurs, empile les décorateurs et
+// injecte le tout dans les cas d'usage. Changer de moteur, de stockage ou de modèle
 // se fait ici ou dans les fichiers de configuration, jamais dans le domaine.
 
 using Assistant.Application;
@@ -38,17 +38,19 @@ public static class Composition
     public static string PromptsDir => Path.Combine(AppConfig.ProjectRoot, "prompts");
 
     public static Container Build(AppConfig config, string? embeddingModel = null, string? generationModel = null,
-                                  string? promptName = null) =>
-        Build(config, new Overrides(embeddingModel, generationModel, PromptName: promptName));
+                                  string? promptName = null, Action<string>? log = null) =>
+        Build(config, new Overrides(embeddingModel, generationModel, PromptName: promptName), log);
 
-    public static Container Build(AppConfig config, Overrides overrides)
+    public static Container Build(AppConfig config, Overrides overrides, Action<string>? log = null)
     {
         var embeddingModel = overrides.EmbeddingModel ?? config.EmbeddingModel;
         var generationModel = overrides.GenerationModel ?? config.GenerationModel;
+        log ??= _ => { };
 
         var index = new JsonVectorIndex(overrides.IndexPath ?? config.IndexPath);
-        var embedder = new HttpEmbedder(config.AiBaseUrl, embeddingModel, config.Timeout);
-        var generator = new HttpGenerator(config.AiBaseUrl, generationModel, config.Timeout);
+        var (embedder, generator) = Decorate(new HttpEmbedder(config.AiBaseUrl, embeddingModel, config.Timeout),
+                                             new HttpGenerator(config.AiBaseUrl, generationModel, config.Timeout), config, log,
+                                             currentIndex: index.Manifest);
         var source = new MarkdownCorpus(config.CorpusDir);
         var splitter = new ParagraphSplitter(overrides.SplitterMaxChars ?? config.SplitterMaxChars,
                                              overrides.SplitterOverlapChars ?? config.SplitterOverlapChars,
@@ -88,5 +90,37 @@ public static class Composition
         var recordSnapshot = new RecordSnapshot(askQuestion, snapshots, clock, configuration);
         return new Container(indexCorpus, askQuestion, searchPassages, recordSnapshot, snapshots,
                              prompts, settings, embeddingModel);
+    }
+
+    /// <summary>
+    /// Empile les décorateurs choisis dans la section "decorators" (séquence 4.1), de l'intérieur
+    /// vers l'extérieur. Les nouvelles tentatives sont au plus près du réseau. Viennent ensuite le
+    /// journal des embeddings et le cache. Côté génération, le journal des générations enveloppe les
+    /// tentatives. Les cas d'usage ne voient que les ports.
+    /// <paramref name="currentIndex"/> renvoie le manifeste de l'index courant : le cache
+    /// d'embeddings ne sert que cet index.
+    /// </summary>
+    public static (IEmbedder, IGenerator) Decorate(IEmbedder embedder, IGenerator generator, AppConfig config, Action<string> log,
+                                                   Func<IndexManifest?> currentIndex)
+    {
+        var retries = config.DecoratorInt("retries", 0);
+        if (retries > 0)
+        {
+            embedder = new RetryingEmbedder(embedder, retries, log: log);
+            generator = new RetryingGenerator(generator, retries, log: log);
+        }
+        if (config.Decorator("log", false))
+        {
+            embedder = new LoggingEmbedder(embedder, log);
+        }
+        if (config.Decorator("cache_embeddings", false))
+        {
+            embedder = new CachedEmbedder(embedder, currentIndex);
+        }
+        if (config.Decorator("log", false))
+        {
+            generator = new LoggingGenerator(generator, log);
+        }
+        return (embedder, generator);
     }
 }

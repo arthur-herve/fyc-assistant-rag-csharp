@@ -17,7 +17,7 @@ public sealed class ExperimentRunTests : EvalRunTestBase
 
     private int Experiment(AppConfig config, Overrides common, string name, params string[] options) =>
         Experiments.Run(name, new Args(new[] { "experience", name, "--questions", _questionsPath }.Concat(options).ToArray()),
-                        config, common, "config");
+                        config, common, "config", _ => { });
 
     [Fact]
     public void Experiment_options_are_refused_before_any_work()
@@ -192,7 +192,7 @@ public sealed class ExperimentRunTests : EvalRunTestBase
         var path = Path.Combine(_dir, "resultats", "exp-stabilite-20261001-164152");
         var (experiments, _, _) = Captured(() =>
         {
-            var made = new[] { 1, 2 }.Select(i => new Experiment("stabilite", _config, Questions, path, "questions", "config", newOutDir: true))
+            var made = new[] { 1, 2 }.Select(i => new Experiment("stabilite", _config, Questions, path, "questions", "config", _ => { }, newOutDir: true))
                                      .ToList();
             made.ForEach(e => e.Index("partage"));
             return made;

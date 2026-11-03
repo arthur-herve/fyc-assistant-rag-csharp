@@ -52,12 +52,12 @@ bibliothèque standard.
 
 Récupérez le dépôt. Le clone vous place sur `main`, le point de départ du cours, où l'application
 n'est pas encore écrite. Pour tester l'application, passez sur la branche de votre séquence, par
-exemple `etape/s3.3`. Lancez ensuite les tests des deux programmes :
+exemple `etape/s4.1`. Lancez ensuite les tests des deux programmes :
 
 ```bash
 git clone https://github.com/arthur-herve/fyc-assistant-rag-csharp.git
 cd fyc-assistant-rag-csharp
-git switch etape/s3.3
+git switch etape/s4.1
 dotnet test --nologo                                   # l'application
 python -m unittest discover -s tests_python -t .       # le service IA et l'outil d'import du corpus
 ```
@@ -119,8 +119,8 @@ connexion fibre, les quatre ont pris une dizaine de minutes. En ADSL, comptez da
 ```bash
 ollama pull bge-m3              # embeddings par défaut, 1,2 Go
 ollama pull llama3.2:3b         # génération par défaut, 2,0 Go
-ollama pull nomic-embed-text    # autre modèle d'embeddings, 274 Mo
-ollama pull qwen3:4b            # autre modèle de génération, 2,5 Go
+ollama pull nomic-embed-text    # embeddings « de rupture », 274 Mo
+ollama pull qwen3:4b            # génération « de rupture », 2,5 Go (séquences 3.3 et 4.1)
 ```
 
 Les deux premiers suffisent pour suivre le cours. Les deux autres servent aux expériences où l'on

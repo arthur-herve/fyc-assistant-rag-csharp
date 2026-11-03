@@ -1,5 +1,5 @@
-// Les deux règles métier : le contrôle d'accès et les citations obligatoires. Ce sont des
-// fonctions pures, testables en microsecondes.
+// Les trois règles métier : le contrôle d'accès, les citations obligatoires et la forme d'une
+// réponse acceptable. Ce sont des fonctions pures, testables en microsecondes.
 
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -68,5 +68,70 @@ public static class Citations
         var valid = numbers.Where(n => n >= 1 && n <= passageCount).ToList();
         var invalid = numbers.Where(n => n < 1 || n > passageCount).ToList();
         return new CitationCheck(valid, invalid);
+    }
+}
+
+public sealed record OutputCheck(IReadOnlyList<string> Problems)
+{
+    public bool IsValid => Problems.Count == 0;
+}
+
+/// <summary>
+/// Règle métier n° 3 : à quoi doit ressembler une réponse avant d'être montrée.
+/// Les citations ne jugent que la forme. Cette règle juge le fond : une réponse vide, trop
+/// longue, dans la mauvaise langue ou qui déverse un raisonnement n'est pas une réponse,
+/// même si elle contient « [1] ». Aucun modèle n'est nommé ici, mais les marqueurs de
+/// raisonnement ont été relevés sur les modèles qu'on a rencontrés, qwen3 en tête. Cette
+/// connaissance du modèle est assumée et testée, mais elle vieillira : il faut la
+/// revoir quand on change de modèle. Ce qui peut se régler ou se retirer mécaniquement est
+/// traité dans le service IA, qui retire les balises &lt;think&gt; quel que soit le moteur et
+/// règle le budget de réflexion d'Ollama.
+/// </summary>
+public static class OutputRules
+{
+    private static readonly HashSet<string> FrenchMarkers =
+        "le la les des une un du de et est pas pour vous votre dans par sur au aux".Split(' ').ToHashSet();
+
+    private static readonly HashSet<string> EnglishMarkers =
+        "the is are and user let's okay this that with for answer should".Split(' ').ToHashSet();
+
+    // Tournures génériques d'un raisonnement déversé. Les \b évitent de les trouver au milieu d'un autre mot.
+    private static readonly Regex Reasoning = new(
+        @"</?think>|\b(?:okay|ok),\s+(?:let|so)\b|\blet me\b|\bthe user is asking\b|\bfirst,\s+i need\b|\bwait,\s",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    private static readonly Regex Word = new(@"[a-zàâçéèêëîïôûùüÿœ']+", RegexOptions.Compiled);
+
+    public static OutputCheck Check(string text, int maxChars = 1500)
+    {
+        var problems = new List<string>();
+        var stripped = text.Trim();
+        if (stripped.Length == 0)
+        {
+            return new OutputCheck(new[] { "réponse vide" });
+        }
+        // On compte en points de code Unicode et non en unités UTF-16 comme string.Length : un emoji compte pour
+        // un caractère, pas pour deux. Une demi-paire de substitution isolée compte aussi pour un.
+        var length = stripped.EnumerateRunes().Count();
+        if (length > maxChars)
+        {
+            problems.Add($"réponse trop longue ({length} caractères, {maxChars} au plus)");
+        }
+        var found = Reasoning.Match(stripped);
+        if (found.Success)
+        {
+            problems.Add($"raisonnement du modèle déversé dans la réponse (« {found.Value.Trim()} »)");
+        }
+        var words = Word.Matches(stripped.ToLowerInvariant()).Select(m => m.Value).ToList();
+        if (words.Count >= 5)
+        {
+            var french = words.Count(FrenchMarkers.Contains);
+            var english = words.Count(EnglishMarkers.Contains);
+            if (english > french && english >= 3)
+            {
+                problems.Add("réponse dans une autre langue que le français");
+            }
+        }
+        return new OutputCheck(problems);
     }
 }

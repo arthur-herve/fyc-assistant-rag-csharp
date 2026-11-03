@@ -1,4 +1,4 @@
-// Le faux service IA des tests qui passent par HTTP : ligne de commande, banc et expériences. Un seul
+// Le faux service IA des tests qui passent par HTTP : composition, ligne de commande, banc et expériences. Un seul
 // double pour tous, sur un port libre (TestPorts), plutôt qu'un par fichier de tests.
 
 using System.Net;
@@ -10,8 +10,10 @@ namespace Assistant.Tests;
 
 /// <summary>
 /// Faux service IA qui respecte le contrat v1 : /health, /v1/models, des embeddings par mots-clés et une génération
-/// qui cite le premier passage. Chaque mot du vocabulaire a son axe, et un axe constant garantit qu'aucun vecteur
-/// n'est nul. Le modèle servi s'appelle « faux:&lt;alias&gt; », si bien que deux alias donnent deux modèles.
+/// qui cite le premier passage. Chaque mot du vocabulaire a son axe, et un axe constant (<see cref="Offset"/>)
+/// garantit qu'aucun vecteur n'est nul. Le modèle servi s'appelle « faux:&lt;alias&gt; », si bien que deux alias
+/// donnent deux modèles. On peut imposer un <see cref="Model"/> pour tous les alias. Lui et <see cref="Offset"/> se
+/// changent à chaud, comme une équipe qui modifie ce qu'elle sert derrière l'alias pendant que l'application tourne.
 /// </summary>
 public sealed class FakeAiService : IDisposable
 {
@@ -22,16 +24,36 @@ public sealed class FakeAiService : IDisposable
     public static readonly string[] EmbeddingAliases = { "hashing", "hashing-512" }, GenerationAliases = { "extractive" };
 
     private readonly HttpListener _listener;
+    private readonly object _gate = new();
+    private string? _model;
+    private double _offset = 1.0;
     private int _requests;
 
-    public FakeAiService()
+    public FakeAiService(string? model = null)
     {
+        _model = model;
         _listener = TestPorts.Listener();
         Url = _listener.Prefixes.Single().TrimEnd('/');
         _ = Task.Run(Serve);
     }
 
     public string Url { get; }
+
+    /// <summary>Le modèle servi pour tous les alias. À null, chaque alias sert « faux:&lt;alias&gt; ».</summary>
+    public string? Model
+    {
+        get { lock (_gate) { return _model; } }
+        set { lock (_gate) { _model = value; } }
+    }
+
+    /// <summary>
+    /// Change les vecteurs sans changer l'identifiant du modèle, comme des préfixes modifiés ou un moteur sans empreinte.
+    /// </summary>
+    public double Offset
+    {
+        get { lock (_gate) { return _offset; } }
+        set { lock (_gate) { _offset = value; } }
+    }
 
     /// <summary>Le nombre de requêtes reçues, toutes routes confondues.</summary>
     public int Requests => Volatile.Read(ref _requests);
@@ -83,7 +105,7 @@ public sealed class FakeAiService : IDisposable
         using var reader = new StreamReader(request.InputStream, Encoding.UTF8);
         var body = JsonNode.Parse(await reader.ReadToEndAsync())!.AsObject();
         var alias = body["model"]!.GetValue<string>();
-        var model = $"faux:{alias}";
+        var model = Model ?? $"faux:{alias}";
         switch (path)
         {
             case "/v1/embeddings":
@@ -99,10 +121,10 @@ public sealed class FakeAiService : IDisposable
     private static object[] Describe(IEnumerable<string> aliases) =>
         aliases.Select(alias => (object)new { alias, backend = "faux", description = "" }).ToArray();
 
-    private static double[] Vector(string text)
+    private double[] Vector(string text)
     {
         var lowered = text.ToLowerInvariant();
-        return Fakes.Vocabulary.Select(w => lowered.Contains(w) ? 1.0 : 0.0).Prepend(1.0).ToArray();
+        return Fakes.Vocabulary.Select(w => lowered.Contains(w) ? 1.0 : 0.0).Prepend(Offset).ToArray();
     }
 
     public void Dispose()

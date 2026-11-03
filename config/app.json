@@ -34,6 +34,11 @@
       "st-e5-small": 0.82
     }
   },
+  "decorators": {
+    "cache_embeddings": true,
+    "log": true,
+    "retries": 1
+  },
   "generation": {
     "prompt": "answer",
     "temperature": 0.2,

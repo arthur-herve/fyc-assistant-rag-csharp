@@ -15,6 +15,7 @@ L'exercice de S2.1 part d'un gabarit rangé dans `docs/`.
 | S2.2 | [Construire le cœur métier sans IA](s2.2-coeur-metier/README.md) | code à écrire, tests à récupérer | `etape/s2.2` | `corrige/s2.2` |
 | S2.3 | [Écrire l'adaptateur de génération](s2.3-adaptateur-de-generation/README.md) | code à écrire, tests à récupérer | `etape/s2.3` | `corrige/s2.3` |
 | S3.1 | [Un test déterministe et une évaluation statistique](s3.1-evaluation-statistique/README.md) | tests à écrire, calcul de tolérance | `etape/s3.1` | `corrige/s3.1` |
+| S4.1 | [Ajouter un décorateur de validation](s4.1-decorateur-de-validation/README.md) | code à écrire, tests à récupérer | `etape/s4.1` | `corrige/s4.1` |
 
 Les QCM et le test final ne sont pas dans le dépôt : vous les trouverez sur Moodle.
 

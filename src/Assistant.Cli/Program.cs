@@ -31,6 +31,7 @@ public static class Program
                                            changement-generateur --other <alias> · prompt-v2 (--other <prompt>) · stabilite (--runs, --seed)
 
         Options communes : --config <fichier>   --embedding-model <alias>   --generation-model <alias>   --prompt <nom>
+                           -v, --verbose : journal des décorateurs (toutes les commandes, sauf benchmark)
         La commande vient d'abord, puis ses options. Une option inconnue, abrégée ou d'une autre commande, ou un argument en trop, est une erreur.
         « -- » termine les options : ce qui suit est un argument, même un mot qui commence par un tiret (ask -- -télétravail) ; sans « -- », un tel mot n'est un argument que s'il est « - », un nombre négatif, ou si son nom (ce qui précède un éventuel « = ») contient une espace (ask "-vingt degrés ?").
         Codes de retour : 0 ok · 1 erreur, saisie comprise
@@ -92,10 +93,13 @@ public static class Program
         args.EnsureIntegers();
         command.EnsureArguments(args.Positional);
         var verbose = args.Has("-v") || args.Has("--verbose");
+        Action<string> log = verbose || Environment.GetEnvironmentVariable("ASSISTANT_LOG") is "INFO" or "info"
+            ? message => Console.Error.WriteLine($"[assistant] {message}")
+            : _ => { };
 
         var config = AppConfig.Load(args.NonEmpty("--config"));
         var container = Composition.Build(config, args.NonEmpty("--embedding-model"), args.NonEmpty("--generation-model"),
-                                          promptName: args.NonEmpty("--prompt"));
+                                          promptName: args.NonEmpty("--prompt"), log: log);
         if (command.Searches && !config.HasThresholdFor(container.EmbeddingModel))
         {
             Console.Error.WriteLine($"Attention : aucun seuil de pertinence configuré pour « {container.EmbeddingModel} » : valeur `default` "
@@ -129,7 +133,7 @@ public static class Program
                 // Le rapport cite --config tel qu'il a été donné, sinon le chemin depuis la racine,
                 // « config/app.json ». Experiment y met des « / » : le rapport est identique sous Windows et Linux.
                 var configPath = args.NonEmpty("--config") ?? Path.GetRelativePath(AppConfig.ProjectRoot, config.Source);
-                return Experiments.Run(args.Positional[1], args, config, common, configPath);
+                return Experiments.Run(args.Positional[1], args, config, common, configPath, log);
             }
         }
     }
@@ -161,7 +165,7 @@ public static class Program
         }
     }
 
-    private static readonly string[] Common = { "--config", "--embedding-model", "--generation-model", "--prompt" };
+    private static readonly string[] Common = { "--config", "--embedding-model", "--generation-model", "--prompt", "-v", "--verbose" };
     private static readonly string[] ExperimentCommon = Common.Concat(new[] { "--questions", "--limit", "--out" }).ToArray();
     private const string OneQuestion = "ask attend une seule question, entre guillemets";
 
@@ -169,11 +173,12 @@ public static class Program
     private static readonly Dictionary<string, Command> Commands = new Command[]
     {
         new("index", Common),
-        new("ask", Common.Concat(new[] { "--user", "--json", "-v", "--verbose" }).ToArray(), new(1, OneQuestion), Searches: true, Extra: OneQuestion),
+        new("ask", Common.Concat(new[] { "--user", "--json" }).ToArray(), new(1, OneQuestion), Searches: true, Extra: OneQuestion),
         new("snapshot record", Common.Concat(new[] { "--questions", "--limit" }).ToArray(), new(1, "snapshot record attend un nom"),
             Searches: true),
         new("snapshot compare", Common, new(2, "snapshot compare attend deux noms")),
         new("snapshot list", Common),
+        // Le banc construit ses propres compositions, sans journal : -v n'y changerait rien.
         new("benchmark", new[] { "--config", "--embedding-model", "--generation-model", "--prompt", "--embedding", "--generation",
                                  "--questions", "--validate-with", "--runs", "--limit", "--min-score", "--max-chars",
                                  "--overlap-chars", "--seed", "--out" }),

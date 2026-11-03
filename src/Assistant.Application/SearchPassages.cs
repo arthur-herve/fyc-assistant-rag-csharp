@@ -28,9 +28,9 @@ public sealed class SearchPassages
     /// Cherche les <paramref name="topK"/> passages les plus proches de la question parmi ceux que
     /// l'utilisateur peut lire. Les droits sont donc filtrés ici, avant tout prompt.
     /// Avant de chercher, on vérifie que l'index existe et qu'il a été construit avec le modèle qui a
-    /// produit le vecteur de la question, c'est-à-dire celui que sert le service IA. Si l'index vient
-    /// d'un autre modèle, on lève <see cref="IndexModelMismatchException"/> : il faut réindexer,
-    /// jamais contourner.
+    /// produit le vecteur de la question. Ce modèle est celui que sert le service IA, ou celui que le
+    /// cache a mémorisé pour cet index. Si l'index vient d'un autre modèle, on lève
+    /// <see cref="IndexModelMismatchException"/> : il faut réindexer, jamais contourner.
     /// </summary>
     public Retrieval Execute(User user, string question, int topK)
     {

@@ -24,7 +24,8 @@ public class InfrastructureLeakTests
     [Fact]
     public void Adapters_receive_ports_not_other_adapters()
     {
-        // Aucun constructeur public de l'infrastructure ne prend un autre type concret de l'infrastructure.
+        // Aucun constructeur public de l'infrastructure ne prend un autre type concret de l'infrastructure. Les
+        // décorateurs ne reçoivent que des ports, et seule Composition les empile.
         var infrastructure = typeof(HttpEmbedder).Assembly;
         var concrete = infrastructure.GetTypes().Where(t => t.IsClass && !t.IsAbstract && t.IsPublic && !typeof(Delegate).IsAssignableFrom(t)).ToHashSet();
         foreach (var type in concrete)

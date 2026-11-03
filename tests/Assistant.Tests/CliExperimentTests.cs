@@ -77,7 +77,7 @@ public sealed class CliExperimentTests : CliTestBase
     [Theory]
     [InlineData("experience", "cace-decoupage", "--max-chars", "300", "--overlap-chars", "50", "--questions", "q.json")]
     [InlineData("experience", "changement-embeddings", "--other", "nomic", "--limit", "2")]
-    [InlineData("experience", "prompt-v2", "--other", "answer-v2")]
+    [InlineData("experience", "prompt-v2", "--other", "answer-v2", "-v")]
     [InlineData("experience", "stabilite", "--runs", "3", "--seed", "42", "--out", "ici")]
     // La borne : --limit 1.
     [InlineData("experience", "stabilite", "--limit", "1")]
