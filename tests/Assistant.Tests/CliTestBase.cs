@@ -50,7 +50,7 @@ public abstract class CliTestBase : IDisposable
         }
     }
 
-    /// <summary>Le seuil vaut 0,15, celui de « hashing » sur le corpus Solvéo.</summary>
+    /// <summary>Aucun seuil pour « hashing », qui se replie sur `default`, et un seuil pour « hashing-512 ».</summary>
     protected string WriteConfig(string aiUrl, string corpus = "corpus/solveo")
     {
         var path = Path.Combine(_dir, "app.json");
@@ -63,7 +63,7 @@ public abstract class CliTestBase : IDisposable
             ["corpus"] = new JsonObject { ["directory"] = corpus },
             ["index"] = new JsonObject { ["path"] = Path.Combine(_dir, "index.json") },
             ["snapshots"] = new JsonObject { ["directory"] = Path.Combine(_dir, "instantanes") },
-            ["retrieval"] = new JsonObject { ["min_score"] = 0.15 },
+            ["retrieval"] = new JsonObject { ["min_score"] = new JsonObject { ["default"] = 0.15, ["hashing-512"] = 0.15 } },
             ["users"] = new JsonObject { ["alice"] = new JsonObject { ["groups"] = new JsonArray("tous") } },
         }.ToJsonString());
         return path;
@@ -83,6 +83,7 @@ public abstract class CliTestBase : IDisposable
         Assert.Equal(1, code);
         Assert.Contains($"Erreur : {message}", errors);
         Assert.Equal("", output);
+        Assert.DoesNotContain("Attention", errors);   // refusé avant de lire la configuration
     }
 
     /// <summary>

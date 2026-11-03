@@ -111,6 +111,25 @@ public class AskQuestionTests
     }
 
     [Fact]
+    public void Changing_the_embedding_model_without_reindexing_is_refused()
+    {
+        var index = Build.Indexed(new KeywordEmbedder("modele-a"));
+        var ask = Build.Ask(new ScriptedGenerator("[1]"), index, new KeywordEmbedder("modele-b"));
+        Assert.Throws<IndexModelMismatchException>(() => ask.Execute(Fakes.Alice, "télétravail"));
+    }
+
+    [Fact]
+    public void Changing_the_generation_model_needs_no_reindexing()
+    {
+        var index = Build.Indexed();
+        foreach (var model in new[] { "llm-a", "llm-b" })
+        {
+            var answer = Build.Ask(ScriptedGenerator.WithModel(model, "Deux jours [1]."), index).Execute(Fakes.Alice, "jours de télétravail");
+            Assert.Equal(model, answer.Trace.GenerationModel);
+        }
+    }
+
+    [Fact]
     public void Empty_question_is_rejected() =>
         Assert.Throws<EmptyQuestionException>(() => Build.Ask(new ScriptedGenerator("[1]")).Execute(Fakes.Alice, "   "));
 

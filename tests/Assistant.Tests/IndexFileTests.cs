@@ -2,6 +2,7 @@
 // manquant ou un autre format donnent un message qui nomme le fichier et la commande qui le reconstruit.
 
 using System.Text;
+using Assistant.Application;
 using Assistant.Domain;
 using Assistant.Infrastructure;
 using Xunit;
@@ -13,15 +14,14 @@ namespace Assistant.Tests;
 /// </summary>
 public class IndexFileTests
 {
-    // La clé « x » du morceau, que la lecture ignore, reçoit les valeurs de plusieurs cas ci-dessous. Elle est au
-    // troisième niveau du fichier.
-    private const string Index = """{"chunks": [{"id": "a#0", "document_id": "a", "document_title": "Congés", "text": "x", "position": 0,"""
-        + """ "allowed_groups": ["tous"], "x": 0}], "vectors": [[0.6, 0.8]]}""";
+    // La clé « x », que la lecture ignore, reçoit les valeurs de plusieurs cas ci-dessous.
+    private const string Index = """{"manifest": {"embedding_model": "m", "dimension": 2, "document_count": 1, "chunk_count": 1}, "chunks": [{"id": "a#0","""
+        + """ "document_id": "a", "document_title": "Congés", "text": "x", "position": 0, "allowed_groups": ["tous"]}], "vectors": [[0.6, 0.8]], "x": 0}""";
 
-    private static bool Read(TempDir dir, byte[] content)
+    private static IndexManifest? Read(TempDir dir, byte[] content)
     {
         File.WriteAllBytes(dir.File("index.json"), content);
-        return new JsonVectorIndex(dir.File("index.json")).IsBuilt();
+        return new JsonVectorIndex(dir.File("index.json")).Manifest();
     }
 
     private static string Unreadable(TempDir dir, string problem) =>
@@ -33,7 +33,7 @@ public class IndexFileTests
         // Un StreamReader remplacerait l'octet par « � » sans rien dire. La position se compte après la marque
         // d'ordre des octets.
         using var dir = new TempDir();
-        Assert.True(Read(dir, Bytes.WithBom(Encoding.UTF8.GetBytes(Index))));
+        Assert.Equal("m", Read(dir, Bytes.WithBom(Encoding.UTF8.GetBytes(Index)))!.EmbeddingModel);
         foreach (var bytes in new[] { Encoding.Latin1.GetBytes(Index), Bytes.WithBom(Encoding.Latin1.GetBytes(Index)) })
         {
             var error = Assert.Throws<IndexUnreadableException>(() => Read(dir, bytes));
@@ -44,8 +44,8 @@ public class IndexFileTests
     /// <summary>Les mêmes cas de JSON non strict que pour les instantanés.</summary>
     public static TheoryData<string, string> NotStrict => new()
     {
-        { Index.Replace("\"document_id\": \"a\"", "\"document_id\": \"a\", \"document_id\": \"autre\""), "clé « document_id » en double" },
-        { Index.Replace("\"x\": 0", "\"x\": " + Bytes.Nested(62)), "JSON trop imbriqué : plus de 64 niveaux" },
+        { Index.Replace("\"embedding_model\": \"m\"", "\"embedding_model\": \"m\", \"embedding_model\": \"autre\""), "clé « embedding_model » en double" },
+        { Index.Replace("\"x\": 0", "\"x\": " + Bytes.Nested(64)), "JSON trop imbriqué : plus de 64 niveaux" },
         { Index.Replace("\"text\": \"x\"", "\"text\": \"x\\ud800\""), Bytes.NotText },
         { Index.Replace("\"x\": 0", "\"\\ud800\": 0"), Bytes.NotText },
     };
@@ -62,20 +62,21 @@ public class IndexFileTests
     [Fact]
     public void Sixty_four_levels_are_read()
     {
-        // Trois niveaux jusqu'à la clé « x », puis 61 listes imbriquées.
         using var dir = new TempDir();
-        Assert.True(Read(dir, Encoding.UTF8.GetBytes(Index.Replace("\"x\": 0", "\"x\": " + Bytes.Nested(61)))));
+        Assert.Equal("m", Read(dir, Encoding.UTF8.GetBytes(Index.Replace("\"x\": 0", "\"x\": " + Bytes.Nested(63))))!.EmbeddingModel);
     }
 
     [Fact]
     public void An_integer_of_thousands_of_digits_is_read()
     {
-        // L'index n'a pas de limite de chiffres, seule la configuration en a une. Un entier de 5 000 chiffres placé
-        // dans le fichier se lit donc sans erreur.
+        // L'index n'a pas de limite de chiffres, seules la configuration et GET /v1/models en ont une. Un entier de
+        // 5 000 chiffres placé dans le fichier se lit donc sans erreur.
         using var dir = new TempDir();
         var index = Index.Replace("\"x\": 0", "\"x\": " + new string('1', 5000));
-        Assert.True(Read(dir, Encoding.UTF8.GetBytes(index)));
+        Assert.Equal("m", Read(dir, Encoding.UTF8.GetBytes(index))!.EmbeddingModel);
     }
+
+    private static readonly IndexManifest Manifest = new("m", 2, 1, 2);
 
     private static readonly Chunk[] Chunks =
     {
@@ -88,13 +89,13 @@ public class IndexFileTests
     [Fact]
     public void An_index_reads_back_the_same()
     {
-        // Un second JsonVectorIndex relit le fichier, comme le ferait un autre processus. Il doit trouver les mêmes
-        // résultats de recherche, scores compris.
+        // Un second JsonVectorIndex relit le fichier, comme le ferait un autre processus. Il doit trouver le même
+        // manifeste et les mêmes résultats de recherche, scores compris.
         using var dir = new TempDir();
         var written = new JsonVectorIndex(dir.File("index.json"));
-        written.Replace(Chunks, Vectors);
+        written.Replace(Manifest, Chunks, Vectors);
         var read = new JsonVectorIndex(dir.File("index.json"));
-        Assert.True(read.IsBuilt());
+        Assert.Equivalent(Manifest, read.Manifest(), strict: true);
         var query = new[] { 0.6, 0.8 };
         Assert.Equivalent(written.Search(query, 2, _ => true), read.Search(query, 2, _ => true), strict: true);
     }
@@ -103,7 +104,7 @@ public class IndexFileTests
     public void An_index_file_keeps_accents_as_they_are()
     {
         using var dir = new TempDir();
-        new JsonVectorIndex(dir.File("index.json")).Replace(Chunks, Vectors);
+        new JsonVectorIndex(dir.File("index.json")).Replace(Manifest, Chunks, Vectors);
         Assert.Contains("\"document_title\":\"Congés\"", File.ReadAllText(dir.File("index.json")));
     }
 
@@ -113,18 +114,19 @@ public class IndexFileTests
         // Le message d'une NullReferenceException ne dit rien d'utile : il est remplacé.
         using var dir = new TempDir();
         File.WriteAllText(dir.File("index.json"), Index.Replace("\"position\": 0, ", ""));
-        var error = Assert.Throws<IndexUnreadableException>(() => new JsonVectorIndex(dir.File("index.json")).IsBuilt());
+        var error = Assert.Throws<IndexUnreadableException>(() => new JsonVectorIndex(dir.File("index.json")).Manifest());
         Assert.Equal(Unreadable(dir, "champ obligatoire manquant"), error.Message);
     }
 
     /// <summary>
-    /// Un objet vide et un index qui porte un champ de plus : aucun n'a le format attendu, et le message donne la
-    /// commande qui reconstruit l'index.
+    /// Un objet vide, un index sans manifeste et un index au manifeste plus riche : aucun n'a le format attendu, et
+    /// le message donne la commande qui reconstruit l'index.
     /// </summary>
     public static TheoryData<string> OtherFormats => new()
     {
         "{}",
-        Index.Replace("{\"chunks\"", "{\"manifest\": {\"embedding_model\": \"m\", \"dimension\": 2, \"document_count\": 1, \"chunk_count\": 1}, \"chunks\""),
+        """{"chunks": [], "vectors": []}""",
+        Index.Replace("\"chunk_count\": 1}", "\"chunk_count\": 1, \"splitter\": {\"type\": \"paragraph\"}, \"created_at\": \"t\"}"),
     };
 
     [Theory]

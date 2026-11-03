@@ -1,7 +1,8 @@
 // Entités du domaine de l'assistant documentaire.
 // Ce projet ne dépend ni d'une technologie d'IA, ni de HTTP, ni du stockage. Il décrit ce que manipule le
 // métier : des documents, des utilisateurs et des réponses sourcées. La seule chose qu'il sait des modèles,
-// c'est qu'une réponse en vient.
+// c'est qu'une réponse en vient et qu'on les nomme dans AnswerTrace. Ce n'est pas un oubli : nommer les
+// modèles est ce qui rend une réponse explicable.
 
 namespace Assistant.Domain;
 
@@ -35,8 +36,10 @@ public enum AnswerStatus
 /// <summary>Un passage retrouvé, réduit à ce qu'il faut pour expliquer la recherche.</summary>
 public sealed record Retrieved(string ChunkId, double Score);
 
-/// <summary>De quoi expliquer une réponse : les passages retrouvés, le seuil et les sorties brutes.</summary>
+/// <summary>De quoi expliquer une réponse : les modèles, les passages retrouvés, le seuil et les sorties brutes.</summary>
 public sealed record AnswerTrace(
+    string EmbeddingModel,
+    string? GenerationModel,
     IReadOnlyList<Retrieved> Retrieved,
     double MinScore,
     int Attempts,

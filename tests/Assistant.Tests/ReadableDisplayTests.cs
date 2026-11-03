@@ -43,7 +43,8 @@ public sealed class ReadableDisplayTests
     [Fact]
     public void The_whole_comparison_line_by_line()
     {
-        // Le texte entier, ligne par ligne, que la console joint avec les fins de ligne du système.
+        // Le texte entier, ligne par ligne : ce sont les lignes d'un rapport d'expérience, que la console joint avec
+        // les fins de ligne du système.
         var comparison = Comparison(1, 2, new Dictionary<string, object?> { ["top_k"] = 4 }, new Dictionary<string, object?> { ["top_k"] = 8 });
         var expected = new[]
         {
@@ -102,7 +103,8 @@ public sealed class ReadableDisplayTests
         // échappés. Relue, elle redonne la sortie telle quelle, y compris espaces insécables, emoji et caractères de
         // contrôle.
         const string raw = "Deux\u00a0jours\u202f! \U0001F600\u2028\u001b\u007f \"q\" \\ \n\t";
-        var trace = new AnswerTrace(new[] { new Retrieved("teletravail#0", 0.5276), new Retrieved("conges#0", 0.0) }, 2.0, 1,
+        var trace = new AnswerTrace("hashing-256-stem6", "extractive",
+                                    new[] { new Retrieved("teletravail#0", 0.5276), new Retrieved("conges#0", 0.0) }, 2.0, 1,
                                     new[] { "Deux jours.\n[1]", raw });
         var text = Presenter.AnswerToText(new Answer("?", AnswerStatus.Answered, "Deux jours. [1]", Array.Empty<Source>(), trace), verbose: true)
             .Replace("\r\n", "\n");
@@ -118,7 +120,7 @@ public sealed class ReadableDisplayTests
 
     /// <summary>Une réponse aux textes délicats de Bytes.Special, qui cite un document au titre accentué.</summary>
     private static readonly Answer Sample = new("Combien ?", AnswerStatus.Answered, Bytes.Special, new[] { new Source(1, "a", "Congés", "a#0") },
-        new AnswerTrace(new[] { new Retrieved("a#0", 1.0), new Retrieved("a#1", 0.25) },
+        new AnswerTrace("hashing", "extractive", new[] { new Retrieved("a#0", 1.0), new Retrieved("a#1", 0.25) },
                         0.4, 1, Array.Empty<string>()));
 
     [Fact]

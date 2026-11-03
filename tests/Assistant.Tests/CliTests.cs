@@ -12,6 +12,7 @@ namespace Assistant.Tests;
 public sealed class CliTests : CliTestBase
 {
     private const string Question = "Combien de jours de télétravail par semaine ?";
+    private const string Warning = "Attention : aucun seuil de pertinence configuré pour « hashing » : valeur `default` 0.15";
 
     [Theory]
     [InlineData("option(s) inconnue(s) pour ask : --us", "ask", Question, "--us", "bruno")]
@@ -52,6 +53,7 @@ public sealed class CliTests : CliTestBase
         var (code, output, errors) = Run(WithConfig(argv));
         Assert.Equal((1, ""), (code, output));
         Assert.Contains($"Erreur : {message}", errors);
+        Assert.DoesNotContain("Attention", errors);   // refusé avant de lire la configuration
     }
 
     [Theory]
@@ -109,18 +111,41 @@ public sealed class CliTests : CliTestBase
     }
 
     [Fact]
+    public void The_threshold_warning_is_for_the_commands_that_search_with_the_model_they_use()
+    {
+        using var ai = new FakeAiService();
+        var config = WriteConfig(ai.Url);
+        foreach (var argv in new[] { new[] { "index" }, new[] { "snapshot", "list" } })
+        {
+            var run = Run(argv.Append("--config").Append(config).ToArray());
+            Assert.Equal((0, ""), (run.Code, run.Err));
+        }
+        var (code, _, errors) = Run("ask", Question, "--user", "mallory", "--config", config);
+        Assert.Equal(1, code);
+        Assert.Contains(Warning, errors);
+        // Le modèle réellement utilisé a son seuil : pas d'avertissement.
+        Assert.DoesNotContain("Attention", Run("ask", Question, "--user", "mallory", "--embedding-model", "hashing-512", "--config", config).Err);
+        Assert.Contains(Warning, Run("snapshot", "record", "x", "--questions", Path.Combine(_dir, "absentes.json"), "--config", config).Err);
+        Assert.DoesNotContain("Attention", Run("snapshot", "compare", "a", "b", "--config", config).Err);
+        // Le banc et les expériences mesurent leurs propres modèles, et le banc nomme le seuil de chacun.
+        Assert.DoesNotContain("Attention", Run("benchmark", "--embedding", "hashing-512", "--min-score", "abc", "--config", config).Err);
+        Assert.DoesNotContain("Attention", Run("experience", "stabilite", "--runs", "1", "--config", config).Err);
+    }
+
+    [Fact]
     public void An_unknown_prompt_names_its_folder_and_the_known_ones()
     {
         // Le message dit « prompt introuvable » et nomme les prompts connus, au lieu d'un « fichier illisible » suivi
         // du message .NET « Could not find file ». Le prompt est celui que nomme generation.prompt dans la
-        // configuration. ask ne le lit qu'après avoir retrouvé des passages, d'où l'index.
+        // configuration. ask ne le lit qu'après avoir retrouvé des passages, d'où l'index. Le modèle hashing-512 a son
+        // seuil : aucun avertissement ne précède l'erreur.
         using var ai = new FakeAiService();
         var config = WriteConfig(ai.Url);
         var json = JsonNode.Parse(File.ReadAllText(config))!.AsObject();
         json["generation"] = new JsonObject { ["prompt"] = "nexiste" };
         File.WriteAllText(config, json.ToJsonString());
-        Assert.Equal(0, Run("index", "--config", config).Code);
-        var (code, output, errors) = Run("ask", Question, "--config", config);
+        Assert.Equal(0, Run("index", "--embedding-model", "hashing-512", "--config", config).Code);
+        var (code, output, errors) = Run("ask", Question, "--embedding-model", "hashing-512", "--config", config);
         Assert.Equal((1, ""), (code, output));
         Assert.Equal($"Erreur : prompt introuvable : nexiste dans {Composition.PromptsDir} (connus : answer)\n", errors);
     }

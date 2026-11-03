@@ -11,18 +11,24 @@ namespace Assistant.Cli;
 public sealed record Container(
     IndexCorpus IndexCorpus,
     AskQuestion AskQuestion,
+    SearchPassages SearchPassages,
     RecordSnapshot RecordSnapshot,
     ISnapshotStore Snapshots,
     IPromptRepository Prompts,
-    AskSettings Settings);
+    AskSettings Settings,
+    string EmbeddingModel);
 
 /// <summary>
-/// Ce que la ligne de commande et les expériences peuvent changer sans
+/// Ce que la ligne de commande, le banc d'essai et les expériences peuvent changer sans
 /// toucher au fichier de configuration : chaque champ nul garde la valeur configurée.
 /// </summary>
 public sealed record Overrides(
     string? EmbeddingModel = null,
     string? GenerationModel = null,
+    string? IndexPath = null,
+    double? MinScore = null,
+    int? SplitterMaxChars = null,
+    int? SplitterOverlapChars = null,
     int? Seed = null,
     string? SnapshotsDir = null);
 
@@ -38,12 +44,12 @@ public static class Composition
         var embeddingModel = overrides.EmbeddingModel ?? config.EmbeddingModel;
         var generationModel = overrides.GenerationModel ?? config.GenerationModel;
 
-        var index = new JsonVectorIndex(config.IndexPath);
+        var index = new JsonVectorIndex(overrides.IndexPath ?? config.IndexPath);
         var embedder = new HttpEmbedder(config.AiBaseUrl, embeddingModel, config.Timeout);
         var generator = new HttpGenerator(config.AiBaseUrl, generationModel, config.Timeout);
         var source = new MarkdownCorpus(config.CorpusDir);
-        var splitter = new ParagraphSplitter(config.SplitterMaxChars,
-                                             config.SplitterOverlapChars,
+        var splitter = new ParagraphSplitter(overrides.SplitterMaxChars ?? config.SplitterMaxChars,
+                                             overrides.SplitterOverlapChars ?? config.SplitterOverlapChars,
                                              config.SplitterIncludeTitle);
         var prompts = new FilePromptRepository(PromptsDir);
         var clock = new SystemClock();
@@ -51,13 +57,14 @@ public static class Composition
         var indexCorpus = new IndexCorpus(source, splitter, embedder, index);
         var settings = new AskSettings(
             TopK: config.TopK,
-            MinScore: config.MinScore,
+            MinScore: overrides.MinScore ?? config.MinScoreFor(embeddingModel),
             MaxAttempts: config.MaxAttempts,
             Temperature: config.Temperature,
             MaxTokens: config.MaxTokens,
             Seed: overrides.Seed ?? config.Seed,
             PromptName: config.PromptName);
         var askQuestion = new AskQuestion(embedder, index, generator, prompts, settings);
+        var searchPassages = new SearchPassages(embedder, index);
         var snapshots = new JsonSnapshotStore(overrides.SnapshotsDir ?? config.SnapshotsDir);
         // L'empreinte de configuration d'un instantané : tout ce qui change les réponses côté application.
         // Les réglages propres au service IA, comme le budget de réflexion, n'y figurent pas, parce qu'ils
@@ -77,7 +84,7 @@ public static class Composition
             ["max_attempts"] = settings.MaxAttempts,
         };
         var recordSnapshot = new RecordSnapshot(askQuestion, snapshots, clock, configuration);
-        return new Container(indexCorpus, askQuestion, recordSnapshot, snapshots,
-                             prompts, settings);
+        return new Container(indexCorpus, askQuestion, searchPassages, recordSnapshot, snapshots,
+                             prompts, settings, embeddingModel);
     }
 }

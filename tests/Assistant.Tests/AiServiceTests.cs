@@ -1,4 +1,4 @@
-// Ce que l'application vérifie auprès du service IA avant tout travail : il répond.
+// Ce que l'application vérifie auprès du service IA avant tout travail : il répond, et il sert le modèle demandé.
 
 using System.Net;
 using System.Text;
@@ -10,18 +10,79 @@ namespace Assistant.Tests;
 public class AiServiceTests
 {
     /// <summary>
-    /// Répond à la première requête reçue avec ce statut et <paramref name="body"/>, un texte envoyé tel quel. Sert de
-    /// faux /health.
+    /// Répond à la première requête reçue avec ce statut et <paramref name="models"/>, un texte JSON envoyé tel quel.
+    /// Sert de faux GET /v1/models ou de faux /health.
     /// </summary>
-    private static Task AnswerOnce(HttpListener listener, string body, int status = 200) => Task.Run(async () =>
+    private static Task AnswerOnce(HttpListener listener, string models, int status = 200) => Task.Run(async () =>
     {
         var context = await listener.GetContextAsync();
         context.Response.StatusCode = status;
-        var bytes = Encoding.UTF8.GetBytes(body);
+        var bytes = Encoding.UTF8.GetBytes(models);
         context.Response.ContentLength64 = bytes.Length;
         await context.Response.OutputStream.WriteAsync(bytes);
         context.Response.Close();
     });
+
+    /// <summary>Répond ces octets tels quels à la première requête reçue : un faux GET /v1/models hors UTF-8.</summary>
+    private static Task AnswerOnce(HttpListener listener, byte[] bytes) => Task.Run(async () =>
+    {
+        var context = await listener.GetContextAsync();
+        context.Response.ContentLength64 = bytes.Length;
+        await context.Response.OutputStream.WriteAsync(bytes);
+        context.Response.Close();
+    });
+
+    [Fact]
+    public async Task The_list_of_served_models_must_be_readable()
+    {
+        // Que le service soit injoignable ou que sa liste soit hors contrat, le message est le même, et non une
+        // exception de lecture JSON. Un alias qui n'est pas un texte rend la liste hors contrat. Une clé en double
+        // aussi, au lieu de laisser la dernière valeur l'emporter. La réponse est lue en JSON strict (JsonText), comme
+        // un fichier, même dans les champs que personne ne lit : dans ces cas-là, « nomic » est pourtant servi.
+        AssertUnreadable("http://127.0.0.1:9/");
+        static string Served(string x) => $$"""{"embedding": [{"alias": "nomic", "x": {{x}}}], "generation": []}""";
+        foreach (var models in new[]
+                 {
+                     """{"embedding": [{"alias": 1}], "generation": []}""",
+                     """{"embedding": [{"alias": "a"}], "embedding": [{"alias": "nomic"}], "generation": []}""",
+                     Served("""{"b": 1, "b": 2}"""),
+                     Served(new string('1', 4301)),
+                     Served("\"\\ud800\""),
+                 })
+        {
+            using var listener = TestPorts.Listener();
+            var served = AnswerOnce(listener, models);
+            AssertUnreadable(listener.Prefixes.Single());
+            await served;   // la réponse hors contrat a bien été lue
+        }
+        using (var listener = TestPorts.Listener())
+        {
+            var served = AnswerOnce(listener, Served("1"));
+            AiService.RequireModel(listener.Prefixes.Single(), "embedding", "nomic");   // sans défaut : accepté
+            await served;
+        }
+        // Les octets sont décodés comme toute réponse du service IA (docs/contrat-http.md). Une marque d'ordre des
+        // octets est acceptée, mais un octet qui n'est pas de l'UTF-8, ici du latin-1, rend la réponse hors contrat au
+        // lieu d'être remplacé en silence.
+        using (var listener = TestPorts.Listener())
+        {
+            var served = AnswerOnce(listener, "\uFEFF" + Served("1"));
+            AiService.RequireModel(listener.Prefixes.Single(), "embedding", "nomic");
+            await served;
+        }
+        using (var listener = TestPorts.Listener())
+        {
+            var served = AnswerOnce(listener, Encoding.Latin1.GetBytes(Served("\"é\"")));
+            AssertUnreadable(listener.Prefixes.Single());
+            await served;
+        }
+
+        static void AssertUnreadable(string baseUrl)
+        {
+            var error = Assert.Throws<Application.AiServiceException>(() => AiService.RequireModel(baseUrl, "embedding", "nomic"));
+            Assert.Equal($"le service IA ne donne pas la liste de ses modèles ({baseUrl.TrimEnd('/')}/v1/models)", error.Message);
+        }
+    }
 
     [Fact]
     public async Task An_unreachable_or_failing_ai_service_is_said_with_its_address()
@@ -94,4 +155,15 @@ public class AiServiceTests
         await context.Response.OutputStream.FlushAsync();
         context.Response.Abort();
     });
+
+    [Fact]
+    public async Task An_empty_list_of_served_models_says_aucun()
+    {
+        // « nomic » est servi, mais pour la génération.
+        using var listener = TestPorts.Listener();
+        var served = AnswerOnce(listener, """{"embedding": [], "generation": [{"alias": "nomic"}]}""");
+        var error = Assert.Throws<ArgumentException>(() => AiService.RequireModel(listener.Prefixes.Single(), "embedding", "nomic"));
+        Assert.Equal("le service IA ne sert pas « nomic » comme modèle d'embeddings (servis : aucun)", error.Message);
+        await served;
+    }
 }

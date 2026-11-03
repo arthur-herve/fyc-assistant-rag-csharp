@@ -8,13 +8,39 @@ namespace Assistant.Tests;
 public class IndexCorpusTests
 {
     [Fact]
-    public void Every_chunk_is_indexed_and_counted()
+    public void Manifest_records_what_is_needed_to_explain_the_index()
     {
         var index = new FakeIndex();
-        var summary = new IndexCorpus(new ListSource(Fakes.Doc("a", "télétravail"), Fakes.Doc("b", "frais")),
-                                      new WholeDocumentSplitter(), new KeywordEmbedder(), index).Execute();
-        Assert.Equal(new IndexSummary(2, 2), summary);
-        Assert.Equal(new[] { "a#0", "b#0" }, index.Chunks.Select(c => c.Id));
+        var manifest = new IndexCorpus(new ListSource(Fakes.Doc("a", "télétravail"), Fakes.Doc("b", "frais")),
+                                       new WholeDocumentSplitter(), new KeywordEmbedder(), index).Execute();
+        Assert.Equal("fake-keywords", manifest.EmbeddingModel);
+        Assert.Equal(2, manifest.ChunkCount);
+        Assert.Same(manifest, index.Manifest());
+    }
+
+    [Fact]
+    public void A_model_change_between_two_batches_is_refused()
+    {
+        // Le service change de modèle au milieu d'une indexation : on refuse un index mélangé.
+        var embedder = new SwitchingEmbedder();
+        var use = new IndexCorpus(new ListSource(Fakes.Doc("a", "télétravail"), Fakes.Doc("b", "frais"), Fakes.Doc("c", "congés")),
+                                  new WholeDocumentSplitter(), embedder, new FakeIndex(), batchSize: 2);
+        Assert.Throws<InconsistentEmbeddingsException>(() => use.Execute());
+        Assert.Equal(2, embedder.Calls);
+    }
+
+    private sealed class SwitchingEmbedder : IEmbedder
+    {
+        private readonly KeywordEmbedder _inner = new();
+        public int Calls { get; private set; }
+
+        public EmbeddingBatch EmbedDocuments(IReadOnlyList<string> texts)
+        {
+            var batch = _inner.EmbedDocuments(texts);
+            return batch with { Model = ++Calls == 1 ? "modele-a" : "modele-b" };
+        }
+
+        public EmbeddingBatch EmbedQuery(string text) => _inner.EmbedQuery(text);
     }
 
     [Fact]

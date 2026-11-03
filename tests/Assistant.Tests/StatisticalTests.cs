@@ -34,11 +34,11 @@ public sealed class ForgetfulGenerator : IGenerator
 
     public List<GenerationRequest> Requests { get; } = new();
 
-    public string Generate(GenerationRequest request)
+    public Generation Generate(GenerationRequest request)
     {
         Requests.Add(request);
         var cited = _random.NextDouble() >= ForgetRate;
-        return cited ? "Deux jours [1]." : "Deux jours.";
+        return new Generation("forgetful", cited ? "Deux jours [1]." : "Deux jours.");
     }
 }
 

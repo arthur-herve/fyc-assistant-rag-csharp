@@ -6,16 +6,25 @@ Le dépôt contient trois corpus. Chaque fichier `config/app*.json` choisit le s
 | Dossier | Contenu | Usage |
 |---|---|---|
 | `solveo/` | 9 documents fictifs de Solvéo, une entreprise imaginaire (RH et informatique), dont 3 à accès restreint | tests automatisés, démarrage hors-ligne, exercices courts (`config/app.json`) |
-| `service-public-reduit/` | 50 fiches réelles de Service-Public.gouv.fr, tirées du corpus complet : c'est le corpus du cours | fil rouge avec de vrais modèles, exercices (`config/app-ollama.json`) |
-| `service-public/` | 322 fiches réelles du thème « Travail - Formation », secteur privé | mesures à plus grande échelle, avec une configuration à écrire : aucune de celles de `config/` ne le choisit |
+| `service-public-reduit/` | 50 fiches réelles de Service-Public.gouv.fr, tirées du corpus complet : c'est le corpus du cours | fil rouge avec de vrais modèles, exercices, banc de calibration (`config/app-ollama.json`) |
+| `service-public/` | 322 fiches réelles du thème « Travail - Formation », secteur privé | expériences à l'échelle (découpage, changement de modèle, stabilité) et mesure de ce que change le passage de 50 à 322 documents (`config/app-ollama-complet.json`) |
 
 Le corpus réduit a la taille que demande le cahier des charges de la séquence S2.1 : « quelques
 dizaines de documents ». Il s'indexe en une vingtaine de secondes avec `bge-m3` sur la machine de
 référence, qui dispose d'une carte graphique, et presque instantanément avec `hashing`.
 
-Les deux corpus Service-Public partagent le même jeu de questions,
-`eval/questions-service-public.json`. Toutes les fiches que ces questions attendent se trouvent dans
+Les deux corpus Service-Public partagent les mêmes jeux de questions,
+`eval/questions-service-public*.json`. Toutes les fiches que ces questions attendent se trouvent dans
 le corpus réduit, et les questions hors corpus le restent dans les deux.
+
+Un seuil de pertinence calibré sur un corpus ne vaut pas forcément pour l'autre. C'est l'effet CACE :
+changer une chose peut tout changer. Ici, la mesure a montré que les seuils tiennent sur les deux
+corpus. C'est le résultat d'une mesure, pas une règle, et le banc d'essai permet de la refaire.
+
+CACE veut dire « Changing Anything Changes Everything ». Le principe vient de Sculley et al. (2015),
+« Hidden Technical Debt in Machine Learning Systems ». Hors ligne, `experience cace-decoupage` le montre
+sur le corpus Solvéo : en ne changeant que le découpage, un tiers des réponses changent, et la part des
+refus justes tombe de 0,80 à 0,40.
 
 ## Format des documents
 
@@ -82,7 +91,7 @@ python tools/import_service_public.py --download
 
 Les fiches de `corpus/service-public/` sont alors remplacées. Celles de `service-public-reduit/` ne
 bougent pas, car c'est une copie figée (voir plus bas). Il faut ensuite refaire la date et les
-comptes de cette page.
+comptes de cette page, ainsi que les seuils et les mesures du corpus complet.
 
 ### Périmètre
 
@@ -111,8 +120,9 @@ Les utilisateurs de démonstration sont définis dans `config/app-ollama.json`. 
 Le corpus réduit est un sous-ensemble figé du corpus complet : ce sont les mêmes fichiers, copiés sans
 modification. Il réunit deux sortes de fiches.
 
-D'abord 39 fiches retenues pour des questions : les 37 que cite `eval/questions-service-public.json`,
-dans ses champs `expected_documents` et `forbidden_documents`, et deux autres des mêmes dossiers.
+D'abord les 39 fiches que citent les deux jeux de questions, `eval/questions-service-public.json` et
+`eval/questions-service-public-validation.json`, dans leurs champs `expected_documents` et
+`forbidden_documents`.
 
 Ensuite 11 fiches de diversion, prises pour l'essentiel dans des dossiers que les questions ne
 couvrent pas : représentation du personnel, contrats de travail, licenciement économique, handicap,

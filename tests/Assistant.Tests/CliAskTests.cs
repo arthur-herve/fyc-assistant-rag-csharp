@@ -40,7 +40,7 @@ public sealed class CliAskTests : CliTestBase
     public void An_empty_value_is_no_value()
     {
         // Donnés vides, --config, --embedding-model et --generation-model valent la configuration, comme si l'option
-        // était absente. Pris pour un nom, ils donneraient un alias vide, que le vrai service refuse comme le faux,
+        // était absente. Pris pour un nom, ils donneraient un modèle « » que le faux service servirait comme « faux: »,
         // ou, pour --config, un message .NET en anglais (« The value cannot be an empty string »). ASSISTANT_CONFIG
         // vaut pour tout le processus, d'où la collection « Console », qui ne tourne en même temps qu'aucune autre.
         using var ai = new FakeAiService();

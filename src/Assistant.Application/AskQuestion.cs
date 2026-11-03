@@ -13,7 +13,10 @@ using Assistant.Domain;
 namespace Assistant.Application;
 
 public sealed record AskSettings(
-    // La racine de composition passe la valeur de la configuration.
+    // Attention : ce seuil n'a de sens que pour UN modèle d'embeddings et UN corpus donnés.
+    // La racine de composition passe en général celui que la configuration donne pour l'alias utilisé.
+    // Si l'alias n'en a pas, elle prend `default`, et la ligne de commande, le banc d'essai et les
+    // expériences le signalent.
     double MinScore,
     int TopK = 4,
     int MaxAttempts = 2,
@@ -67,44 +70,49 @@ public sealed class AskQuestion
         }
 
         // La recherche filtrée par les droits est celle du cas d'usage SearchPassages. Sans index,
-        // elle lève une exception et on s'arrête là.
-        var passages = _search.Execute(user, question, _settings.TopK);
+        // ou avec un index construit par un autre modèle, elle lève une exception et on s'arrête là.
+        var (manifest, passages) = _search.Execute(user, question, _settings.TopK);
         var relevant = passages.Where(p => p.Score >= _settings.MinScore).ToList();
         var retrieved = passages.Select(p => new Retrieved(p.Chunk.Id, Math.Round(p.Score, 4))).ToList();
 
         if (relevant.Count == 0)
         {
             return new Answer(question, AnswerStatus.NoRelevantSource, Messages.NoRelevantSource, Array.Empty<Source>(),
-                new AnswerTrace(retrieved, _settings.MinScore, 0, Array.Empty<string>()));
+                new AnswerTrace(manifest.EmbeddingModel, null, retrieved,
+                                _settings.MinScore, 0, Array.Empty<string>()));
         }
 
         var template = _prompts.Get(_settings.PromptName);
         var prompt = template.Render(question, FormatPassages(relevant));
 
         var rawOutputs = new List<string>();
+        string? generationModel = null;
         for (var attempt = 1; attempt <= _settings.MaxAttempts; attempt++)
         {
             var seed = _settings.Seed is null ? (int?)null : _settings.Seed + attempt - 1;
-            var text = _generator.Generate(new GenerationRequest(
+            var generation = _generator.Generate(new GenerationRequest(
                 template.System, prompt, _settings.Temperature, _settings.MaxTokens, seed));
-            rawOutputs.Add(text);
-            var check = Citations.Check(text, relevant.Count);
+            generationModel = generation.Model;
+            rawOutputs.Add(generation.Text);
+            var check = Citations.Check(generation.Text, relevant.Count);
             if (check.IsValid)
             {
                 var sources = check.Cited
                     .Select(n => new Source(n, relevant[n - 1].Chunk.DocumentId, relevant[n - 1].Chunk.DocumentTitle, relevant[n - 1].Chunk.Id))
                     .ToList();
-                return new Answer(question, AnswerStatus.Answered, text.Trim(), sources,
-                    Trace(retrieved, attempt, rawOutputs));
+                return new Answer(question, AnswerStatus.Answered, generation.Text.Trim(), sources,
+                    Trace(manifest, generationModel, retrieved, attempt, rawOutputs));
             }
         }
 
         // Règle métier : pas de réponse non sourcée. On renvoie plutôt les passages, que l'utilisateur lira lui-même.
         var all = relevant.Select((p, i) => new Source(i + 1, p.Chunk.DocumentId, p.Chunk.DocumentTitle, p.Chunk.Id)).ToList();
         return new Answer(question, AnswerStatus.Unsourced, Messages.Unsourced, all,
-            Trace(retrieved, _settings.MaxAttempts, rawOutputs));
+            Trace(manifest, generationModel, retrieved, _settings.MaxAttempts, rawOutputs));
     }
 
-    private AnswerTrace Trace(IReadOnlyList<Retrieved> retrieved, int attempts, List<string> rawOutputs) =>
-        new(retrieved, _settings.MinScore, attempts, rawOutputs.ToList());
+    private AnswerTrace Trace(IndexManifest manifest, string? generationModel,
+                              IReadOnlyList<Retrieved> retrieved, int attempts, List<string> rawOutputs) =>
+        new(manifest.EmbeddingModel, generationModel, retrieved,
+            _settings.MinScore, attempts, rawOutputs.ToList());
 }

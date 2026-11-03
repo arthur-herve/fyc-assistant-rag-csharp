@@ -1,4 +1,4 @@
-// Le dossier de sortie des expériences : daté à la seconde, sous la racine du projet, et toujours neuf.
+// Le dossier de sortie du banc et des expériences : daté à la seconde, sous la racine du projet, et toujours neuf.
 
 using Assistant.Cli;
 using Xunit;
@@ -10,32 +10,33 @@ public class ResultsDirTests
     [Fact]
     public void Without_out_the_folder_is_dated_and_shown_from_the_current_folder()
     {
-        // Sans --out, les expériences écrivent sous la racine du projet, d'où qu'on lance la commande, dans
+        // Sans --out, le banc et les expériences écrivent sous la racine du projet, d'où qu'on lance la commande, dans
         // un dossier daté à la seconde (AAAAMMJJ-HHMMSS). Le chemin affiché part du dossier courant :
         // « eval/resultats/… » depuis la racine, un chemin relatif qui y mène depuis ailleurs.
         var now = new DateTime(2026, 10, 1, 16, 41, 52);
+        Assert.Equal("eval/resultats/20261001-164152", AppConfig.ResultsDir("", now, from: AppConfig.ProjectRoot).Replace('\\', '/'));
         Assert.Equal("eval/resultats/exp-stabilite-20261001-164152",
                      AppConfig.ResultsDir("exp-stabilite-", now, from: AppConfig.ProjectRoot).Replace('\\', '/'));
-        Assert.Equal("../../eval/resultats/exp-stabilite-20261001-164152",
-                     AppConfig.ResultsDir("exp-stabilite-", now, from: Path.Combine(AppConfig.ProjectRoot, "src", "Assistant.Cli")).Replace('\\', '/'));
-        Assert.Equal(Path.Combine(AppConfig.ProjectRoot, "eval", "resultats", "exp-stabilite-20261001-164152"),
-                     Path.GetFullPath(AppConfig.ResultsDir("exp-stabilite-", now)));
+        Assert.Equal("../../eval/resultats/20261001-164152",
+                     AppConfig.ResultsDir("", now, from: Path.Combine(AppConfig.ProjectRoot, "src", "Assistant.Cli")).Replace('\\', '/'));
+        Assert.Equal(Path.Combine(AppConfig.ProjectRoot, "eval", "resultats", "20261001-164152"), Path.GetFullPath(AppConfig.ResultsDir("", now)));
         // Depuis un autre lecteur, sous Windows, aucun chemin relatif ne mène au dossier : on affiche le chemin entier.
         // GetRelativePath ne lit pas le disque, ce lecteur n'a donc pas besoin d'exister.
         if (OperatingSystem.IsWindows())
         {
             var other = new[] { @"Z:\", @"Y:\", @"X:\" }.First(d => !AppConfig.ProjectRoot.StartsWith(d[..2], StringComparison.OrdinalIgnoreCase));
-            Assert.Equal(Path.GetFullPath(Path.Combine(AppConfig.ProjectRoot, "eval", "resultats", "exp-stabilite-20261001-164152")),
-                         AppConfig.ResultsDir("exp-stabilite-", now, from: other));
+            Assert.Equal(Path.GetFullPath(Path.Combine(AppConfig.ProjectRoot, "eval", "resultats", "20261001-164152")),
+                         AppConfig.ResultsDir("", now, from: other));
         }
     }
 
     [Fact]
     public void A_folder_that_already_exists_gets_a_suffix()
     {
-        // Daté à la seconde, le dossier par défaut peut déjà exister. Deux expériences lancées dans la même seconde
-        // partageraient alors le même dossier : la seconde écraserait l'index, les instantanés et le rapport de la
-        // première. La suivante reçoit donc « -2 », puis « -3 », et un fichier de ce nom compte aussi comme pris.
+        // Daté à la seconde, le dossier par défaut peut déjà exister. Deux bancs lancés dans la même seconde
+        // partageraient alors le même dossier : le second écraserait le rapport du premier, ou échouerait sur
+        // resultats.csv, encore ouvert par l'autre. Le suivant reçoit donc « -2 », puis « -3 », et un fichier de ce nom
+        // compte aussi comme pris.
         using var dir = new TempDir();
         var path = Path.Combine(dir.Path, "eval", "resultats", "20261001-164152");   // les dossiers parents sont créés
         Assert.Equal(path, AppConfig.CreateNewDir(path));

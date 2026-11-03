@@ -1,7 +1,8 @@
 # Contrat HTTP du service IA — version 1
 
 Le service IA ne connaît rien au métier. Il reçoit des textes et renvoie des vecteurs ou du texte.
-À chaque réponse, il dit aussi **quel modèle a réellement servi**.
+À chaque réponse, il dit aussi **quel modèle a réellement servi** : c'est grâce à ce champ que
+l'application s'aperçoit qu'un index n'est plus compatible avec le modèle.
 
 Ce contrat est la seule chose que partagent l'application C# et le service IA écrit en Python.
 C'est lui, et non le langage, qui fait la frontière entre les deux. Il en est à sa
@@ -72,7 +73,8 @@ alors cette empreinte avant et après chaque inférence. Quand l'alias déclare 
 propre empreinte s'ajoute à la fin (`+prefixes-…`), parce qu'ils changent les vecteurs.
 
 Concrètement, si l'équipe qui exploite le service met à jour le modèle derrière le même alias,
-`model` change.
+`model` change. L'application refuse alors de chercher dans l'ancien index avec des vecteurs du
+nouveau modèle.
 
 ## `POST /v1/generate`
 

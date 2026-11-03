@@ -2,7 +2,8 @@
 // Un système dont un maillon est probabiliste ne se valide pas par des assertions exactes
 // (séquence 3.1). On enregistre donc ses réponses à un jeu de questions fixe, avec la
 // configuration qui les a produites. Puis on change UNE chose, on enregistre à nouveau et
-// on compare. Le taux de dérive n'a de sens que lu à côté des différences de configuration.
+// on compare. Le taux de dérive n'a de sens que lu à côté des différences de configuration
+// (séquence 3.2, principe CACE).
 
 using System.Text.RegularExpressions;
 using Assistant.Domain;
@@ -45,6 +46,11 @@ public sealed class RecordSnapshot
             // autant d'entrées en erreur.
             var answer = _ask.Execute(q.User, q.Question);
             var trace = answer.Trace;
+            configuration.TryAdd("embedding_model_id", trace.EmbeddingModel);
+            if (trace.GenerationModel is not null)
+            {
+                configuration.TryAdd("generation_model_id", trace.GenerationModel);
+            }
             entries.Add(new SnapshotEntry(
                 q.Id, q.User.Id, q.Question, StatusNames.Of(answer.Status),
                 answer.Sources.Select(s => s.DocumentId).Distinct().OrderBy(d => d, StringComparer.Ordinal).ToList(),

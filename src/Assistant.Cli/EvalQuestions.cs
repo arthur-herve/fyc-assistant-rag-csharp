@@ -61,7 +61,7 @@ public static class EvalQuestions
     }
 
     /// <summary>
-    /// --limit N garde les N premières questions, pour les expériences et snapshot record. Sans --limit,
+    /// --limit N garde les N premières questions, pour le banc, les expériences et snapshot record. Sans --limit,
     /// on les garde toutes. N vaut au moins 1 : 0 ou un nombre négatif est refusé, pas ignoré.
     /// </summary>
     public static List<EvalQuestion> Limit(List<EvalQuestion> questions, int? limit) => limit switch

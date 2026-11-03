@@ -1,8 +1,8 @@
 // La configuration de l'application, lue depuis config/app.json avec System.Text.Json et rien d'autre.
-// Elle ne connaît les modèles que par leurs alias. Une erreur de saisie se voit dès le chargement, avec
-// le fichier et la clé.
+// Elle ne connaît les modèles que par leurs alias. Seuls les seuils de pertinence dépendent du modèle,
+// et c'est voulu. Une erreur de saisie se voit dès le chargement, avec le fichier et la clé.
 // JSON n'a pas de commentaires : une clé qui commence par « _ » en tient lieu, à tous les niveaux du
-// fichier, y compris dans users et chaque users.<nom>.
+// fichier, y compris dans retrieval.min_score, users et chaque users.<nom>.
 
 using System.Globalization;
 using System.Text.Json;
@@ -36,7 +36,7 @@ public sealed record AppConfig(
     int SplitterOverlapChars,
     bool SplitterIncludeTitle,
     int TopK,
-    double MinScore,
+    IReadOnlyDictionary<string, double> MinScores,
     string PromptName,
     double Temperature,
     int MaxTokens,
@@ -91,8 +91,8 @@ public sealed record AppConfig(
     public static string ProjectRoot { get; } = FindProjectRoot();
 
     /// <summary>
-    /// Le dossier de sortie par défaut, daté à la seconde, par exemple « 20261001-164152 ». Une expérience passe
-    /// le <paramref name="prefix"/> « exp-&lt;nom&gt;- ». Le dossier est toujours sous la
+    /// Le dossier de sortie par défaut, daté à la seconde, par exemple « 20261001-164152 ». Le banc passe un
+    /// <paramref name="prefix"/> vide, une expérience passe « exp-&lt;nom&gt;- ». Le dossier est toujours sous la
     /// racine du projet, d'où qu'on lance la commande, mais son chemin est relatif à <paramref name="from"/>, le
     /// dossier courant par défaut. Depuis la racine, il s'affiche donc « eval/resultats/… ».
     /// </summary>
@@ -103,8 +103,8 @@ public sealed record AppConfig(
     /// <summary>
     /// Crée un dossier neuf et renvoie le nom retenu : <paramref name="path"/> s'il est libre, sinon « path-2 »,
     /// « path-3 », et ainsi de suite. Cela sert au dossier de sortie par défaut, daté à la seconde
-    /// (<see cref="ResultsDir"/>) : deux expériences lancées dans la même seconde, par un script ou depuis deux
-    /// terminaux, n'écrivent pas dans le même dossier.
+    /// (<see cref="ResultsDir"/>) : deux bancs lancés dans la même seconde, par un script ou depuis deux terminaux,
+    /// n'écrivent pas dans le même dossier.
     /// Directory.CreateDirectory réussit aussi sur un dossier qui existe, et vérifier avant de créer laisserait deux
     /// processus prendre le même nom. Le choix du nom et la création se font donc sous un Mutex nommé, un verrou
     /// commun à tous les processus de la machine.
@@ -176,6 +176,7 @@ public sealed record AppConfig(
         var gen = Section(raw, "generation", path, required: false);
         var retrieval = Section(raw, "retrieval", path);
         var splitter = Section(raw, "splitter", path, required: false);
+        var minScores = Section(retrieval, "min_score", path, parent: "retrieval");
         var users = Section(raw, "users", path, required: false);
         string Rel(string relative) => Path.IsPathRooted(relative) ? relative : Path.Combine(ProjectRoot, relative);
         string Where(string section) => $"{path} [{section}]";
@@ -185,6 +186,8 @@ public sealed record AppConfig(
         // Les bornes de ParagraphSplitter sont vérifiées ici pour que le message nomme le fichier et la clé. Le
         // recouvrement, même celui par défaut, doit rester sous la moitié de max_chars.
         var maxChars = Value(splitter, "max_chars", Where("splitter"), 800, min: 100);
+        // Un alias qui n'a pas son seuil prend celui de « default » (MinScoreFor) : cette entrée est obligatoire.
+        _ = Value<double>(minScores, "default", Where("retrieval.min_score"));
         return new AppConfig(
             AiBaseUrl: Environment.GetEnvironmentVariable("AI_SERVICE_URL") ?? baseUrl,
             EmbeddingModel: Value<string>(ai, "embedding_model", Where("ai_service")),
@@ -197,7 +200,10 @@ public sealed record AppConfig(
             SplitterOverlapChars: Value(splitter, "overlap_chars", Where("splitter"), 120, min: 0, max: maxChars / 2 - 1),
             SplitterIncludeTitle: Value(splitter, "include_title", Where("splitter"), true),
             TopK: Value(retrieval, "top_k", Where("retrieval"), 4, min: 1),
-            MinScore: Value<double>(retrieval, "min_score", Where("retrieval"), min: -1, max: 1),
+            MinScores: Entries(minScores).ToDictionary(
+                kv => kv.Key,
+                kv => Value<double>(minScores, kv.Key, Where("retrieval.min_score"), min: -1, max: 1),
+                StringComparer.Ordinal),
             PromptName: Value(gen, "prompt", Where("generation"), "answer"),
             Temperature: Value(gen, "temperature", Where("generation"), 0.2, min: 0, max: 2),
             MaxTokens: Value(gen, "max_tokens", Where("generation"), 400, min: 1),
@@ -211,6 +217,15 @@ public sealed record AppConfig(
             Source = path,
         };
     }
+
+    public double MinScoreFor(string embeddingModel) =>
+        MinScores.TryGetValue(embeddingModel, out var score) ? score : MinScores["default"];
+
+    /// <summary>
+    /// Un seuil est-il configuré pour cet alias ? Configuré ne veut pas dire mesuré : le
+    /// <c>_commentaire</c> de chaque configuration dit lesquels le sont.
+    /// </summary>
+    public bool HasThresholdFor(string embeddingModel) => MinScores.ContainsKey(embeddingModel);
 
     public User User(string name) =>
         Users.TryGetValue(name, out var groups) ? new User(name, groups) : throw new UnknownUserException(name, Users.Keys.Order());
@@ -293,7 +308,7 @@ public sealed record AppConfig(
 
     /// <summary>
     /// Le message d'une valeur hors bornes. Il n'a que deux formes, car une borne haute vient toujours avec une
-    /// borne basse : c'est le cas du délai, du recouvrement, du seuil et de la température.
+    /// borne basse : c'est le cas du délai, du recouvrement, des seuils et de la température.
     /// </summary>
     private static string Range(double? min, double? max) =>
         max is null ? $"doit valoir au moins {Number(min)}" : $"doit être compris entre {Number(min)} et {Number(max)}";

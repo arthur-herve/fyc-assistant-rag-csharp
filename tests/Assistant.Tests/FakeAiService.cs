@@ -1,4 +1,4 @@
-// Le faux service IA des tests qui passent par HTTP : ligne de commande et expériences. Un seul
+// Le faux service IA des tests qui passent par HTTP : ligne de commande, banc et expériences. Un seul
 // double pour tous, sur un port libre (TestPorts), plutôt qu'un par fichier de tests.
 
 using System.Net;
@@ -9,12 +9,18 @@ using System.Text.Json.Nodes;
 namespace Assistant.Tests;
 
 /// <summary>
-/// Faux service IA qui respecte le contrat v1 : /health, des embeddings par mots-clés et une génération
+/// Faux service IA qui respecte le contrat v1 : /health, /v1/models, des embeddings par mots-clés et une génération
 /// qui cite le premier passage. Chaque mot du vocabulaire a son axe, et un axe constant garantit qu'aucun vecteur
 /// n'est nul. Le modèle servi s'appelle « faux:&lt;alias&gt; », si bien que deux alias donnent deux modèles.
 /// </summary>
 public sealed class FakeAiService : IDisposable
 {
+    /// <summary>
+    /// Les alias que /v1/models déclare pour chaque type. Les embeddings et la génération, eux, répondent à n'importe
+    /// quel alias.
+    /// </summary>
+    public static readonly string[] EmbeddingAliases = { "hashing", "hashing-512" }, GenerationAliases = { "extractive" };
+
     private readonly HttpListener _listener;
     private int _requests;
 
@@ -70,15 +76,13 @@ public sealed class FakeAiService : IDisposable
         {
             return new { status = "ok" };
         }
+        if (path == "/v1/models")
+        {
+            return new { embedding = Describe(EmbeddingAliases), generation = Describe(GenerationAliases) };
+        }
         using var reader = new StreamReader(request.InputStream, Encoding.UTF8);
         var body = JsonNode.Parse(await reader.ReadToEndAsync())!.AsObject();
         var alias = body["model"]!.GetValue<string>();
-        if (alias.Length == 0)
-        {
-            // Le vrai service répond 404 à un alias qu'il ne connaît pas, et il n'en connaît aucun de vide : ce double
-            // refuse donc l'alias vide, lui aussi.
-            throw new InvalidOperationException("alias vide");
-        }
         var model = $"faux:{alias}";
         switch (path)
         {
@@ -91,6 +95,9 @@ public sealed class FakeAiService : IDisposable
                 throw new InvalidOperationException($"route inconnue : {path}");
         }
     }
+
+    private static object[] Describe(IEnumerable<string> aliases) =>
+        aliases.Select(alias => (object)new { alias, backend = "faux", description = "" }).ToArray();
 
     private static double[] Vector(string text)
     {

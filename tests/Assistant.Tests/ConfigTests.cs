@@ -27,7 +27,7 @@ public sealed class ConfigTests : IDisposable
           "ai_service": { "base_url": "http://127.0.0.1:8100", "embedding_model": "hashing", "generation_model": "extractive" },
           "corpus": { "directory": "corpus/solveo" },
           "index": { "path": "data/index.json" },
-          "retrieval": { "min_score": 0.15 }
+          "retrieval": { "min_score": { "default": 0.15 } }
         }
         """;
 
@@ -45,6 +45,7 @@ public sealed class ConfigTests : IDisposable
     [Theory]
     [InlineData("app.json")]
     [InlineData("app-ollama.json")]
+    [InlineData("app-ollama-complet.json")]
     public void The_shipped_configurations_load(string name) =>
         Assert.NotEmpty(AppConfig.Load(Path.Combine(AppConfig.ProjectRoot, "config", name)).Users);
 
@@ -69,7 +70,8 @@ public sealed class ConfigTests : IDisposable
     [InlineData("\"embedding_model\": \"hashing\", ", "", " [ai_service] : clé « embedding_model » obligatoire")]
     [InlineData("\"corpus\": { \"directory\": \"corpus/solveo\" },", "", " : section [corpus] absente")]
     [InlineData("\"retrieval\"", "\"_retrieval\"", " : section [retrieval] absente")]
-    [InlineData("\"min_score\": 0.15", "", " [retrieval] : clé « min_score » obligatoire")]
+    [InlineData("\"min_score\": { \"default\": 0.15 }", "", " : section [retrieval.min_score] absente")]
+    [InlineData("\"default\"", "\"hashing\"", " [retrieval.min_score] : clé « default » obligatoire")]
     [InlineData("\"generation_model\": \"extractive\"", "\"generation_model\": \"extractive\", \"timeout_seconds\": 0",
                 " [ai_service] : « timeout_seconds » = 0, doit être compris entre 1 et 86400")]
     [InlineData("\"generation_model\": \"extractive\"", "\"generation_model\": \"extractive\", \"timeout_seconds\": 86401",
@@ -77,10 +79,11 @@ public sealed class ConfigTests : IDisposable
     [InlineData("\"min_score\"", "\"top_k\": 0, \"min_score\"", " [retrieval] : « top_k » = 0, doit valoir au moins 1")]
     [InlineData("\"min_score\"", "\"top_k\": true, \"min_score\"", " [retrieval] : « top_k » doit être un entier, pas true")]
     [InlineData("\"min_score\"", "\"topk\": 8, \"min_score\"", " [retrieval] : clé(s) inconnue(s) [topk] (connues : min_score, top_k)")]
-    [InlineData("\"min_score\": 0.15", "\"min_score\": 1.5",
-                " [retrieval] : « min_score » = 1.5, doit être compris entre -1 et 1")]
-    [InlineData("\"min_score\": 0.15", "\"min_score\": -1.5",
-                " [retrieval] : « min_score » = -1.5, doit être compris entre -1 et 1")]
+    [InlineData("\"default\": 0.15", "\"default\": 0.15, \"hashing\": 1.5",
+                " [retrieval.min_score] : « hashing » = 1.5, doit être compris entre -1 et 1")]
+    [InlineData("\"default\": 0.15", "\"default\": 0.15, \"hashing\": -1.5",
+                " [retrieval.min_score] : « hashing » = -1.5, doit être compris entre -1 et 1")]
+    [InlineData("{ \"default\": 0.15 }", "0.15", " : section [retrieval.min_score] mal formée")]
     [InlineData("\"index\"", "\"generation\": { \"temperature\": 2.5 }, \"index\"",
                 " [generation] : « temperature » = 2.5, doit être compris entre 0 et 2")]
     [InlineData("\"index\"", "\"generation\": { \"temperature\": \"chaud\" }, \"index\"",
@@ -227,7 +230,7 @@ public sealed class ConfigTests : IDisposable
     // « \ud800 » isolé.
     [Theory]
     [InlineData("\"index\"", "\"corpus\": { \"directory\": \"autre\" }, \"index\"", "clé « corpus » en double")]
-    [InlineData("\"min_score\": 0.15", "\"min_score\": 0.15, \"min_score\": 0.2", "clé « min_score » en double")]
+    [InlineData("\"default\": 0.15", "\"default\": 0.15, \"hashing\": 0.15, \"hashing\": 0.2", "clé « hashing » en double")]
     [InlineData("\"corpus/solveo\"", "\"corpus/solveo\\ud800\"", "chaîne qui n'est pas du texte")]
     [InlineData("\"base_url\"", "\"_n\\ud800\": \"x\", \"base_url\"", "chaîne qui n'est pas du texte")]
     public void A_file_that_is_not_strict_json_is_a_config_error_that_names_it(string from, string to, string expected)
@@ -255,9 +258,10 @@ public sealed class ConfigTests : IDisposable
     {
         var config = Load(Valid
             .Replace("\"base_url\"", "\"_note\": \"x\", \"base_url\"")
-            .Replace("\"min_score\"", "\"_note\": \"x\", \"min_score\"")
+            .Replace("\"min_score\": {", "\"_note\": \"x\", \"min_score\": { \"_calibre\": \"le 11/09\", \"hashing\": 0.15,")
             .Replace("\"index\"", "\"users\": { \"_note\": \"x\", \"_modele\": { \"groupes\": [\"tous\"] }, "
                                   + "\"alice\": { \"_note\": \"x\", \"groups\": [\"tous\"] } }, \"index\""));
+        Assert.Equal(new[] { "default", "hashing" }, config.MinScores.Keys.Order());
         Assert.Equal(new[] { "alice" }, config.Users.Keys);   // « _modele » est un commentaire : ni vérifié, ni utilisateur
     }
 
@@ -278,6 +282,16 @@ public sealed class ConfigTests : IDisposable
         {
             Environment.SetEnvironmentVariable("AI_SERVICE_URL", previous);
         }
+    }
+
+    [Fact]
+    public void Threshold_per_model_and_uncalibrated_fallback()
+    {
+        var config = Load(Valid.Replace("\"default\": 0.15", "\"default\": 0.3, \"hashing\": 0.15"));
+        Assert.Equal(0.15, config.MinScoreFor("hashing"));
+        Assert.True(config.HasThresholdFor("hashing"));
+        Assert.Equal(0.3, config.MinScoreFor("nomic"));        // repli sur « default »…
+        Assert.False(config.HasThresholdFor("nomic"));         // … signalé (ligne de commande, banc)
     }
 
     [Fact]
@@ -303,8 +317,9 @@ public sealed class ConfigTests : IDisposable
     [Fact]
     public void The_snapshot_configuration_includes_the_settings_that_change_statuses()
     {
-        var config = AppConfig.Load() with { AiBaseUrl = "http://127.0.0.1:1", IndexPath = Path.Combine(_dir, "index.json") };
-        var container = Composition.Build(config, new Overrides(SnapshotsDir: Path.Combine(_dir, "instantanes")));
+        var config = AppConfig.Load() with { AiBaseUrl = "http://127.0.0.1:1" };
+        var container = Composition.Build(config, new Overrides(IndexPath: Path.Combine(_dir, "index.json"),
+                                                                SnapshotsDir: Path.Combine(_dir, "instantanes")));
         var snapshot = container.RecordSnapshot.Execute("vide", Array.Empty<SnapshotQuestion>());
         Assert.Equal((object?)2, snapshot.Configuration["max_attempts"]);
     }

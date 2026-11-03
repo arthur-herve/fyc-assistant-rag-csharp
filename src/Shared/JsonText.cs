@@ -15,8 +15,9 @@ namespace Assistant;
 /// deux cas sont refusés avec un message en français. Une erreur de syntaxe garde le message de System.Text.Json, y compris
 /// pour NaN et Infinity, qui ne sont pas du JSON.
 /// L'appelant peut demander deux refus de plus. Avec <c>strings</c>, une chaîne qui n'est pas du texte est refusée :
-/// la configuration, l'index, les instantanés et les jeux de questions le demandent. Avec <c>maxDigits</c>, c'est un
-/// entier de plus de 4300 chiffres, et seule la configuration le demande.
+/// la configuration, l'index, les instantanés, les jeux de questions et la réponse de GET /v1/models le
+/// demandent. Avec <c>maxDigits</c>, c'est un entier de plus de 4300 chiffres, et seules la configuration et la réponse
+/// de GET /v1/models le demandent.
 /// </summary>
 internal static class JsonText
 {

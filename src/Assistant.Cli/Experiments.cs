@@ -1,7 +1,11 @@
-// Expériences reproductibles. Chacune enregistre des instantanés et écrit un rapport Markdown. Elles
-// rejouent sur l'application propre les « ruptures » de la problématique : stabilite pose plusieurs fois
-// les mêmes questions, sans rien changer, pour mesurer le non-déterminisme.
+// Expériences reproductibles. Chacune change une seule chose, enregistre des instantanés et écrit
+// un rapport Markdown. Elles rejouent sur l'application propre les « ruptures » de la problématique :
+// cace-decoupage et changement-embeddings pour la dépendance de données instable, stabilite pour le
+// non-déterminisme, changement-generateur pour ce que le générateur change malgré tout.
 //
+//     assistant experience cace-decoupage        --config config/app-ollama.json --questions eval/questions-service-public.json
+//     assistant experience changement-embeddings --other nomic
+//     assistant experience changement-generateur --other qwen3-4b
 //     assistant experience stabilite             [--runs 3] [--seed 42]
 
 using System.Diagnostics;
@@ -45,42 +49,66 @@ public sealed class Experiment
         Log($"Configuration `{configPath.Replace('\\', '/')}` · {questions.Count} questions de `{questionsPath.Replace('\\', '/')}` · "
             + $"corpus `{Path.GetFileName(config.CorpusDir.TrimEnd('/', '\\'))}`.");
         Log("");
+        WarnIfDefaultThreshold(EmbeddingModel);
     }
 
     /// <summary>
+    /// Quand aucun seuil n'est configuré pour cet alias, c'est la valeur `default` qui s'applique. On le signale
+    /// dans la console et dans le rapport, comme le font la ligne de commande et le banc d'essai.
+    /// </summary>
+    public void WarnIfDefaultThreshold(string embeddingModel)
+    {
+        if (Config.HasThresholdFor(embeddingModel))
+        {
+            return;
+        }
+        var message = $"Attention : aucun seuil de pertinence configuré pour « {embeddingModel} » : valeur `default` "
+                      + $"{Config.MinScoreFor(embeddingModel).ToString(CultureInfo.InvariantCulture)} (à calibrer avec le banc d'essai)";
+        Console.Error.WriteLine(message);
+        Log($"> {message}");
+        Log("");
+    }
+
+    /// <summary>Modèles effectifs : les options communes de la ligne de commande, sinon la configuration.</summary>
+    public string EmbeddingModel => _common.EmbeddingModel ?? Config.EmbeddingModel;
+    public string GenerationModel => _common.GenerationModel ?? Config.GenerationModel;
+
+    /// <summary>
     /// L'index et les instantanés vivent dans le dossier de l'expérience, rien n'est donc écrasé ailleurs.
-    /// Les options communes (--embedding-model, --generation-model) s'appliquent.
+    /// Les options communes (--embedding-model, --generation-model) s'appliquent, sauf sur ce que
+    /// l'expérience change elle-même.
     /// </summary>
     public Container Build(string indexName, Overrides? overrides = null)
     {
         var o = overrides ?? new Overrides();
-        return Composition.Build(Config with { IndexPath = Path.Combine(OutDir, $"index-{indexName}.json") }, o with
+        return Composition.Build(Config, o with
         {
             EmbeddingModel = o.EmbeddingModel ?? _common.EmbeddingModel,
             GenerationModel = o.GenerationModel ?? _common.GenerationModel,
+            IndexPath = Path.Combine(OutDir, $"index-{indexName}.json"),
             SnapshotsDir = Path.Combine(OutDir, "instantanes"),
         });
     }
 
     /// <summary>Indexe le corpus et affiche une ligne de progression en console, comme <see cref="Record"/>.</summary>
-    public (Container Container, IndexSummary Summary) Index(string indexName, Overrides? overrides = null)
+    public (Container Container, IndexManifest Manifest, double Seconds) Index(string indexName, Overrides? overrides = null)
     {
         var container = Build(indexName, overrides);
         var clock = Stopwatch.StartNew();
-        var summary = container.IndexCorpus.Execute();
+        var manifest = container.IndexCorpus.Execute();
         var seconds = clock.Elapsed.TotalSeconds;
-        Console.WriteLine($"  index « {indexName} » : {summary.ChunkCount} morceaux, "
+        Console.WriteLine($"  index « {indexName} » : {manifest.ChunkCount} morceaux, {manifest.EmbeddingModel}, {manifest.Dimension} dim., "
                           + $"{seconds.ToString("0.0", CultureInfo.InvariantCulture)} s");
-        return (container, summary);
+        return (container, manifest, seconds);
     }
 
-    public Snapshot Record(string snapshotName, Container container)
+    public (Snapshot Snapshot, double Seconds) Record(string snapshotName, Container container)
     {
         var clock = Stopwatch.StartNew();
         var snapshot = container.RecordSnapshot.Execute(snapshotName, Questions.Select(q => q.ToSnapshotQuestion(Config)).ToList());
         var seconds = clock.Elapsed.TotalSeconds;
         Console.WriteLine($"  instantané « {snapshotName} » : {snapshot.Entries.Count} réponses en {seconds.ToString("0.0", CultureInfo.InvariantCulture)} s");
-        return snapshot;
+        return (snapshot, seconds);
     }
 
     /// <summary>Les noms de statut des instantanés viennent du domaine, plutôt que de chaînes recopiées.</summary>
@@ -139,6 +167,21 @@ public sealed class Experiment
         Log("");
     }
 
+    public void Comparison(SnapshotComparison comparison, string title)
+    {
+        Log($"## {title}");
+        Log("");
+        Log("```");
+        // Ligne à ligne, parce que le rapport s'écrit avec des « \n » même sous Windows, alors que
+        // ComparisonToText y mettrait des « \r\n ».
+        foreach (var line in Presenter.ComparisonLines(comparison))
+        {
+            Log(line);
+        }
+        Log("```");
+        Log("");
+    }
+
     public string Write()
     {
         var path = Path.Combine(OutDir, "rapport.md");
@@ -153,11 +196,21 @@ public sealed class Experiment
         double d => d.ToString("0.00", CultureInfo.InvariantCulture),
         _ => value.ToString() ?? "—",
     };
+
+    public static IReadOnlyDictionary<string, object?> Merge(IReadOnlyDictionary<string, object?> first, IReadOnlyDictionary<string, object?> second)
+    {
+        var merged = new Dictionary<string, object?>(first);
+        foreach (var (key, value) in second)
+        {
+            merged[key] = value;
+        }
+        return merged;
+    }
 }
 
 public static class Experiments
 {
-    public static readonly string[] Names = { "stabilite" };
+    public static readonly string[] Names = { "cace-decoupage", "changement-embeddings", "changement-generateur", "stabilite" };
 
     public static int Run(string name, Args args, AppConfig config, Overrides common, string configPath)
     {
@@ -167,8 +220,14 @@ public static class Experiments
         }
         // Toutes les options sont vérifiées ici, alors que seule la configuration a été lue : une faute de frappe ne
         // coûte ni dossier, ni index, ni appel au service IA. On monte aussi, sans rien calculer, ce que l'expérience
-        // utilisera, pour qu'un prompt introuvable se voie avant l'indexation et le premier instantané. Le service IA
-        // n'est interrogé qu'ensuite : il doit répondre.
+        // utilisera, pour qu'un découpage hors bornes ou un prompt introuvable se voie avant l'indexation et
+        // l'instantané « avant ». Le service IA n'est interrogé qu'ensuite : il doit répondre et, pour les deux
+        // expériences de changement de modèle, servir l'alias --other avec le bon type. Le seuil `default` n'est
+        // annoncé qu'après, par Experiment.
+        if (name is "changement-embeddings" or "changement-generateur" && args.Value("--other") is null)
+        {
+            throw new ArgumentException($"{name} attend --other <alias du second modèle>");
+        }
         if (name == "stabilite" && (args.Int("--runs") ?? 3) < 2)
         {
             throw new ArgumentException("--runs doit valoir au moins 2 : il faut deux passages pour mesurer une dérive");
@@ -180,13 +239,30 @@ public static class Experiments
             config.User(q.UserName);   // un utilisateur inconnu lève UnknownUserException avant tout travail
         }
         Check(config, common);
+        if (name == "cace-decoupage")
+        {
+            var (maxChars, overlap) = CaceSplitter(args);
+            Check(config, common with { SplitterMaxChars = maxChars, SplitterOverlapChars = overlap });
+        }
         AiService.Require(config.AiBaseUrl);
+        switch (name)
+        {
+            case "changement-embeddings":
+                AiService.RequireModel(config.AiBaseUrl, "embedding", args.Value("--other")!);
+                break;
+            case "changement-generateur":
+                AiService.RequireModel(config.AiBaseUrl, "generation", args.Value("--other")!);
+                break;
+        }
         // Sans --out, le dossier va sous la racine du projet et il est toujours neuf (newOutDir).
         var outDir = args.NonEmpty("--out");
         var exp = new Experiment(name, config, questions, outDir ?? AppConfig.ResultsDir($"exp-{name}-", DateTime.Now), questionsPath, configPath,
                                  common, newOutDir: outDir is null);
         switch (name)
         {
+            case "cace-decoupage": CaceDecoupage(exp, args); break;
+            case "changement-embeddings": ChangementEmbeddings(exp, args); break;
+            case "changement-generateur": ChangementGenerateur(exp, args); break;
             case "stabilite": Stabilite(exp, args); break;
             default: throw new ArgumentException($"expérience inconnue : {name} (connues : {string.Join(", ", Names)})");
         }
@@ -200,8 +276,9 @@ public static class Experiments
     }
 
     /// <summary>
-    /// Monte la configuration que l'expérience utilisera et lit son prompt, sans rien calculer. Un prompt introuvable
-    /// se voit ainsi avant l'indexation et le premier instantané.
+    /// Monte la configuration que l'expérience utilisera et lit son prompt, sans rien calculer. Un découpage hors
+    /// bornes ou un prompt introuvable se voit ainsi avant l'indexation et l'instantané « avant ». Run l'appelle
+    /// aussi pour le découpage de cace-decoupage.
     /// </summary>
     private static void Check(AppConfig config, Overrides overrides)
     {
@@ -209,17 +286,160 @@ public static class Experiments
         container.Prompts.Get(container.Settings.PromptName);
     }
 
+    /// <summary>Le découpage « après » de cace-decoupage : --max-chars et --overlap-chars, sinon 300 et 50.</summary>
+    private static (int MaxChars, int Overlap) CaceSplitter(Args args) => (args.Int("--max-chars") ?? 300, args.Int("--overlap-chars") ?? 50);
+
+    private static void CaceDecoupage(Experiment exp, Args args)
+    {
+        var (maxChars, overlap) = CaceSplitter(args);
+        var before = (exp.Config.SplitterMaxChars, exp.Config.SplitterOverlapChars);
+
+        Console.WriteLine($"Avant : {before.SplitterMaxChars} / {before.SplitterOverlapChars}");
+        var (containerA, manifestA, secondsA) = exp.Index("avant");
+        var (snapshotA, _) = exp.Record("avant", containerA);
+        Console.WriteLine($"Après : {maxChars} / {overlap}");
+        var (containerB, manifestB, secondsB) = exp.Index("apres", new Overrides(SplitterMaxChars: maxChars, SplitterOverlapChars: overlap));
+        var (snapshotB, _) = exp.Record("apres", containerB);
+
+        var comparison = SnapshotComparer.Compare(snapshotA, snapshotB);
+        exp.Log("Une seule chose change : la taille des morceaux. Même corpus, même modèle d'embeddings, même seuil, même prompt, même générateur.");
+        exp.Log("");
+        exp.Log("## Les deux index");
+        exp.Log("");
+        exp.Table(new[]
+        {
+            ($"avant ({before.SplitterMaxChars} / {before.SplitterOverlapChars})", Experiment.Merge(new Dictionary<string, object?>
+            {
+                ["morceaux"] = manifestA.ChunkCount, ["indexation (s)"] = Math.Round(secondsA, 1),
+            }, exp.Stats(snapshotA))),
+            ($"après ({maxChars} / {overlap})", Experiment.Merge(new Dictionary<string, object?>
+            {
+                ["morceaux"] = manifestB.ChunkCount, ["indexation (s)"] = Math.Round(secondsB, 1),
+            }, exp.Stats(snapshotB))),
+        });
+        Drift(exp, comparison);
+        exp.Log("## Lecture");
+        exp.Log("");
+        exp.Log("- Le nombre de morceaux change : le découpage fait partie de ce qui définit un index, au même titre que le corpus et le modèle.");
+        exp.Log("- Le seuil de pertinence n'a pas été recalibré : des morceaux plus courts donnent des scores différents, donc des refus et des réponses qui bougent sans qu'aucune règle métier n'ait changé. C'est le principe CACE : *changing anything changes everything*.");
+        exp.Log("- Ce que le taux de dérive ne dit pas : laquelle des deux versions répond le mieux. Pour cela, regarder « bonne source » et « refus justes » ci-dessus, question par question.");
+    }
+
+    private static void ChangementEmbeddings(Experiment exp, Args args)
+    {
+        var other = args.Value("--other")!;
+        exp.WarnIfDefaultThreshold(other);
+        var first = exp.EmbeddingModel;
+
+        Console.WriteLine($"Avant : {first}");
+        var (containerA, manifestA, secondsA) = exp.Index("avant");
+        var (snapshotA, _) = exp.Record("avant", containerA);
+
+        // 1. On interroge le même index avec l'autre modèle : l'application doit refuser explicitement.
+        string? mismatch = null;
+        try
+        {
+            var q = exp.Questions[0];
+            exp.Build("avant", new Overrides(EmbeddingModel: other)).AskQuestion.Execute(exp.Config.User(q.UserName), q.Question);
+        }
+        catch (IndexModelMismatchException error)
+        {
+            mismatch = error.Message;
+        }
+        catch (AiServiceException error)
+        {
+            throw new ArgumentException($"le service IA ne sert pas « {other} » : {error.Message}");
+        }
+        Console.WriteLine("  sans réindexer : " + (mismatch ?? "AUCUNE ERREUR (inattendu)"));
+
+        // 2. On réindexe avec l'autre modèle, puis on repose les mêmes questions.
+        Console.WriteLine($"Après : {other}");
+        var (containerB, manifestB, secondsB) = exp.Index("apres", new Overrides(EmbeddingModel: other));
+        var (snapshotB, _) = exp.Record("apres", containerB);
+
+        var comparison = SnapshotComparer.Compare(snapshotA, snapshotB);
+        exp.Log($"Une seule chose change : le modèle d'embeddings, `{first}` → `{other}`. Même corpus, même découpage, même prompt, même générateur ; le seuil est celui configuré pour chaque modèle.");
+        exp.Log("");
+        exp.Log("## 1. Sans réindexer : l'application refuse");
+        exp.Log("");
+        exp.Log("```");
+        exp.Log(mismatch ?? "aucune erreur levée");
+        exp.Log("```");
+        exp.Log("");
+        exp.Log("## 2. Après réindexation");
+        exp.Log("");
+        exp.Table(new[]
+        {
+            ($"avant (`{first}`)", Experiment.Merge(new Dictionary<string, object?>
+            {
+                ["modèle servi"] = manifestA.EmbeddingModel, ["dimension"] = manifestA.Dimension, ["morceaux"] = manifestA.ChunkCount,
+                ["indexation (s)"] = Math.Round(secondsA, 1), ["seuil"] = containerA.Settings.MinScore,
+            }, exp.Stats(snapshotA))),
+            ($"après (`{other}`)", Experiment.Merge(new Dictionary<string, object?>
+            {
+                ["modèle servi"] = manifestB.EmbeddingModel, ["dimension"] = manifestB.Dimension, ["morceaux"] = manifestB.ChunkCount,
+                ["indexation (s)"] = Math.Round(secondsB, 1), ["seuil"] = containerB.Settings.MinScore,
+            }, exp.Stats(snapshotB))),
+        });
+        Drift(exp, comparison);
+        exp.Log("## Lecture");
+        exp.Log("");
+        exp.Log("- Changer de modèle d'embeddings coûte une réindexation complète (voir la durée) : les vecteurs stockés vivent dans l'espace du modèle qui les a produits.");
+        exp.Log("- Le refus est explicite parce que le service IA renvoie l'identifiant concret du modèle et que l'application le compare au manifeste à chaque question. Sans cela, à dimension égale, l'index aurait répondu à côté sans rien signaler.");
+        exp.Log("- Après réindexation, le générateur n'a pas changé et pourtant les réponses bougent : il ne répond qu'à partir de ce que la recherche lui donne.");
+    }
+
+    private static void ChangementGenerateur(Experiment exp, Args args)
+    {
+        var other = args.Value("--other")!;
+        var first = exp.GenerationModel;
+
+        var (containerA, manifest, _) = exp.Index("partage");
+        Console.WriteLine($"Avant : {first}");
+        var (snapshotA, secondsA) = exp.Record("avant", containerA);
+        Console.WriteLine($"Après : {other}");
+        var containerB = exp.Build("partage", new Overrides(GenerationModel: other));
+        var (snapshotB, secondsB) = exp.Record("apres", containerB);
+
+        static int Rejected(Snapshot snapshot) => snapshot.Entries.Count(e => e.Status == Experiment.Unsourced);
+
+        var comparison = SnapshotComparer.Compare(snapshotA, snapshotB);
+        exp.Log($"Une seule chose change : le modèle de génération, `{first}` → `{other}`. L'index ({manifest.ChunkCount} morceaux, `{manifest.EmbeddingModel}`, "
+                + $"{manifest.Dimension} dim.) est construit une fois et partagé : **il n'est reconstruit à aucun moment**.");
+        exp.Log("");
+        exp.Log("## Les deux générateurs");
+        exp.Log("");
+        exp.Table(new[]
+        {
+            ($"avant (`{first}`)", Experiment.Merge(new Dictionary<string, object?>
+            {
+                ["modèle servi"] = snapshotA.Configuration.GetValueOrDefault("generation_model_id"), ["durée totale (s)"] = Math.Round(secondsA, 1),
+                ["par question (s)"] = Math.Round(secondsA / Math.Max(1, exp.Questions.Count), 1), ["réponses non sourcées"] = Rejected(snapshotA),
+            }, exp.Stats(snapshotA))),
+            ($"après (`{other}`)", Experiment.Merge(new Dictionary<string, object?>
+            {
+                ["modèle servi"] = snapshotB.Configuration.GetValueOrDefault("generation_model_id"), ["durée totale (s)"] = Math.Round(secondsB, 1),
+                ["par question (s)"] = Math.Round(secondsB / Math.Max(1, exp.Questions.Count), 1), ["réponses non sourcées"] = Rejected(snapshotB),
+            }, exp.Stats(snapshotB))),
+        });
+        Drift(exp, comparison);
+        exp.Log("## Lecture");
+        exp.Log("");
+        exp.Log("- Aucune donnée stockée n'a changé : même index, même manifeste. « Le générateur est un détail » est vrai pour les données.");
+        exp.Log("- Mais les textes, la latence et le nombre de réponses non sourcées changent : le prompt est réglé pour un modèle, chaque modèle a ses manies (longueur, langue, raisonnement). Une ligne de configuration, oui ; sans conséquence, non.");
+    }
+
     private static void Stabilite(Experiment exp, Args args)
     {
         var runs = args.Int("--runs") ?? 3;
         var seed = args.Int("--seed");
 
-        var (container, summary) = exp.Index("partage", new Overrides(Seed: seed));
+        var (container, manifest, _) = exp.Index("partage", new Overrides(Seed: seed));
         var effectiveSeed = container.Settings.Seed;   // --seed, sinon la graine de la configuration
-        var snapshots = Enumerable.Range(1, runs).Select(i => exp.Record($"passage-{i}", container)).ToList();
+        var snapshots = Enumerable.Range(1, runs).Select(i => exp.Record($"passage-{i}", container).Snapshot).ToList();
 
-        exp.Log($"Rien ne change entre les passages : même index ({summary.ChunkCount} morceaux, `{snapshots[0].Configuration.GetValueOrDefault("embedding_model")}`), "
-                + $"même générateur `{snapshots[0].Configuration.GetValueOrDefault("generation_model")}`, "
+        exp.Log($"Rien ne change entre les passages : même index ({manifest.ChunkCount} morceaux, `{manifest.EmbeddingModel}`, {manifest.Dimension} dim.), "
+                + $"même générateur `{snapshots[0].Configuration.GetValueOrDefault("generation_model_id")}`, "
                 + $"même prompt, même seuil, température {exp.Config.Temperature}, graine {(effectiveSeed?.ToString(CultureInfo.InvariantCulture) ?? "aucune")}.");
         exp.Log("");
         exp.Log("## Chaque passage comparé au premier");
@@ -276,5 +496,13 @@ public static class Experiments
             };
         lines.Add("- Une graine réduit la variabilité pour un même modèle et un même moteur ; elle ne garantit rien d'un modèle à l'autre, ni d'une version d'Ollama à l'autre.");
         return lines;
+    }
+
+    private static void Drift(Experiment exp, SnapshotComparison comparison)
+    {
+        exp.Log("## Dérive");
+        exp.Log("");
+        exp.Table(new[] { ("avant → après", (IReadOnlyDictionary<string, object?>)Experiment.DriftSummary(comparison)) });
+        exp.Comparison(comparison, "Détail");
     }
 }

@@ -123,7 +123,7 @@ ollama pull nomic-embed-text    # autre modèle d'embeddings, 274 Mo
 ollama pull qwen3:4b            # autre modèle de génération, 2,5 Go
 ```
 
-Les deux premiers suffisent pour suivre le cours. Les deux autres servent aux manipulations où l'on
+Les deux premiers suffisent pour suivre le cours. Les deux autres servent aux expériences où l'on
 change de modèle. Si la place sur le disque ou la connexion manquent, `gemma3:1b` (815 Mo) peut
 remplacer `llama3.2:3b`, au prix de réponses de moins bonne qualité. Il se choisit avec
 `--generation-model gemma3-1b`.
@@ -149,8 +149,9 @@ Sur la machine de référence, qui a une carte graphique, l'indexation du corpus
 prend une vingtaine de secondes avec `bge-m3`. Elle ne se fait qu'une fois. La réponse arrive ensuite
 en 1 à 3 secondes et cite une fiche sur le congé de paternité, `F3156`.
 
-Sur un processeur seul, comptez environ dix fois plus. Cette estimation n'a pas été mesurée : relevez
-vos temps sur vos machines et signalez-les-nous.
+Le corpus complet (322 fiches, `config/app-ollama-complet.json`) demande 1 à 3 minutes. Sur un
+processeur seul, comptez environ dix fois plus. Cette estimation n'a pas été mesurée : relevez vos
+temps sur vos machines et signalez-les-nous.
 
 ## Déploiement sur deux machines
 
@@ -180,10 +181,11 @@ production, placez-le derrière un proxy authentifié.
 
 | Symptôme | Cause probable | Que faire |
 |---|---|---|
-| `Service IA injoignable (http://127.0.0.1:8100/…)`, ou, avec les expériences, `service IA injoignable (…). Lancez-le d'abord : python -m ai_service` | le service IA ne tourne pas dans le premier terminal | lancez `python -m ai_service` |
+| `Service IA injoignable (http://127.0.0.1:8100/…)`, ou, avec le banc d'essai et les expériences, `service IA injoignable (…). Lancez-le d'abord : python -m ai_service` | le service IA ne tourne pas dans le premier terminal | lancez `python -m ai_service` |
 | `HTTP 502 — … Ollama est-il lancé sur http://127.0.0.1:11434 ?` | Ollama est arrêté | `ollama serve` |
 | `HTTP 502 — empreinte de … introuvable … (modèles installés : …)` | le modèle n'est pas téléchargé, ou son nom n'est pas écrit comme dans `ollama list` | `ollama pull <modèle>`, ou corrigez `model` dans `config/ai_service.toml` |
 | `HTTP 502 — … a changé pendant l'appel` | un `ollama pull` a eu lieu pendant la requête | relancez la commande |
+| `L'index a été construit avec « … » mais le modèle d'embeddings actuel est « … »` | vous avez changé de modèle d'embeddings | c'est voulu (séquence 3.2) : relancez `index` avec ce modèle |
 | `Erreur : prompt introuvable : … dans … (connus : answer)` | nom mal tapé dans `generation.prompt` de la configuration | choisissez un des prompts connus |
 | `dotnet : commande introuvable` | SDK non installé, ou PATH pas encore mis à jour | rouvrez le terminal après l'installation, puis vérifiez avec `dotnet --info` |
 | `NETSDK1045`, ou un message sur la « version du SDK » | SDK plus ancien que 8.0 | installez le SDK 8.0 (étape 1) |

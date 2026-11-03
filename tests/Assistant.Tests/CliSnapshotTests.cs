@@ -72,11 +72,12 @@ public sealed class CliSnapshotTests : CliTestBase
     public void Snapshot_record_refuses_a_limit_below_one_before_any_question()
     {
         // --limit doit valoir au moins 1. Il est vérifié avec le jeu de questions, donc après la lecture de la
-        // configuration, comme pour les expériences. Un nombre négatif est lu comme une valeur, pas comme une option.
+        // configuration, comme pour le banc (Benchmark_refuses_a_limit_of_zero_like_the_experiments). Un nombre
+        // négatif est lu comme une valeur, pas comme une option.
         using var ai = new FakeAiService();
         var (code, output, errors) = Run("snapshot", "record", "x", "--limit", "-1", "--questions", WriteQuestions(), "--config", WriteConfig(ai.Url));
         Assert.Equal((1, ""), (code, output));
-        Assert.EndsWith("Erreur : --limit doit valoir au moins 1, pas -1\n", errors);
+        Assert.EndsWith("Erreur : --limit doit valoir au moins 1, pas -1\n", errors);   // après l'avertissement du seuil `default`
         Assert.False(Directory.Exists(Path.Combine(_dir, "instantanes")));
         Assert.Equal(0, ai.Requests);
     }
@@ -142,17 +143,22 @@ public sealed class CliSnapshotTests : CliTestBase
     }
 
     [Fact]
-    public void An_empty_questions_file_is_no_value()
+    public void An_empty_questions_or_validation_file_is_no_value()
     {
         // Même règle pour les jeux de questions : --questions "" vaut le jeu par défaut, eval/questions.json sous la
-        // racine du projet. Pris pour un chemin, il arrêterait la commande sur un message .NET en anglais (« The value
-        // cannot be an empty string »).
+        // racine du projet, et --validate-with "" vaut l'absence de validation. Pris pour un chemin, ils arrêteraient
+        // la commande sur un message .NET en anglais (« The value cannot be an empty string »).
         using var ai = new FakeAiService();
         var config = WriteConfig(ai.Url);
         Assert.Equal(0, Run("index", "--config", config).Code);
         var (code, output, errors) = Run("snapshot", "record", "vide", "--questions", "", "--limit", "1", "--config", config);
         Assert.True(code == 0, errors);
         Assert.StartsWith("Instantané « vide » : 1 réponses", output);
+        var outDir = Path.Combine(_dir, "banc");
+        (code, output, errors) = Run("benchmark", "--runs", "1", "--questions", WriteQuestions(), "--validate-with", "", "--out", outDir,
+                                     "--config", config);
+        Assert.True(code == 0, errors);
+        Assert.EndsWith($"\nRapport : {Path.Combine(outDir, "rapport.md").Replace('\\', '/')}\n", output);
     }
 
     [Fact]

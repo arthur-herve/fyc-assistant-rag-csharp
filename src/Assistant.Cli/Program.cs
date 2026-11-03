@@ -25,8 +25,10 @@ public static class Program
           snapshot record <nom>          enregistrer un instantané   (--questions eval/questions.json, --limit N, au moins 1)
           snapshot compare <a> <b>       comparer deux instantanés
           snapshot list                  lister les instantanés
+          benchmark                      mesurer recherche et génération   (--embedding a b, --generation x y — défaut : la configuration ; --questions, --validate-with, --runs, --limit, --min-score config|auto|<n de [-1, 1]>, --max-chars, --overlap-chars, --seed, --out)
           experience <nom>               une expérience reproductible   (--questions, --limit, --out, et selon l'expérience :)
-                                           stabilite (--runs, --seed)
+                                           cace-decoupage (--max-chars, --overlap-chars) · changement-embeddings --other <alias>
+                                           changement-generateur --other <alias> · stabilite (--runs, --seed)
 
         Options communes : --config <fichier>   --embedding-model <alias>   --generation-model <alias>
         La commande vient d'abord, puis ses options. Une option inconnue, abrégée ou d'une autre commande, ou un argument en trop, est une erreur.
@@ -93,12 +95,17 @@ public static class Program
 
         var config = AppConfig.Load(args.NonEmpty("--config"));
         var container = Composition.Build(config, args.NonEmpty("--embedding-model"), args.NonEmpty("--generation-model"));
+        if (command.Searches && !config.HasThresholdFor(container.EmbeddingModel))
+        {
+            Console.Error.WriteLine($"Attention : aucun seuil de pertinence configuré pour « {container.EmbeddingModel} » : valeur `default` "
+                                    + $"{config.MinScoreFor(container.EmbeddingModel).ToString(System.Globalization.CultureInfo.InvariantCulture)} (à calibrer avec le banc d'essai)");
+        }
         switch (args.Positional[0])
         {
             case "index":
             {
-                var summary = container.IndexCorpus.Execute();
-                Console.WriteLine(Presenter.SummaryToText(summary));
+                var manifest = container.IndexCorpus.Execute();
+                Console.WriteLine(Presenter.ToJson(Presenter.ManifestToJson(manifest)));
                 return 0;
             }
             case "ask":
@@ -112,6 +119,8 @@ public static class Program
             }
             case "snapshot":
                 return Snapshot(args, config, container);
+            case "benchmark":
+                return RunBenchmark(args, config);
             default:   // experience <nom> (Find ne connaît pas d'autre commande)
             {
                 var common = new Overrides(args.NonEmpty("--embedding-model"), args.NonEmpty("--generation-model"));
@@ -128,9 +137,11 @@ public static class Program
 
     /// <summary>
     /// Ce que la ligne de commande accepte pour une commande : son nom, parfois en deux mots (« snapshot list »), ses
-    /// options et les arguments attendus après ce nom (aucun par défaut).
+    /// options et les arguments attendus après ce nom (aucun par défaut). Searches dit si elle cherche des passages :
+    /// seules ces commandes préviennent quand aucun seuil de pertinence n'est configuré pour le modèle d'embeddings.
     /// </summary>
-    private sealed record Command(string Name, string[] Options, Expected? Arguments = null, string? Extra = null)
+    private sealed record Command(string Name, string[] Options, Expected? Arguments = null, bool Searches = false,
+                                  string? Extra = null)
     {
         /// <summary>Ni argument manquant, ni argument en trop (« index foo » n'est pas « index »).</summary>
         public void EnsureArguments(IReadOnlyList<string> positional)
@@ -156,11 +167,18 @@ public static class Program
     private static readonly Dictionary<string, Command> Commands = new Command[]
     {
         new("index", Common),
-        new("ask", Common.Concat(new[] { "--user", "--json", "-v", "--verbose" }).ToArray(), new(1, OneQuestion), Extra: OneQuestion),
-        new("snapshot record", Common.Concat(new[] { "--questions", "--limit" }).ToArray(), new(1, "snapshot record attend un nom")),
+        new("ask", Common.Concat(new[] { "--user", "--json", "-v", "--verbose" }).ToArray(), new(1, OneQuestion), Searches: true, Extra: OneQuestion),
+        new("snapshot record", Common.Concat(new[] { "--questions", "--limit" }).ToArray(), new(1, "snapshot record attend un nom"),
+            Searches: true),
         new("snapshot compare", Common, new(2, "snapshot compare attend deux noms")),
         new("snapshot list", Common),
+        new("benchmark", new[] { "--config", "--embedding-model", "--generation-model", "--embedding", "--generation",
+                                 "--questions", "--validate-with", "--runs", "--limit", "--min-score", "--max-chars",
+                                 "--overlap-chars", "--seed", "--out" }),
         // Les options propres à chaque expérience.
+        new("experience cace-decoupage", ExperimentCommon.Concat(new[] { "--max-chars", "--overlap-chars" }).ToArray()),
+        new("experience changement-embeddings", ExperimentCommon.Append("--other").ToArray()),
+        new("experience changement-generateur", ExperimentCommon.Append("--other").ToArray()),
         new("experience stabilite", ExperimentCommon.Concat(new[] { "--runs", "--seed" }).ToArray()),
     }.ToDictionary(c => c.Name);
 
@@ -184,6 +202,33 @@ public static class Program
             default:   // une commande d'un seul mot : « snapshot list » passé en un seul argument n'en est pas une
                 return Commands.TryGetValue(positional[0], out var single) && !single.Name.Contains(' ') ? single : null;
         }
+    }
+
+    private static int RunBenchmark(Args args, AppConfig config)
+    {
+        // Sans --embedding ni --generation, le banc mesure les modèles de la configuration.
+        var embeddings = args.Values("--embedding") is { Count: > 0 } e ? e : new[] { args.NonEmpty("--embedding-model") ?? config.EmbeddingModel };
+        var generations = args.Values("--generation") is { Count: > 0 } g ? g : new[] { args.NonEmpty("--generation-model") ?? config.GenerationModel };
+        // Les options sont validées avant tout travail : on ne lance pas une indexation pour découvrir une faute de
+        // frappe. Benchmark.Run vérifie le reste, --min-score compris, puis le service IA.
+        var runs = args.Int("--runs") ?? 3;
+        var limit = args.Int("--limit");
+        var maxChars = args.Int("--max-chars");
+        var overlap = args.Int("--overlap-chars");
+        var seed = args.Int("--seed");
+        var questions = EvalQuestions.Limit(EvalQuestions.Load(EvalQuestions.Resolve(args.NonEmpty("--questions") ?? "eval/questions.json")), limit);
+        var validation = args.NonEmpty("--validate-with") is { } path ? EvalQuestions.Load(EvalQuestions.Resolve(path)) : null;
+        var options = new BenchmarkOptions(
+            embeddings, generations, questions, validation,
+            Runs: runs,
+            OutDir: args.NonEmpty("--out") ?? AppConfig.ResultsDir("", DateTime.Now),
+            MinScoreMode: args.Value("--min-score") ?? "config",
+            SplitterMaxChars: maxChars,
+            SplitterOverlapChars: overlap,
+            Seed: seed,
+            NewOutDir: args.NonEmpty("--out") is null);   // sans --out : jamais un dossier qui existe déjà
+        Benchmark.Run(config, options, Console.WriteLine);
+        return 0;
     }
 
     private static int Snapshot(Args args, AppConfig config, Container container)
@@ -223,12 +268,13 @@ public static class Program
     private static string Display(string path) => path.Replace('\\', '/');
 }
 
-/// <summary>Analyse minimale des arguments : positionnels, drapeaux, options à une valeur.</summary>
+/// <summary>Analyse minimale des arguments : positionnels, drapeaux, options à une ou plusieurs valeurs.</summary>
 public sealed class Args
 {
     private static readonly HashSet<string> Flags = new() { "-v", "--verbose", "--json", "--help", "-h" };
+    private static readonly HashSet<string> MultiValued = new() { "--embedding", "--generation" };
     // Les options entières de toutes les commandes : voir EnsureIntegers.
-    private static readonly HashSet<string> Integers = new() { "--limit", "--runs", "--seed" };
+    private static readonly HashSet<string> Integers = new() { "--limit", "--runs", "--max-chars", "--overlap-chars", "--seed" };
     // « -1 » ou « -0.5 » est une valeur (un nombre négatif), pas une option.
     private static readonly Regex NegativeNumber = new(@"^-([0-9]+|[0-9]*\.[0-9]+)\z", RegexOptions.Compiled);
     private readonly string[] _argv;
@@ -281,6 +327,11 @@ public sealed class Args
             else if (i + 1 < argv.Length && !IsOption(argv[i + 1]))
             {
                 Add(option, argv[++i]);
+                // Option à plusieurs valeurs (--embedding a b) : on avale jusqu'à la prochaine option.
+                while (MultiValued.Contains(option) && i + 1 < argv.Length && !IsOption(argv[i + 1]))
+                {
+                    Add(option, argv[++i]);
+                }
             }
             else
             {
@@ -361,6 +412,8 @@ public sealed class Args
     /// ou le dossier de sortie daté (--out). Absente ou donnée vide, elle vaut null, et le défaut s'applique.
     /// </summary>
     public string? NonEmpty(string option) => Value(option) is { Length: > 0 } value ? value : null;
+
+    public IReadOnlyList<string> Values(string option) => _values.GetValueOrDefault(option) ?? new List<string>();
 
     /// <summary>
     /// Vérifie chaque valeur des options entières, dans l'ordre de la ligne : avec « --limit abc --runs deux », c'est

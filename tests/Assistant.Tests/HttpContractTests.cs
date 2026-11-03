@@ -89,9 +89,11 @@ public class HttpContractTests : IDisposable
     }
 
     [Fact]
-    public void Embeddings_request_declares_an_intent()
+    public void Embeddings_request_declares_an_intent_and_returns_the_concrete_model()
     {
-        new HttpEmbedder(_url, "nomic", Short).EmbedQuery("Combien de jours ?");
+        var batch = new HttpEmbedder(_url, "nomic", Short).EmbedQuery("Combien de jours ?");
+        Assert.Equal("ollama:nomic-embed-text@0a109f422b47", batch.Model);
+        Assert.Equal(3, batch.Dimension);
         var (path, body) = _requests.Single();
         Assert.Equal("/v1/embeddings", path);
         Assert.Equal("nomic", body["model"]!.GetValue<string>());
@@ -108,8 +110,8 @@ public class HttpContractTests : IDisposable
     [Fact]
     public void Documents_are_sent_as_documents()
     {
-        var vectors = new HttpEmbedder(_url, "nomic", Short).EmbedDocuments(new[] { "a", "b" });
-        Assert.Equal(2, vectors.Count);
+        var batch = new HttpEmbedder(_url, "nomic", Short).EmbedDocuments(new[] { "a", "b" });
+        Assert.Equal(2, batch.Vectors.Count);
         Assert.Equal("document", _requests.Single().Body["input_type"]!.GetValue<string>());
     }
 
@@ -132,6 +134,13 @@ public class HttpContractTests : IDisposable
         Assert.Equal(0.2, body["temperature"]!.GetValue<double>());
         Assert.Equal(150, body["max_tokens"]!.GetValue<int>());
         Assert.Equal(42, body["seed"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Generation_returns_the_concrete_model()
+    {
+        var generation = new HttpGenerator(_url, "llama3-2-3b", Short).Generate(new GenerationRequest("s", "p", 0.2, 10));
+        Assert.Equal("ollama:llama3.2:3b@a80c", generation.Model);
     }
 
     [Fact]

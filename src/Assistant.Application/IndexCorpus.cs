@@ -2,9 +2,6 @@
 
 namespace Assistant.Application;
 
-/// <summary>Ce que l'indexation a traité : le nombre de documents et de morceaux.</summary>
-public sealed record IndexSummary(int DocumentCount, int ChunkCount);
-
 public sealed class IndexCorpus
 {
     private readonly IDocumentSource _source;
@@ -23,7 +20,7 @@ public sealed class IndexCorpus
         _batchSize = batchSize;
     }
 
-    public IndexSummary Execute()
+    public IndexManifest Execute()
     {
         var documents = _source.Load();
         var chunks = documents.SelectMany(d => _splitter.Split(d)).ToList();
@@ -33,19 +30,35 @@ public sealed class IndexCorpus
         }
 
         var vectors = new List<double[]>();
+        string? model = null;
+        var dimension = 0;
         for (var start = 0; start < chunks.Count; start += _batchSize)
         {
             var batch = chunks.Skip(start).Take(_batchSize).ToList();
             var result = _embedder.EmbedDocuments(batch.Select(c => c.Text).ToList());
-            if (result.Count != batch.Count)
+            if (result.Vectors.Count != batch.Count)
             {
                 throw new InconsistentEmbeddingsException(
-                    $"{batch.Count} textes envoyés, {result.Count} vecteurs reçus");
+                    $"{batch.Count} textes envoyés, {result.Vectors.Count} vecteurs reçus");
             }
-            vectors.AddRange(result);
+            if (model is null)
+            {
+                (model, dimension) = (result.Model, result.Dimension);
+            }
+            else if (result.Model != model || result.Dimension != dimension)
+            {
+                // Le service IA a changé de modèle en cours d'indexation.
+                throw new InconsistentEmbeddingsException($"modèle {model} puis {result.Model} pendant la même indexation");
+            }
+            vectors.AddRange(result.Vectors);
         }
 
-        _index.Replace(chunks, vectors);
-        return new IndexSummary(documents.Count, chunks.Count);
+        var manifest = new IndexManifest(
+            EmbeddingModel: model!,
+            Dimension: dimension,
+            DocumentCount: documents.Count,
+            ChunkCount: chunks.Count);
+        _index.Replace(manifest, chunks, vectors);
+        return manifest;
     }
 }

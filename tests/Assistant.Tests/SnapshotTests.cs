@@ -17,7 +17,7 @@ public class SnapshotTests
     private static (Snapshot, MemorySnapshotStore) Record(string name, ScriptedGenerator generator, double minScore = 0.5)
     {
         var store = new MemorySnapshotStore();
-        var ask = Build.Ask(generator, Build.Indexed(
+        var ask = Build.Ask(generator, Build.Indexed(null,
             Fakes.Doc("teletravail", "Deux jours de télétravail par semaine."), Fakes.Doc("frais", "Les frais de repas sont plafonnés.")),
             minScore: minScore, maxAttempts: 1);
         var snapshot = new RecordSnapshot(ask, store, new FixedClock(), new Dictionary<string, object?> { ["generation_model"] = generator.Model })
@@ -30,7 +30,8 @@ public class SnapshotTests
     {
         var (snapshot, store) = Record("ref", ScriptedGenerator.WithModel("llm-a", "Deux jours [1]."));
         Assert.Equal(new[] { "answered", "answered", "no_relevant_source" }, snapshot.Entries.Select(e => e.Status));
-        Assert.Equal("llm-a", snapshot.Configuration["generation_model"]);
+        Assert.Equal("llm-a", snapshot.Configuration["generation_model_id"]);
+        Assert.True(snapshot.Configuration.ContainsKey("embedding_model_id"));
         Assert.Same(snapshot, store.Load("ref"));
     }
 
@@ -66,7 +67,7 @@ public class SnapshotTests
         var (a, _) = Record("a", ScriptedGenerator.WithModel("llm-a", "Deux jours [1]."));
         var (b, _) = Record("b", ScriptedGenerator.WithModel("llm-b", "Vous avez droit à deux jours [1]."));
         var comparison = SnapshotComparer.Compare(a, b);
-        Assert.Equal(new[] { "generation_model" }, comparison.ConfigurationDifferences.Select(d => d.Key));
+        Assert.Equal(new[] { "generation_model", "generation_model_id" }, comparison.ConfigurationDifferences.Select(d => d.Key));
         Assert.Equal(2, comparison.Count(DifferenceKind.TextChanged));
         Assert.Equal(1, comparison.Count(DifferenceKind.Identical));
     }

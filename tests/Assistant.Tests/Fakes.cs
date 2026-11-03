@@ -19,15 +19,20 @@ public static class Fakes
 /// <summary>Un axe par mot du vocabulaire : les scores sont prévisibles à la main.</summary>
 public sealed class KeywordEmbedder : IEmbedder
 {
+    public string Model { get; }
+
+    public KeywordEmbedder(string model = "fake-keywords") => Model = model;
+
     private static double[] Vector(string text)
     {
         var lowered = text.ToLowerInvariant();
         return Fakes.Vocabulary.Select(w => lowered.Contains(w) ? 1.0 : 0.0).ToArray();
     }
 
-    public IReadOnlyList<double[]> EmbedDocuments(IReadOnlyList<string> texts) => texts.Select(Vector).ToList();
+    public EmbeddingBatch EmbedDocuments(IReadOnlyList<string> texts) =>
+        new(Model, Fakes.Vocabulary.Length, texts.Select(Vector).ToList());
 
-    public double[] EmbedQuery(string text) => Vector(text);
+    public EmbeddingBatch EmbedQuery(string text) => new(Model, Fakes.Vocabulary.Length, new[] { Vector(text) });
 }
 
 /// <summary>Renvoie des réponses écrites à l'avance et enregistre les requêtes reçues.</summary>
@@ -49,25 +54,27 @@ public sealed class ScriptedGenerator : IGenerator
         _outputs = outputs;
     }
 
-    /// <summary>Un générateur qui porte un autre nom de modèle.</summary>
+    /// <summary>Un générateur qui s'annonce sous un autre identifiant de modèle.</summary>
     public static ScriptedGenerator WithModel(string model, params string[] outputs) => new(model, outputs);
 
-    public string Generate(GenerationRequest request)
+    public Generation Generate(GenerationRequest request)
     {
         Requests.Add(request);
-        return _outputs[Math.Min(Requests.Count, _outputs.Length) - 1];
+        return new Generation(Model, _outputs[Math.Min(Requests.Count, _outputs.Length) - 1]);
     }
 }
 
 public sealed class FakeIndex : IVectorIndex
 {
+    private IndexManifest? _manifest;
     public List<Chunk> Chunks { get; } = new();
     public List<double[]> Vectors { get; } = new();
 
-    public bool IsBuilt() => Chunks.Count > 0;
+    public IndexManifest? Manifest() => _manifest;
 
-    public void Replace(IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> vectors)
+    public void Replace(IndexManifest manifest, IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> vectors)
     {
+        _manifest = manifest;
         Chunks.Clear();
         Chunks.AddRange(chunks);
         Vectors.Clear();
@@ -124,7 +131,7 @@ public sealed class MemorySnapshotStore : ISnapshotStore
 
 public static class Build
 {
-    public static FakeIndex Indexed(params Document[] documents)
+    public static FakeIndex Indexed(IEmbedder? embedder = null, params Document[] documents)
     {
         var index = new FakeIndex();
         var docs = documents.Length > 0 ? documents : new[]
@@ -133,12 +140,12 @@ public static class Build
             Fakes.Doc("frais", "Le repas est plafonné à 25 euros, frais remboursés."),
             Fakes.Doc("grille", "Salaire senior : 56 000 à 68 000 euros.", "rh"),
         };
-        new IndexCorpus(new ListSource(docs), new WholeDocumentSplitter(), new KeywordEmbedder(), index).Execute();
+        new IndexCorpus(new ListSource(docs), new WholeDocumentSplitter(), embedder ?? new KeywordEmbedder(), index).Execute();
         return index;
     }
 
-    public static AskQuestion Ask(IGenerator generator, IVectorIndex? index = null,
+    public static AskQuestion Ask(IGenerator generator, IVectorIndex? index = null, IEmbedder? embedder = null,
                                   double minScore = 0.5, int maxAttempts = 2, int? seed = null) =>
-        new(new KeywordEmbedder(), index ?? Indexed(), generator, new StaticPrompts(),
+        new(embedder ?? new KeywordEmbedder(), index ?? Indexed(), generator, new StaticPrompts(),
             new AskSettings(MinScore: minScore, MaxAttempts: maxAttempts, Seed: seed));
 }

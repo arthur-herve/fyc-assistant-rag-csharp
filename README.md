@@ -1,134 +1,72 @@
-# Fil rouge, étape S3.2 : les données sont du code
+# Fil rouge, correction de S3.2 : les données sont du code
 
-> **Branche d'étape.** Cette branche est l'état du fil rouge au début de la séquence S3.2. Certains
-> défauts y sont laissés exprès : la séquence les montre, et sa correction les pare. L'application
-> complète, avec toute sa documentation, est sur la branche `final`.
+> **Correction de la séquence S3.2.** Ce tag, `corrige/s3.2`, est l'état du fil rouge à la fin de la
+> séquence. Il sert à lire la parade et à refaire les manipulations de la séquence pour la voir agir.
+> L'application complète, avec toute sa documentation, est sur la branche `final`.
 
 ## Où en est le fil rouge
 
 Le fil rouge a les parades des séquences précédentes : les droits filtrés avant le prompt, les citations
-vérifiées, les tentatives et la graine. La séquence part de là pour montrer qu'un découpage, un modèle
-d'embeddings ou un seuil changés font bouger les réponses, souvent sans la moindre erreur.
+vérifiées, les tentatives et la graine. Cette correction ajoute celle de S3.2. L'index sait maintenant
+quel modèle l'a construit et refuse une question vectorisée par un autre, et le seuil de pertinence se
+règle par modèle d'embeddings. Elle ajoute aussi de quoi mesurer : un banc d'essai, qui propose un seuil
+par modèle, et des expériences qui rejouent les ruptures. La séquence S3.3 part de là, avec une question
+qu'elle laisse ouverte : où passe la frontière entre le métier et le modèle, quand une règle vit dans un
+prompt ou dans les poids d'un modèle ?
 
-## Ce que vous faites dans cette séquence
+## Ce que la correction a changé
 
-Toutes les manipulations se font hors ligne. Lancez le service IA dans un premier terminal avec
-`python -m ai_service`, puis construisez l'index dans un second :
+Au départ de la séquence, l'index ne savait pas quel modèle l'avait construit. Le service IA renvoyait
+pourtant `model` et `dimension` depuis S2.3, mais le port les jetait : `IEmbedder` ne rendait que des
+vecteurs. Un changement de modèle d'embeddings sans réindexation donnait donc, à dimension égale, des
+réponses fausses ou des refus sans aucune erreur, et sinon une erreur de dimension qui ne disait pas quoi
+faire.
+
+La correction change la forme des ports. `IEmbedder` rend un `EmbeddingBatch`, avec le modèle et la
+dimension, et `IGenerator` une `Generation`, avec le modèle. L'index enregistre un manifeste : le modèle,
+la dimension, le nombre de documents et de morceaux. Avant de chercher, `SearchPassages` compare le
+modèle qui a vectorisé la question à celui du manifeste. S'ils diffèrent, il refuse et demande de
+réindexer. La trace d'une réponse et les instantanés nomment les modèles qui ont servi.
+
+Le seuil de pertinence devient une table par modèle d'embeddings, `retrieval.min_score`, avec une valeur
+`default` pour les modèles qui n'en ont pas. Les commandes qui cherchent des passages préviennent quand
+elles se rabattent sur cette valeur. Le banc d'essai, `benchmark`, mesure la recherche et la génération
+et propose un seuil par modèle. Les expériences `cace-decoupage`, `changement-embeddings` et
+`changement-generateur` rejouent les ruptures en ne changeant qu'une chose à la fois.
+
+Pour lire la parade seule, sur les fichiers qui la montrent :
 
 ```bash
-dotnet run --project src/Assistant.Cli -- index
+git diff origin/etape/s3.2 corrige/s3.2 -- src/Assistant.Application/Ports.cs src/Assistant.Application/SearchPassages.cs src/Assistant.Application/IndexCorpus.cs src/Assistant.Domain
 ```
 
-1. Prenez d'abord une ligne de base. Posez trois fois les 24 questions de `eval/questions.json`, sans
-   rien changer :
+Sur tout `src`, ce diff serait noyé dans le banc d'essai, `src/Assistant.Cli/Benchmark.cs`, qui compte à
+lui seul plus de 600 lignes.
 
-   ```bash
-   dotnet run --project src/Assistant.Cli -- experience stabilite --runs 3
-   ```
+Refaites ensuite les deux pannes de la séquence, le service IA lancé et l'index construit avec
+`hashing` :
 
-   La commande affiche à la fin le chemin de son rapport. Avec `extractive`, aucune réponse ne bouge
-   d'un passage à l'autre : la dérive moyenne vaut 0. Toute dérive mesurée ensuite viendra donc de ce
-   que vous aurez changé.
+```bash
+dotnet run --project src/Assistant.Cli -- ask "Quelle est la capitale de l'Australie ?" -v --embedding-model hashing-stem4
+dotnet run --project src/Assistant.Cli -- ask "Quelle est la capitale de l'Australie ?" -v --embedding-model hashing-512
+```
 
-2. Changez ensuite le découpage. Enregistrez un instantané, changez seulement la taille des morceaux,
-   puis comparez :
+La panne silencieuse ne l'est plus. Avec `hashing-stem4`, la dimension est la même, mais l'application
+voit que l'index vient de `hashing-256-stem6` et la question de `hashing-256-stem4`, et elle demande de
+réindexer au lieu de répondre à côté. Un avertissement précède l'erreur, parce que la configuration ne
+donne pas de seuil pour ce modèle. Avec `hashing-512`, l'erreur de dimension laisse place au même
+refus, qui dit quoi faire.
 
-   ```bash
-   dotnet run --project src/Assistant.Cli -- snapshot record avant
-   # dans config/app.json, splitter.max_chars passe de 800 à 300
-   dotnet run --project src/Assistant.Cli -- index
-   dotnet run --project src/Assistant.Cli -- snapshot record apres
-   dotnet run --project src/Assistant.Cli -- snapshot compare avant apres
-   ```
+Pour le seuil, lancez le banc sur le corpus réduit, avec `hashing` :
 
-   Le recouvrement, `splitter.overlap_chars`, reste à 120. La comparaison ne trouve qu'une différence
-   de configuration, le découpage. Pourtant, 8 réponses sur 24 changent, soit 33 %, et 5 changent de
-   statut. Pour cinq questions, la réponse n'est pas accessible à l'utilisateur qui les pose : elle
-   manque au corpus, ou elle se trouve dans un document réservé à d'autres groupes. L'assistant
-   refusait quatre de ces questions, il n'en refuse plus qu'une. À la question sur la capitale de
-   l'Australie, il répond maintenant par le titre de la fiche du télétravail.
+```bash
+dotnet run --project src/Assistant.Cli -- benchmark --config config/app-ollama.json --embedding hashing --generation extractive --questions eval/questions-service-public.json --runs 1
+```
 
-   C'est le principe CACE, « Changing Anything Changes Everything », que Sculley et al. ont décrit en
-   2015 dans « Hidden Technical Debt in Machine Learning Systems » : dans un système qui dépend d'un
-   modèle et de ses données, changer une seule chose peut changer tout le reste.
-
-3. Provoquez maintenant la panne silencieuse. Remettez d'abord le découpage d'origine et reconstruisez
-   l'index :
-
-   ```bash
-   git restore config/app.json
-   dotnet run --project src/Assistant.Cli -- index
-   ```
-
-   Posez ensuite la même question hors corpus, une fois avec le modèle de l'index, une fois avec un
-   autre modèle d'embeddings, sans réindexer :
-
-   ```bash
-   dotnet run --project src/Assistant.Cli -- ask "Quelle est la capitale de l'Australie ?" -v
-   dotnet run --project src/Assistant.Cli -- ask "Quelle est la capitale de l'Australie ?" -v --embedding-model hashing-stem4
-   ```
-
-   Avec `hashing`, l'assistant refuse à juste titre : le meilleur passage n'atteint que 0,121, sous le
-   seuil de 0,15. `hashing-stem4` donne des vecteurs de la même dimension, mais calculés autrement.
-   Aucune erreur n'apparaît, et l'assistant répond « Charte d'utilisation des outils informatiques [1] »,
-   avec un score de 0,168. Pour la vue d'ensemble, enregistrez un instantané avec ce modèle et
-   comparez-le à `avant` :
-
-   ```bash
-   dotnet run --project src/Assistant.Cli -- snapshot record stem4 --embedding-model hashing-stem4
-   dotnet run --project src/Assistant.Cli -- snapshot compare avant stem4
-   ```
-
-   La seule différence de configuration est `embedding_model`, et 18 réponses sur 24 changent.
-   Quinze deviennent des refus, la question de la capitale reçoit une réponse, et deux autres citent
-   une fiche sans rapport avec la question.
-
-4. Passez à la panne bruyante, en changeant de dimension :
-
-   ```bash
-   dotnet run --project src/Assistant.Cli -- ask "Quelle est la capitale de l'Australie ?" -v --embedding-model hashing-512
-   ```
-
-   La commande s'arrête sur « Erreur : vecteur de requête de 512 dimensions, l'index en attend 256 ».
-   Cette fois, l'erreur est franche.
-
-5. Reste le seuil. Celui de `config/app-ollama.json`, 0,65, a été calibré pour `bge-m3`. Essayez-le
-   avec `hashing`, sur le corpus réduit et ses 42 questions. Attention : la première commande écrase
-   `data/index-service-public-reduit.json`. Si vous aviez construit cet index avec `bge-m3`, il faudra
-   le reconstruire ensuite, Ollama lancé.
-
-   ```bash
-   dotnet run --project src/Assistant.Cli -- index --config config/app-ollama.json --embedding-model hashing --generation-model extractive
-   dotnet run --project src/Assistant.Cli -- snapshot record seuil-065 --config config/app-ollama.json --embedding-model hashing --generation-model extractive --questions eval/questions-service-public.json
-   ```
-
-   L'assistant ne répond plus qu'à 9 des 32 questions qui ont une réponse accessible, et refuse les
-   23 autres. Essayez ensuite le seuil dans l'autre sens. `snapshot record` n'a pas d'option pour changer
-   le seuil : mettez donc 0,15 dans `retrieval.min_score` de `config/app-ollama.json`, puis
-   recommencez et comparez les deux instantanés :
-
-   ```bash
-   dotnet run --project src/Assistant.Cli -- snapshot record seuil-015 --config config/app-ollama.json --embedding-model hashing --generation-model extractive --questions eval/questions-service-public.json
-   dotnet run --project src/Assistant.Cli -- snapshot compare seuil-065 seuil-015
-   ```
-
-   Les 32 questions reçoivent maintenant une réponse, mais aussi 9 des 10 questions sans réponse
-   accessible. 0,15 est pourtant le seuil de `config/app.json`, avec le même modèle : sur un autre
-   corpus, il ne convient plus.
-
-6. Répondez au QCM de la séquence, sur Moodle. Remettez ensuite les fichiers de configuration en état :
-
-   ```bash
-   git restore config/app.json config/app-ollama.json
-   ```
-
-   L'index du corpus Solvéo a retrouvé son découpage d'origine à l'étape 3. Celui du corpus réduit,
-   `data/index-service-public-reduit.json`, reste construit avec `hashing`, car le dossier `data/`
-   n'est pas versionné. Avant de vous en resservir avec `bge-m3`, reconstruisez-le, Ollama lancé :
-
-   ```bash
-   dotnet run --project src/Assistant.Cli -- index --config config/app-ollama.json
-   ```
+La table donne à `hashing` sa propre valeur, 0,45. L'assistant répond alors à 30 des 32 questions
+répondables et refuse 8 des 10 autres, ce que le rapport écrit 0,94 et 0,80. Ajoutez `--min-score 0.65`
+pour imposer le seuil calibré pour `bge-m3` : il ne répond plus qu'à 9 des 32 questions répondables. Le
+banc écrit son index dans son propre dossier, et n'écrase donc pas celui de `data/`.
 
 ## Démarrer
 
@@ -154,12 +92,12 @@ dotnet run --project src/Assistant.Cli -- index
 dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" -v
 ```
 
-`index` affiche le nombre de documents et de morceaux qu'il a indexés. La réponse se termine par une
-ligne qui donne son statut et le nombre de tentatives. Avec `-v`, elle est suivie de sa trace : les
-passages retrouvés, leurs scores et la sortie brute du modèle. Après chaque changement de branche,
-reconstruisez l'index avec `index` : le dossier `data/` n'est pas versionné, et l'index d'une autre
-étape n'a pas forcément le même format. Dans ce cas, l'application refuse de le lire et donne la
-commande qui le reconstruit.
+`index` affiche le manifeste de l'index qu'il vient de construire. La réponse se termine par une ligne
+qui nomme les modèles et le nombre de tentatives. Avec `-v`, elle est suivie de sa trace : les passages
+retrouvés, leurs scores et la sortie brute du modèle. Après chaque changement de branche, reconstruisez
+l'index avec `index` : le dossier `data/` n'est pas versionné, et l'index d'une autre étape n'a pas
+forcément le même format. Dans ce cas, l'application refuse de le lire et donne la commande qui le
+reconstruit.
 
 ## Les branches du cours
 
@@ -183,8 +121,8 @@ jamais un dossier.
 ## Les choix de cette étape
 
 - L'application C# et le service IA en Python ne partagent que le contrat de `docs/contrat-http.md`.
-- L'index vit dans l'application, dans un fichier JSON.
-- Le seuil de pertinence est un réglage de la configuration.
+- L'index vit dans l'application. Construit par un autre modèle, il est refusé au lieu de répondre à côté.
+- Le seuil de pertinence se règle par modèle d'embeddings et par corpus, dans la configuration.
 - Les droits sont filtrés avant le prompt, et le prompt est construit dans l'application.
 - La recherche, déterministe, se teste par assertion. La génération a droit à une seconde tentative,
   et une graine peut la rendre reproductible.

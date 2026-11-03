@@ -1,4 +1,4 @@
-// Ce que partagent les tests qui font tourner les expériences de bout en bout, contre un faux service IA
+// Ce que partagent les tests qui font tourner le banc et les expériences de bout en bout, contre un faux service IA
 // (embeddings par mots-clés, génération qui cite [1]).
 
 using Assistant.Cli;
@@ -30,11 +30,12 @@ public abstract class EvalRunTestBase : IDisposable
         {
             File.WriteAllText(Path.Combine(corpus, $"{id}.md"), $"---\nid: {id}\ntitre: {id}\ngroupes: {groups}\n---\n{text}\n");
         }
-        // Le délai est court pour qu'un faux service muet fasse échouer le test vite.
+        // Seul le seuil `default` est configuré : aucun alias n'a le sien. Le délai est court pour qu'un faux service
+        // muet fasse échouer le test vite.
         _config = AppConfig.Load() with
         {
             AiBaseUrl = _ai.Url, Timeout = TimeSpan.FromSeconds(5), CorpusDir = corpus,
-            MinScore = 0.15,
+            MinScores = new Dictionary<string, double> { ["default"] = 0.15 },
         };
         _questionsPath = Path.Combine(_dir, "questions.json");
         File.WriteAllText(_questionsPath, """

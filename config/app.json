@@ -1,5 +1,5 @@
 {
-  "_commentaire": "Configuration de l'application C#, sur le corpus Solvéo. Des modèles, elle ne connaît que les alias et l'adresse du service IA, rien de la façon dont ils sont servis. Le seuil de pertinence est celui de `hashing`.",
+  "_commentaire": "Configuration de l'application C#, sur le corpus Solvéo. Des modèles, elle ne connaît que les alias et l'adresse du service IA, rien de la façon dont ils sont servis. Seule exception, voulue : un seuil de pertinence par alias d'embeddings, parce que les scores ne se comparent ni d'un modèle à l'autre ni d'un corpus à l'autre. Les seuils de `nomic` et `bge-m3` ont été calibrés sur ce corpus le 11/09/2026, et `assistant benchmark` permet de refaire la mesure. Les autres sont des valeurs de départ.",
   "ai_service": {
     "base_url": "http://127.0.0.1:8100",
     "embedding_model": "hashing",
@@ -22,7 +22,17 @@
   },
   "retrieval": {
     "top_k": 4,
-    "min_score": 0.15
+    "min_score": {
+      "default": 0.4,
+      "hashing": 0.15,
+      "hashing-512": 0.15,
+      "all-minilm": 0.35,
+      "nomic": 0.59,
+      "mxbai": 0.55,
+      "bge-m3": 0.46,
+      "st-multilingual-minilm": 0.4,
+      "st-e5-small": 0.82
+    }
   },
   "generation": {
     "prompt": "answer",

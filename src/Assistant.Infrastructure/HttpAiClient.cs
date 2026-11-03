@@ -141,19 +141,18 @@ public sealed class HttpEmbedder : IEmbedder
         _post = transport ?? HttpTransport.Create(timeout ?? TimeSpan.FromSeconds(120));
     }
 
-    public IReadOnlyList<double[]> EmbedDocuments(IReadOnlyList<string> texts) => Embed(texts, "document");
+    public EmbeddingBatch EmbedDocuments(IReadOnlyList<string> texts) => Embed(texts, "document");
 
-    public double[] EmbedQuery(string text) => Embed(new[] { text }, "query")[0];
+    public EmbeddingBatch EmbedQuery(string text) => Embed(new[] { text }, "query");
 
-    private List<double[]> Embed(IReadOnlyList<string> texts, string inputType)
+    private EmbeddingBatch Embed(IReadOnlyList<string> texts, string inputType)
     {
         var payload = _post(_url, new JsonObject
         {
             ["model"] = _model, ["input_type"] = inputType, ["inputs"] = new JsonArray(texts.Select(t => (JsonNode?)t).ToArray()),
         });
         HttpTransport.Require(payload, "model", "dimension", "vectors");
-        // Toute la réponse est vérifiée, « model » compris.
-        _ = HttpTransport.Text(payload, "model");
+        var model = HttpTransport.Text(payload, "model");
         var dimension = payload.GetProperty("dimension") is { ValueKind: JsonValueKind.Number } announced && announced.TryGetInt32(out var size)
             ? size
             : throw HttpTransport.Incoherent("« dimension » doit être un entier");
@@ -165,7 +164,7 @@ public sealed class HttpEmbedder : IEmbedder
                 $"Réponse du service IA incohérente : {texts.Count} vecteurs de {dimension} dimensions attendus, reçu {vectors.Count} "
                 + $"de [{string.Join(", ", vectors.Select(v => v.Length).Distinct().Order())}] dimensions", transient: false);
         }
-        return vectors;
+        return new EmbeddingBatch(model, dimension, vectors);
     }
 
     /// <summary>Des listes de nombres finis, ou null. « 1e400 » vaut l'infini et n'est donc pas accepté.</summary>
@@ -210,7 +209,7 @@ public sealed class HttpGenerator : IGenerator
         _post = transport ?? HttpTransport.Create(timeout ?? TimeSpan.FromSeconds(300));
     }
 
-    public string Generate(GenerationRequest request)
+    public Generation Generate(GenerationRequest request)
     {
         // seed vaut null s'il n'est pas fixé.
         var payload = _post(_url, new JsonObject
@@ -223,8 +222,6 @@ public sealed class HttpGenerator : IGenerator
             ["seed"] = request.Seed,
         });
         HttpTransport.Require(payload, "model", "text");
-        // « model » est vérifié comme « text ».
-        _ = HttpTransport.Text(payload, "model");
-        return HttpTransport.Text(payload, "text");
+        return new Generation(HttpTransport.Text(payload, "model"), HttpTransport.Text(payload, "text"));
     }
 }

@@ -17,11 +17,11 @@ public sealed class IndexUnreadableException : FormatException
 
 public class InMemoryVectorIndex : IVectorIndex
 {
-    private sealed record State(List<Chunk> Chunks, List<double[]> Vectors);
+    private sealed record State(IndexManifest? Manifest, List<Chunk> Chunks, List<double[]> Vectors);
 
-    // Tout l'état tient dans un seul champ, remplacé d'un coup : une recherche ne peut pas voir les
-    // morceaux d'un index avec les vecteurs d'un autre.
-    private State _state = new(new(), new());
+    // Tout l'état tient dans un seul champ, remplacé d'un coup : une recherche ne peut pas voir le
+    // manifeste d'un index avec les vecteurs d'un autre.
+    private State _state = new(null, new(), new());
 
     public static double[] Normalize(IReadOnlyList<double> vector)
     {
@@ -29,24 +29,23 @@ public class InMemoryVectorIndex : IVectorIndex
         return norm == 0 ? vector.Select(_ => 0.0).ToArray() : vector.Select(x => x / norm).ToArray();
     }
 
-    /// <summary>Un index vide vaut « pas d'index ».</summary>
-    public virtual bool IsBuilt() => _state.Chunks.Count > 0;
+    public virtual IndexManifest? Manifest() => _state.Manifest;
 
-    public virtual void Replace(IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> vectors)
+    public virtual void Replace(IndexManifest manifest, IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> vectors)
     {
-        Check(chunks, vectors);
-        _state = new State(chunks.ToList(), vectors.Select(Normalize).ToList());
+        Check(manifest, chunks, vectors);
+        _state = new State(manifest, chunks.ToList(), vectors.Select(Normalize).ToList());
     }
 
-    protected static void Check(IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> vectors)
+    protected static void Check(IndexManifest manifest, IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> vectors)
     {
         if (chunks.Count != vectors.Count)
         {
             throw new ArgumentException("autant de vecteurs que de morceaux sont attendus");
         }
-        if (vectors.Any(v => v.Length != vectors[0].Length))
+        if (vectors.Any(v => v.Length != manifest.Dimension))
         {
-            throw new ArgumentException("tous les vecteurs doivent avoir la même dimension");
+            throw new ArgumentException($"tous les vecteurs doivent avoir {manifest.Dimension} dimensions");
         }
     }
 
@@ -54,8 +53,9 @@ public class InMemoryVectorIndex : IVectorIndex
     {
         var state = _state;
         // La requête doit avoir la longueur des vecteurs stockés. Plus longue, la boucle lirait au-delà du vecteur
-        // stocké. Plus courte, elle donnerait en silence un produit scalaire partiel.
-        var expected = state.Vectors.Count > 0 ? state.Vectors[0].Length : (int?)null;
+        // stocké. Plus courte, elle donnerait en silence un produit scalaire partiel. Un index sans aucun vecteur
+        // s'en tient à la dimension de son manifeste.
+        var expected = state.Vectors.Count > 0 ? state.Vectors[0].Length : state.Manifest?.Dimension;
         if (expected is not null && vector.Length != expected)
         {
             throw new ArgumentException($"vecteur de requête de {vector.Length} dimensions, l'index en attend {expected}");
@@ -93,9 +93,9 @@ public sealed class JsonVectorIndex : InMemoryVectorIndex
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    // Les champs du fichier, dans l'ordre alphabétique. Un index écrit dans un autre format, avec d'autres champs,
-    // n'est pas lu à moitié : le message dit de le reconstruire, et comment.
-    private static readonly string[] Fields = { "chunks", "vectors" };
+    // Les champs du manifeste, dans l'ordre alphabétique. Un index écrit dans un autre format, sans manifeste ou
+    // avec d'autres champs, n'est pas lu à moitié : le message dit de le reconstruire, et comment.
+    private static readonly string[] ManifestFields = { "chunk_count", "dimension", "document_count", "embedding_model" };
 
     private readonly string _path;
     private bool _loaded;
@@ -118,17 +118,21 @@ public sealed class JsonVectorIndex : InMemoryVectorIndex
                 // UTF-8 strict, BOM accepté, et JSON strict jusque dans les chaînes : un index abîmé est
                 // signalé comme illisible.
                 var root = JsonText.Parse(TextFiles.ReadUtf8(_path), strings: true)!.AsObject();
-                if (!root.Select(kv => kv.Key).Order(StringComparer.Ordinal).SequenceEqual(Fields))
+                if (root["manifest"] is not JsonObject m
+                    || !m.Select(kv => kv.Key).Order(StringComparer.Ordinal).SequenceEqual(ManifestFields))
                 {
                     throw new FormatException("écrit dans un autre format");
                 }
+                var manifest = new IndexManifest(
+                    m["embedding_model"]!.GetValue<string>(), m["dimension"]!.GetValue<int>(),
+                    m["document_count"]!.GetValue<int>(), m["chunk_count"]!.GetValue<int>());
                 var chunks = root["chunks"]!.AsArray().Select(c => new Chunk(
                     c!["id"]!.GetValue<string>(), c["document_id"]!.GetValue<string>(), c["document_title"]!.GetValue<string>(),
                     c["text"]!.GetValue<string>(), c["position"]!.GetValue<int>(),
                     c["allowed_groups"]!.AsArray().Select(g => g!.GetValue<string>()).ToHashSet())).ToList();
                 var vectors = root["vectors"]!.AsArray()
                     .Select(v => v!.AsArray().Select(x => x!.GetValue<double>()).ToArray()).ToList();
-                base.Replace(chunks, vectors);
+                base.Replace(manifest, chunks, vectors);
             }
             catch (Exception error) when (JsonFiles.IsMalformed(error))
             {
@@ -140,10 +144,10 @@ public sealed class JsonVectorIndex : InMemoryVectorIndex
         _loaded = true;
     }
 
-    public override bool IsBuilt()
+    public override IndexManifest? Manifest()
     {
         Load();
-        return base.IsBuilt();
+        return base.Manifest();
     }
 
     public override IReadOnlyList<Passage> Search(double[] vector, int topK, Func<Chunk, bool> predicate)
@@ -152,22 +156,29 @@ public sealed class JsonVectorIndex : InMemoryVectorIndex
         return base.Search(vector, topK, predicate);
     }
 
-    public override void Replace(IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> vectors)
+    public override void Replace(IndexManifest manifest, IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> vectors)
     {
         // La mémoire garde exactement ce qui est écrit, arrondi compris : les scores restent les mêmes
         // après un redémarrage.
         var stored = vectors.Select(v => Normalize(v).Select(x => Math.Round(x, 6)).ToArray()).ToList();
-        Check(chunks, stored);
+        Check(manifest, chunks, stored);
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
-        File.WriteAllText(_path, Serialize(chunks, stored));
-        base.Replace(chunks, stored);
+        File.WriteAllText(_path, Serialize(manifest, chunks, stored));
+        base.Replace(manifest, chunks, stored);
         _loaded = true;
     }
 
-    private static string Serialize(IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> stored)
+    private static string Serialize(IndexManifest manifest, IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> stored)
     {
         var payload = new JsonObject
         {
+            ["manifest"] = new JsonObject
+            {
+                ["embedding_model"] = manifest.EmbeddingModel,
+                ["dimension"] = manifest.Dimension,
+                ["document_count"] = manifest.DocumentCount,
+                ["chunk_count"] = manifest.ChunkCount,
+            },
             ["chunks"] = new JsonArray(chunks.Select(c => (JsonNode)new JsonObject
             {
                 ["id"] = c.Id,

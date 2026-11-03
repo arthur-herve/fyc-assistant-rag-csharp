@@ -7,8 +7,8 @@ namespace Assistant.Tests;
 
 /// <summary>
 /// Le déroulé des expériences, de bout en bout contre <see cref="FakeAiService"/>. Les options et la configuration
-/// sont vérifiées avant tout travail, et la console montre la progression. Ces tests lisent la console, d'où la
-/// collection « Console », comme ceux de la ligne de commande.
+/// sont vérifiées avant tout travail, le seuil `default` est signalé après ces vérifications, et la console montre
+/// la progression. Ces tests lisent la console, d'où la collection « Console », comme ceux de la ligne de commande.
 /// </summary>
 [Collection("Console")]
 public sealed class ExperimentRunTests : EvalRunTestBase
@@ -23,6 +23,8 @@ public sealed class ExperimentRunTests : EvalRunTestBase
     public void Experiment_options_are_refused_before_any_work()
     {
         var outDir = Path.Combine(_dir, "exp");
+        Assert.Equal("max_chars doit valoir au moins 100",
+                     Assert.Throws<ArgumentException>(() => Experiment("cace-decoupage", "--max-chars", "50", "--out", outDir)).Message);
         Assert.Equal("--limit doit valoir au moins 1, pas 0",
                      Assert.Throws<ArgumentException>(() => Experiment("stabilite", "--limit", "0", "--out", outDir)).Message);
         File.WriteAllText(_questionsPath, """{"questions": [{"id": "q", "user": "mallory", "question": "?"}]}""");
@@ -33,7 +35,7 @@ public sealed class ExperimentRunTests : EvalRunTestBase
     [Fact]
     public void The_main_configuration_of_an_experiment_is_checked_before_any_work()
     {
-        // Le prompt de la configuration est lu avant tout travail : s'il est introuvable, aucun dossier n'est créé.
+        // Pas seulement ce que l'expérience change : le prompt de la configuration aussi.
         var outDir = Path.Combine(_dir, "exp");
         Assert.Equal(NoPrompt, Assert.Throws<Application.PromptNotFoundException>(
             () => Experiment(_config with { PromptName = "nexiste" }, new Overrides(), "stabilite", "--out", outDir)).Message);
@@ -64,29 +66,83 @@ public sealed class ExperimentRunTests : EvalRunTestBase
     }
 
     [Fact]
-    public void An_experiment_writes_the_same_report_under_windows_and_linux()
+    public void An_experiment_says_when_the_default_threshold_applies()
     {
-        // Le rapport est en « \n », sous Windows aussi, et le chemin s'affiche avec des « / » : la sortie est la même
-        // sous Windows et sous Linux.
-        var outDir = Path.Combine(_dir, "exp-rapport");
-        var (code, output, errors) = Captured(() => Experiment("stabilite", "--runs", "2", "--out", outDir));
-        Assert.Equal((0, ""), (code, errors));
+        // Ni le modèle principal ni --other n'ont de seuil configuré : `default` s'applique, et l'expérience le dit en
+        // console et dans le rapport.
+        var outDir = Path.Combine(_dir, "exp-embeddings");
+        var (code, _, errors) = Captured(() => Experiment("changement-embeddings", "--other", "hashing-512", "--out", outDir));
+        Assert.Equal(0, code);
+        var warnings = new[] { "hashing", "hashing-512" }
+            .Select(alias => $"Attention : aucun seuil de pertinence configuré pour « {alias} » : valeur `default` 0.15 (à calibrer avec le banc d'essai)")
+            .ToArray();
+        Assert.Equal(warnings, errors.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        var report = File.ReadAllText(Path.Combine(outDir, "rapport.md"));
+        foreach (var warning in warnings)
+        {
+            Assert.Contains($"> {warning}", report);
+        }
+        Assert.Contains("| seuil | 0.15 | 0.15 |", report);
+    }
+
+    [Fact]
+    public void An_experiment_report_has_lf_line_endings_only()
+    {
+        // Le rapport est en « \n », sous Windows aussi, le bloc « Détail » de la comparaison compris.
+        var outDir = Path.Combine(_dir, "exp-embeddings");
+        var (code, _, _) = Captured(() => Experiment("changement-embeddings", "--other", "hashing-512", "--out", outDir));
+        Assert.Equal(0, code);
         var report = File.ReadAllText(Path.Combine(outDir, "rapport.md"));
         Assert.DoesNotContain('\r', report);
-        Assert.EndsWith($"\nRapport : {Path.Combine(outDir, "rapport.md").Replace('\\', '/')}\n", output);
+    }
+
+    [Theory]
+    [InlineData("changement-embeddings", "extractive", "modèle d'embeddings (servis : hashing, hashing-512)")]
+    [InlineData("changement-embeddings", "nexiste", "modèle d'embeddings (servis : hashing, hashing-512)")]
+    [InlineData("changement-generateur", "hashing", "modèle de génération (servis : extractive)")]
+    public void The_other_alias_of_an_experiment_is_checked_before_any_index(string name, string other, string served)
+    {
+        // --other doit être servi, et du bon type, selon GET /v1/models. Sinon l'expérience s'arrête sans index ni
+        // instantané, et sans afficher d'avertissement avant l'erreur.
+        var outDir = Path.Combine(_dir, "exp-autre");
+        var (error, output, errors) = Captured(() => Assert.Throws<ArgumentException>(
+            () => Experiment(name, "--limit", "1", "--other", other, "--out", outDir)));
+        Assert.Equal($"le service IA ne sert pas « {other} » comme {served}", error.Message);
+        Assert.Equal(("", ""), (output, errors));
+        Assert.False(Directory.Exists(outDir));
+    }
+
+    [Fact]
+    public void The_default_threshold_is_announced_after_the_checks()
+    {
+        // Avec une option fausse ou un service IA injoignable, seule l'erreur s'affiche, sans avertissement avant elle.
+        var outDir = Path.Combine(_dir, "exp");
+        var (invalid, _, errors) = Captured(() => Assert.Throws<ArgumentException>(
+            () => Experiment("cace-decoupage", "--max-chars", "50", "--out", outDir)));
+        Assert.Equal("max_chars doit valoir au moins 100", invalid.Message);
+        Assert.Equal("", errors);
+        var (unreachable, _, stillNothing) = Captured(() => Assert.Throws<Application.AiServiceException>(
+            () => Experiment(_config with { AiBaseUrl = "http://127.0.0.1:9" }, new Overrides(), "stabilite", "--out", outDir)));
+        Assert.Equal("service IA injoignable (http://127.0.0.1:9). Lancez-le d'abord : python -m ai_service", unreachable.Message);
+        Assert.Equal("", stillNothing);
+        Assert.False(Directory.Exists(outDir));
     }
 
     [Fact]
     public void An_experiment_prints_its_steps_and_the_path_of_its_report()
     {
-        // La console affiche une ligne pour l'index et une par instantané, puis « Rapport : » et son chemin. Les
-        // valeurs sont connues d'avance : trois documents d'un paragraphe donnent 3 morceaux.
-        var outDir = Path.Combine(_dir, "exp-etapes");
-        var (code, output, _) = Captured(() => Experiment("stabilite", "--runs", "2", "--limit", "1", "--out", outDir));
+        // La console affiche « Avant : 800 / 120 », une ligne par index et par instantané, puis « Rapport : » et son
+        // chemin. Les valeurs sont connues d'avance : trois documents d'un paragraphe donnent 3 morceaux avant comme
+        // après, et la dimension est celle du faux service, un axe par mot du vocabulaire plus l'axe constant
+        // (FakeAiService).
+        var outDir = Path.Combine(_dir, "exp-cace");
+        var (code, output, _) = Captured(() => Experiment("cace-decoupage", "--limit", "1", "--out", outDir));
         Assert.Equal(0, code);
-        Assert.Contains("  index « partage » : 3 morceaux, ", output);
-        foreach (var name in new[] { "passage-1", "passage-2" })
+        Assert.Contains("Avant : 800 / 120\n", output);
+        Assert.Contains("Après : 300 / 50\n", output);
+        foreach (var name in new[] { "avant", "apres" })
         {
+            Assert.Contains($"  index « {name} » : 3 morceaux, faux:hashing, {Fakes.Vocabulary.Length + 1} dim., ", output);
             Assert.Contains($"  instantané « {name} » : 1 réponses en ", output);
         }
         Assert.EndsWith($"\nRapport : {Path.Combine(outDir, "rapport.md").Replace('\\', '/')}\n", output);
@@ -95,8 +151,8 @@ public sealed class ExperimentRunTests : EvalRunTestBase
     [Fact]
     public void An_experiment_prints_the_line_endings_of_the_platform()
     {
-        var outDir = Path.Combine(_dir, "exp-etapes");
-        var (code, raw, _) = Captured(() => Experiment("stabilite", "--runs", "2", "--limit", "1", "--out", outDir), raw: true);
+        var outDir = Path.Combine(_dir, "exp-cace");
+        var (code, raw, _) = Captured(() => Experiment("cace-decoupage", "--limit", "1", "--out", outDir), raw: true);
         Assert.Equal(0, code);
         // Les fins de ligne sont celles de la plateforme. Sous Windows, aucun « \n » ne doit rester seul, pas même pour
         // la ligne vide avant « Rapport : ».
@@ -127,7 +183,7 @@ public sealed class ExperimentRunTests : EvalRunTestBase
     [Fact]
     public void Two_experiments_of_the_same_second_keep_their_own_folder()
     {
-        // Le second dossier reçoit « -2 » (newOutDir) et ses index y sont écrits.
+        // Comme pour le banc, le second dossier reçoit « -2 » (newOutDir) et ses index y sont écrits.
         var path = Path.Combine(_dir, "resultats", "exp-stabilite-20261001-164152");
         var (experiments, _, _) = Captured(() =>
         {

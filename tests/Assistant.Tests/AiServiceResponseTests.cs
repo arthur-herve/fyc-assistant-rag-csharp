@@ -118,8 +118,8 @@ public class AiServiceResponseTests
     public void A_character_outside_the_basic_plane_is_text()
     {
         // « \ud83d\ude00 » est une paire complète, un emoji : c'est bien du texte.
-        var text = new HttpGenerator("http://ia", "m", transport: Answering("""{"model": "m", "text": "Bravo \ud83d\ude00"}""")).Generate(Request);
-        Assert.Equal("Bravo " + char.ConvertFromUtf32(0x1F600), text);
+        var generation = new HttpGenerator("http://ia", "m", transport: Answering("""{"model": "m", "text": "Bravo \ud83d\ude00"}""")).Generate(Request);
+        Assert.Equal("Bravo " + char.ConvertFromUtf32(0x1F600), generation.Text);
     }
 
     [Theory]
@@ -200,7 +200,7 @@ public class AiServiceResponseTests
     {
         var body = Bytes.WithBom(Encoding.UTF8.GetBytes("""{"model": "m", "dimension": 1, "vectors": [[1.0]]}"""));
         using var service = new FixedAnswerService(body);
-        Assert.Equal(new[] { 1.0 }, new HttpEmbedder(service.Url, "m", TimeSpan.FromSeconds(5)).EmbedQuery("x"));
+        Assert.Equal("m", new HttpEmbedder(service.Url, "m", TimeSpan.FromSeconds(5)).EmbedQuery("x").Model);
     }
 
     /// <summary>
@@ -231,7 +231,8 @@ public class AiServiceResponseTests
     public void Separators_at_the_edges_reach_the_ai_service_and_stay_in_the_answer()
     {
         var index = new FakeIndex();
-        index.Replace(new[] { new Chunk("a#0", "a", "A", "\u2028\u001cDeux jours par semaine.\u001c ", 0, new HashSet<string> { "tous" }) },
+        index.Replace(new IndexManifest("m", 1, 1, 1),
+            new[] { new Chunk("a#0", "a", "A", "\u2028\u001cDeux jours par semaine.\u001c ", 0, new HashSet<string> { "tous" }) },
             new[] { new[] { 1.0 } });
         using var embedder = new FixedAnswerService(Encoding.UTF8.GetBytes("""{"model": "m", "dimension": 1, "vectors": [[1.0]]}"""));
         using var generator = new FixedAnswerService(Encoding.UTF8.GetBytes("""{"model": "m", "text": " \u001cDeux jours [1].\u001c\n"}"""));

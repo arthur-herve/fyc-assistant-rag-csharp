@@ -55,8 +55,8 @@ public class JsonTextTests
     [Fact]
     public void A_string_that_is_not_text_is_refused_only_when_asked()
     {
-        // Ce contrôle est demandé par la configuration, l'index, les instantanés et les jeux de questions. Les
-        // réponses du service IA et les prompts s'en passent, ils ont leurs propres contrôles.
+        // Ce contrôle est demandé par la configuration, l'index, les instantanés, les jeux de questions et
+        // GET /v1/models. Les réponses du service IA et les prompts s'en passent, ils ont leurs propres contrôles.
         const string json = "{\"a\": \"x\\ud800\"}";
         Assert.NotNull(JsonText.Parse(json));
         JsonText.ParseDocument(json).Dispose();
@@ -74,8 +74,8 @@ public class JsonTextTests
     [Fact]
     public void An_integer_of_more_than_4300_digits_is_refused_only_when_asked()
     {
-        // La configuration le demande, avec maxDigits. 4300 chiffres passent, sans compter le signe, et un réel
-        // n'est pas concerné, même très long.
+        // La configuration et GET /v1/models le demandent, avec maxDigits. 4300 chiffres passent, sans compter le
+        // signe, et un réel n'est pas concerné, même très long.
         foreach (var json in new[] { "[" + new string('1', 4301) + "]", "[-" + new string('1', 4301) + "]", "{\"a\": " + new string('9', 5000) + "}" })
         {
             Assert.NotNull(JsonText.Parse(json));

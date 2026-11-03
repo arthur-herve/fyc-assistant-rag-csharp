@@ -19,15 +19,25 @@ public static class Presenter
 
     private static string F(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
 
-    /// <summary>Le résumé affiché par index : ce que l'indexation a traité.</summary>
-    public static string SummaryToText(IndexSummary s) =>
-        $"Index construit : {s.DocumentCount} documents, {s.ChunkCount} morceaux.";
+    /// <summary>Le découpage en JSON, sans passer par l'infrastructure : ses valeurs typées suffisent.</summary>
+    public static JsonObject Splitter(IReadOnlyDictionary<string, object> splitter) =>
+        JsonSerializer.SerializeToNode(splitter)!.AsObject();
+
+    public static JsonObject ManifestToJson(IndexManifest m) => new()
+    {
+        ["embedding_model"] = m.EmbeddingModel,
+        ["dimension"] = m.Dimension,
+        ["document_count"] = m.DocumentCount,
+        ["chunk_count"] = m.ChunkCount,
+    };
 
     public static JsonObject AnswerToJson(Answer answer, bool includeRaw = false)
     {
         var t = answer.Trace;
         var trace = new JsonObject
         {
+            ["embedding_model"] = t.EmbeddingModel,
+            ["generation_model"] = t.GenerationModel,
             ["retrieved"] = new JsonArray(t.Retrieved.Select(r => (JsonNode)new JsonObject { ["chunk_id"] = r.ChunkId, ["score"] = r.Score }).ToArray()),
             ["min_score"] = t.MinScore,
             ["attempts"] = t.Attempts,
@@ -50,7 +60,7 @@ public static class Presenter
     }
 
     /// <summary>
-    /// Le JSON affiché par ask --json.
+    /// Le JSON affiché par index et ask --json.
     /// Il est indenté et garde les accents tels quels.
     /// </summary>
     public static string ToJson(JsonNode node) => node.ToJsonString(Json);
@@ -69,7 +79,8 @@ public static class Presenter
         }
         var t = answer.Trace;
         lines.AppendLine();
-        lines.AppendLine($"statut={StatusNames.Of(answer.Status)} · tentatives={t.Attempts}");
+        lines.AppendLine($"statut={StatusNames.Of(answer.Status)} · embeddings={t.EmbeddingModel} · génération={t.GenerationModel ?? "—"} · "
+                         + $"tentatives={t.Attempts}");
         if (verbose)
         {
             lines.AppendLine($"seuil={F(t.MinScore)}");
@@ -93,7 +104,8 @@ public static class Presenter
         string.Join(Environment.NewLine, ComparisonLines(c));
 
     /// <summary>
-    /// Les lignes de la comparaison, sans fin de ligne. Le texte d'une réponse y reste tel quel.
+    /// Les lignes de la comparaison. Un rapport les écrit avec des « \n », sous Windows aussi, et le texte d'une
+    /// réponse y reste tel quel.
     /// </summary>
     public static List<string> ComparisonLines(SnapshotComparison c)
     {

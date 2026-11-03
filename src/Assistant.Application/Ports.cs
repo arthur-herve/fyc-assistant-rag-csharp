@@ -9,27 +9,42 @@ namespace Assistant.Application;
 
 // --- Embeddings ------------------------------------------------------------
 
+/// <summary>
+/// Vecteurs produits par un modèle. <c>Model</c> est l'identifiant du modèle réellement
+/// utilisé, tel que le service IA le renvoie, et non l'alias demandé.
+/// </summary>
+public sealed record EmbeddingBatch(string Model, int Dimension, IReadOnlyList<double[]> Vectors);
+
 public interface IEmbedder
 {
-    IReadOnlyList<double[]> EmbedDocuments(IReadOnlyList<string> texts);
-    double[] EmbedQuery(string text);
+    EmbeddingBatch EmbedDocuments(IReadOnlyList<string> texts);
+    EmbeddingBatch EmbedQuery(string text);
 }
 
 // --- Génération ------------------------------------------------------------
 
 public sealed record GenerationRequest(string System, string Prompt, double Temperature, int MaxTokens, int? Seed = null);
 
+public sealed record Generation(string Model, string Text);
+
 public interface IGenerator
 {
-    string Generate(GenerationRequest request);
+    Generation Generate(GenerationRequest request);
 }
 
 // --- Index vectoriel -------------------------------------------------------
 
+/// <summary>Carte d'identité d'un index : sans elle, un index est inexplicable.</summary>
+public sealed record IndexManifest(
+    string EmbeddingModel,
+    int Dimension,
+    int DocumentCount,
+    int ChunkCount);
+
 public interface IVectorIndex
 {
-    bool IsBuilt();
-    void Replace(IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> vectors);
+    IndexManifest? Manifest();
+    void Replace(IndexManifest manifest, IReadOnlyList<Chunk> chunks, IReadOnlyList<double[]> vectors);
     IReadOnlyList<Passage> Search(double[] vector, int topK, Func<Chunk, bool> predicate);
 }
 
