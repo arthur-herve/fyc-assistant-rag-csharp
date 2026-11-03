@@ -440,7 +440,7 @@ public static class Experiments
         exp.Log("## Lecture");
         exp.Log("");
         exp.Log("- Aucune donnée stockée n'a changé : même index, même manifeste. « Le générateur est un détail » est vrai pour les données.");
-        exp.Log("- Mais les textes, la latence et le nombre de réponses non sourcées changent : le prompt est réglé pour un modèle, chaque modèle a ses manies (longueur, langue, raisonnement). Une ligne de configuration, oui ; sans conséquence, non.");
+        exp.Log("- Mais les textes, la latence et le nombre de réponses non sourcées, rejets du garde-fou de forme compris, changent : le prompt est réglé pour un modèle, chaque modèle a ses manies (longueur, langue, raisonnement). Une ligne de configuration, oui ; sans conséquence, non.");
     }
 
     private static void PromptV2(Experiment exp, Args args)
@@ -476,7 +476,7 @@ public static class Experiments
         exp.Log("## Lecture");
         exp.Log("");
         exp.Log("- Seul le prompt change entre les deux instantanés : la dérive est attribuable à cette seule modification.");
-        exp.Log("- Ce que le prompt change (forme, longueur, ton) n'est pas ce que le domaine garantit (citations vérifiées, droits filtrés). "
+        exp.Log("- Ce que le prompt change (forme, longueur, ton) n'est pas ce que le domaine garantit (citations vérifiées, forme validée, droits filtrés). "
                 + "Deux lectures se défendent. Pour l'une, le prompt est une configuration, qu'on choisit avec le modèle comme on choisit le modèle lui-même. "
                 + "Pour l'autre, ses consignes portent des règles du métier, et il se teste comme du code.");
         exp.Log("- Avec `extractive` (hors-ligne), 0 % de dérive : ce générateur ignore les consignes. Un modèle qui ignore le prompt produit exactement cette signature.");

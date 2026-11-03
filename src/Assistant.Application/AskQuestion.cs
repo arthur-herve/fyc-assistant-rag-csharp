@@ -5,7 +5,8 @@
 // 2. La recherche des passages, filtrée par les droits d'accès. Elle reste déterministe tant que
 //    le modèle d'embeddings ne change pas.
 // 3. Le seuil de pertinence. Sans passage pertinent, on n'appelle pas le modèle.
-// 4. La génération, seule étape probabiliste. Une vérification déterministe la suit : les citations.
+// 4. La génération, seule étape probabiliste. Deux vérifications déterministes l'encadrent : la
+//    forme de la sortie, contrôlée par le décorateur de validation, puis les citations.
 
 using System.Text;
 using Assistant.Domain;
@@ -90,8 +91,20 @@ public sealed class AskQuestion
         for (var attempt = 1; attempt <= _settings.MaxAttempts; attempt++)
         {
             var seed = _settings.Seed is null ? (int?)null : _settings.Seed + attempt - 1;
-            var generation = _generator.Generate(new GenerationRequest(
-                template.System, prompt, _settings.Temperature, _settings.MaxTokens, seed));
+            Generation generation;
+            try
+            {
+                generation = _generator.Generate(new GenerationRequest(
+                    template.System, prompt, _settings.Temperature, _settings.MaxTokens, seed));
+            }
+            catch (ModelOutputRejectedException rejected)
+            {
+                // Le décorateur de validation a refusé la forme de la sortie. La tentative est ratée,
+                // mais on garde le texte rejeté dans la trace.
+                generationModel = rejected.Model;
+                rawOutputs.Add($"<rejetée : {string.Join(" ; ", rejected.Problems)}> {rejected.Text}");
+                continue;
+            }
             generationModel = generation.Model;
             rawOutputs.Add(generation.Text);
             var check = Citations.Check(generation.Text, relevant.Count);

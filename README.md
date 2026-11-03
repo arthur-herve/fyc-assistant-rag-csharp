@@ -1,71 +1,60 @@
-# Fil rouge, étape S4.1 : stratégies d'isolation
+# Fil rouge, correction de S4.1 : stratégies d'isolation
 
-> **Branche d'étape.** Cette branche est l'état du fil rouge au début de la séquence S4.1. Certains
-> défauts y sont laissés exprès : la séquence les montre, et sa correction les pare. L'application
-> complète, avec toute sa documentation, est sur la branche `final`.
+> **Correction de la séquence S4.1.** Ce tag, `corrige/s4.1`, est l'état du fil rouge à la fin de la
+> séquence. Il sert à comparer votre travail et à récupérer les tests attendus. L'application complète,
+> avec toute sa documentation, est sur la branche `final`.
 
 ## Où en est le fil rouge
 
-Le fil rouge a les parades des séquences précédentes : les droits filtrés avant le prompt, les citations
-vérifiées, les tentatives et la graine, le manifeste de l'index et un seuil par modèle d'embeddings. Des
-décorateurs entourent maintenant les ports : un cache pour les embeddings des questions, un journal des
-appels, et de nouvelles tentatives quand le service IA a une panne passagère. Il manque, exprès, un
-contrôle de la sortie du modèle : seules ses citations sont vérifiées, si bien qu'un texte qui n'a pas la
-forme d'une réponse arrive jusqu'à l'utilisateur. La séquence part de là pour distinguer ce qui isole la
-technologie de ce qui isole l'incertitude.
+Les décorateurs sont au complet. Le cache, le journal et les tentatives réseau entourent les ports, et la
+validation de la sortie du modèle s'y ajoute. Une sortie qui n'a pas la forme d'une réponse, parce
+qu'elle est vide, trop longue, écrite dans une autre langue ou encombrée d'un raisonnement, est refusée
+et compte comme une tentative ratée. La séquence S4.2 part de là, avec une question : que faut-il
+versionner avec le code pour pouvoir reproduire une réponse et dire d'où elle vient ?
 
-## Ce que vous faites dans cette séquence
+## Ce que la correction a changé
 
-1. Lisez le support : isoler la technologie ou isoler l'incertitude, la couche anticorruption, la
-   validation de schéma. Lisez ensuite les décorateurs fournis, dans
-   `src/Assistant.Infrastructure/Decorators.cs`, et la façon dont `Composition.Decorate` les empile selon
-   la section `decorators` de la configuration : ce sont les exemples commentés de la séquence. Le cache
-   ne sert que l'index courant, qu'il reconnaît à son manifeste. Ce lien protège surtout un processus qui
-   dure plus longtemps qu'une commande. Ici, chaque commande construit son conteneur et son cache, comme
-   le banc d'essai et les expériences le font pour chaque configuration.
+Au départ de la séquence, une sortie comme « Okay, let me check the documents. … [1] » recevait le statut
+`answered`, puisque seules les citations étaient vérifiées. La correction ajoute
+`OutputValidatingGenerator`, un décorateur de l'application qui applique au texte la règle du domaine
+`OutputRules` et lève `ModelOutputRejectedException` quand la forme ne convient pas. `AskQuestion`
+attrape ce rejet, le note dans la trace et passe à la tentative suivante. `Composition.Decorate` place la
+validation sous le journal des générations, qui voit ainsi les rejets. Les clés
+`decorators.validate_output` et `max_output_chars` arrivent dans la configuration, et dans celle des
+instantanés.
 
-2. Voyez la fuite, hors ligne. L'alias `extractive-bavard` du service IA fait précéder sa réponse d'un
-   raisonnement en anglais, comme certains modèles qui « réfléchissent » à voix haute. Le service IA
-   lancé, construisez l'index, puis posez-lui une question :
+Les protections du fil rouge se rangent désormais en deux familles. Celles qui isolent la technologie
+rendent le modèle remplaçable :
 
-   ```bash
-   dotnet run --project src/Assistant.Cli -- index
-   dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" --generation-model extractive-bavard -v
-   ```
+- le service IA, qui sert de couche anticorruption
+- le contrat HTTP, lu strictement
+- le cache, le journal et les tentatives réseau
 
-   La réponse commence par « Okay, let me check the documents. » et se termine par la citation [1]. Elle
-   reçoit le statut `answered`, et l'utilisateur la lit telle quelle. Le journal affiché par `-v` montre
-   une seule génération, sans erreur ni nouvelle tentative : aucun décorateur ne regarde ce que le modèle
-   a répondu. Ces décorateurs isolent la technologie : ils s'occupent des pannes du réseau, de la durée
-   des appels et des embeddings déjà calculés, sans rien savoir de ce qu'est une bonne réponse.
-   Qu'est-ce qui, dans le fil rouge, isole l'incertitude ? Gardez la question en tête pendant toute la
-   séquence.
+Celles qui isolent l'incertitude empêchent une sortie douteuse d'arriver jusqu'à l'utilisateur :
 
-3. Lancez le test de caractérisation qui fige ce comportement. Il est dans `AskQuestionTests.cs`, avec les
-   autres tests du cas d'usage, et il passe, parce qu'il affirme ce que fait le code aujourd'hui, pas ce
-   qu'il devrait faire :
+- les droits filtrés avant le prompt
+- les citations vérifiées
+- les tentatives du cas d'usage
+- la validation de la forme
 
-   ```bash
-   dotnet test --filter "FullyQualifiedName~AskQuestionTests"
-   ```
+Pour lire la correction seule, puis ce qu'elle change dans le code et la configuration :
 
-4. Faites l'exercice décrit dans
-   [`exercices/s4.1-decorateur-de-validation/README.md`](exercices/s4.1-decorateur-de-validation/README.md).
-   Créez votre branche, puis récupérez les tests attendus en nommant les fichiers :
+```bash
+git diff --stat origin/etape/s4.1 corrige/s4.1
+git diff origin/etape/s4.1 corrige/s4.1 -- src config
+```
 
-   ```bash
-   git switch -c mon-s4.1 origin/etape/s4.1
-   git restore --source corrige/s4.1 -- tests/Assistant.Tests/DecoratorTests.cs tests/Assistant.Tests/AskQuestionTests.cs tests/Assistant.Tests/CompositionRootTests.cs tests/Assistant.Tests/ConfigTests.cs
-   ```
+Relancez ensuite la démonstration de la séquence, le service IA lancé :
 
-   Les erreurs de compilation forment votre liste de tâches. L'énoncé donne les signatures, l'ordre dans
-   lequel faire passer les tests et la place de la validation parmi les décorateurs. Le test de
-   caractérisation disparaît avec la restauration : la version d'`AskQuestionTests.cs` de la correction le
-   remplace par un test qui affirme le contraire.
+```bash
+dotnet run --project src/Assistant.Cli -- index
+dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?" --generation-model extractive-bavard -v
+```
 
-5. Quand tous les tests passent, ceux de l'architecture compris, relancez la démonstration avec
-   `extractive-bavard`. La réponse doit maintenant être refusée après deux tentatives : elle reçoit le
-   statut `unsourced`, et l'utilisateur lit « Je n'ai pas pu produire de réponse correctement sourcée ».
+La réponse est refusée après deux tentatives : elle reçoit le statut `unsourced`, et l'utilisateur lit
+« Je n'ai pas pu produire de réponse correctement sourcée ». Le journal montre les deux rejets, et la
+trace garde les deux sorties, précédées de « <rejetée : … ». Le corrigé de l'énoncé, à la fin de
+`exercices/s4.1-decorateur-de-validation/README.md`, répond aux questions de la séquence.
 
 ## Démarrer
 
@@ -126,3 +115,4 @@ jamais un dossier.
 - La recherche, déterministe, se teste par assertion. La génération a droit à une seconde tentative,
   et une graine peut la rendre reproductible.
 - Les décorateurs entourent les ports sans que les cas d'usage le sachent, et le cache suit l'index courant.
+  La sortie du modèle passe par un décorateur de l'application, qui la valide avec une règle du domaine.

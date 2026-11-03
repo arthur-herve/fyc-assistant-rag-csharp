@@ -105,6 +105,8 @@ obligation de citer. Le service se contente de le transmettre au modèle.
 `max_tokens` fixe le budget de la réponse. Un modèle à réflexion, déclaré avec `think = true` dans
 `config/ai_service.toml`, reçoit en plus un budget de réflexion (`thinking_tokens`) que
 l'application ne voit pas. La réponse peut donc dépasser `max_tokens` si le modèle réfléchit peu.
+Ce qui borne la longueur montrée à l'utilisateur, c'est la validation de forme faite côté
+application, avec le réglage `max_output_chars`.
 
 ## Erreurs
 

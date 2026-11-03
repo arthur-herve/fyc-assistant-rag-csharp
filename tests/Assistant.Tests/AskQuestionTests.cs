@@ -146,14 +146,13 @@ public class AskQuestionTests
     }
 
     [Fact]
-    public void Leaked_reasoning_with_a_citation_is_shown_as_an_answer()
+    public void A_rejected_output_counts_as_a_failed_attempt()
     {
-        // Test de caractérisation : il fige ce que fait le cas d'usage aujourd'hui, pas ce qu'il devrait faire.
-        // Seules les citations sont vérifiées : un raisonnement en anglais qui cite un passage est montré tel quel.
         const string leak = "Okay, let's see. The user is asking about remote work. The passage [1] says two days per week.";
-        var answer = Build.Ask(new ScriptedGenerator(leak)).Execute(Fakes.Alice, "Combien de jours de télétravail ?");
+        var inner = new ScriptedGenerator(leak, "Deux jours par semaine [1].");
+        var answer = Build.Ask(new OutputValidatingGenerator(inner), minScore: 0.1).Execute(Fakes.Alice, "Combien de jours de télétravail ?");
         Assert.Equal(AnswerStatus.Answered, answer.Status);
-        Assert.Equal(1, answer.Trace.Attempts);
-        Assert.Equal(leak, answer.Text);
+        Assert.Equal(2, answer.Trace.Attempts);
+        Assert.StartsWith("<rejetée : ", answer.Trace.RawOutputs[0]);
     }
 }

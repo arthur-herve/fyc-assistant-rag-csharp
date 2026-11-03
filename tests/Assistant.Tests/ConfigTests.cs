@@ -51,6 +51,8 @@ public sealed class ConfigTests : IDisposable
 
     [Theory]
     [InlineData("embedding_model", "\"embedding_model\": \"hashing\", ", "")]
+    [InlineData("validate_ouput", "\"index\"", "\"decorators\": { \"validate_ouput\": true }, \"index\"")]
+    [InlineData("validate_output", "\"index\"", "\"decorators\": { \"validate_output\": \"oui\" }, \"index\"")]
     [InlineData("max_attempts", "\"index\"", "\"generation\": { \"max_attempts\": 0 }, \"index\"")]
     [InlineData("top_k", "\"min_score\"", "\"top_k\": 0, \"min_score\"")]
     [InlineData("topk", "\"min_score\"", "\"topk\": 8, \"min_score\"")]
@@ -92,6 +94,9 @@ public sealed class ConfigTests : IDisposable
     [InlineData("\"index\"", "\"generation\": { \"max_attempts\": 0 }, \"index\"", " [generation] : « max_attempts » = 0, doit valoir au moins 1")]
     [InlineData("\"index\"", "\"generation\": { \"seed\": \"42\" }, \"index\"", " [generation] : « seed » doit être un entier, pas \"42\"")]
     [InlineData("\"index\"", "\"generation\": { \"prompt\": 3 }, \"index\"", " [generation] : « prompt » doit être une chaîne, pas 3")]
+    [InlineData("\"index\"", "\"decorators\": { \"validate_output\": \"oui\" }, \"index\"",
+                " [decorators] : « validate_output » doit être un booléen, pas \"oui\"")]
+    [InlineData("\"index\"", "\"decorators\": { \"max_output_chars\": 0 }, \"index\"", " [decorators] : « max_output_chars » = 0, doit valoir au moins 1")]
     [InlineData("\"index\"", "\"decorators\": { \"retries\": -1 }, \"index\"", " [decorators] : « retries » = -1, doit valoir au moins 0")]
     [InlineData("\"index\"", "\"splitter\": { \"max_chars\": 99 }, \"index\"", " [splitter] : « max_chars » = 99, doit valoir au moins 100")]
     [InlineData("\"index\"", "\"splitter\": { \"overlap_chars\": 400 }, \"index\"",
@@ -260,11 +265,11 @@ public sealed class ConfigTests : IDisposable
         var config = Load(Valid
             .Replace("\"base_url\"", "\"_note\": \"x\", \"base_url\"")
             .Replace("\"min_score\": {", "\"_note\": \"x\", \"min_score\": { \"_calibre\": \"le 11/09\", \"hashing\": 0.15,")
-            .Replace("\"index\"", "\"decorators\": { \"_note\": \"x\", \"cache_embeddings\": true }, \"index\"")
+            .Replace("\"index\"", "\"decorators\": { \"_note\": \"x\", \"validate_output\": true }, \"index\"")
             .Replace("\"index\"", "\"users\": { \"_note\": \"x\", \"_modele\": { \"groupes\": [\"tous\"] }, "
                                   + "\"alice\": { \"_note\": \"x\", \"groups\": [\"tous\"] } }, \"index\""));
         Assert.Equal(new[] { "default", "hashing" }, config.MinScores.Keys.Order());
-        Assert.Equal(new[] { "cache_embeddings" }, config.Decorators.Keys);
+        Assert.Equal(new[] { "validate_output" }, config.Decorators.Keys);
         Assert.Equal(new[] { "alice" }, config.Users.Keys);   // « _modele » est un commentaire : ni vérifié, ni utilisateur
     }
 
@@ -325,5 +330,7 @@ public sealed class ConfigTests : IDisposable
                                                                 SnapshotsDir: Path.Combine(_dir, "instantanes")));
         var snapshot = container.RecordSnapshot.Execute("vide", Array.Empty<SnapshotQuestion>());
         Assert.Equal((object?)2, snapshot.Configuration["max_attempts"]);
+        Assert.Equal((object?)true, snapshot.Configuration["validate_output"]);
+        Assert.Equal((object?)1500, snapshot.Configuration["max_output_chars"]);
     }
 }

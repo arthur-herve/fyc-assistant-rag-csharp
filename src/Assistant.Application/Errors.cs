@@ -49,6 +49,25 @@ public sealed class AiServiceException : AssistantApplicationException
     }
 }
 
+/// <summary>
+/// La sortie du modèle n'a pas la forme d'une réponse selon les règles de OutputRules. Le décorateur
+/// de validation la lève, et le cas d'usage la compte comme une tentative ratée.
+/// </summary>
+public sealed class ModelOutputRejectedException : AssistantApplicationException
+{
+    public string Model { get; }
+    public string Text { get; }
+    public IReadOnlyList<string> Problems { get; }
+
+    public ModelOutputRejectedException(string model, string text, IReadOnlyList<string> problems)
+        : base("sortie du modèle rejetée : " + string.Join(" ; ", problems))
+    {
+        Model = model;
+        Text = text;
+        Problems = problems;
+    }
+}
+
 public sealed class InvalidSnapshotNameException : AssistantApplicationException
 {
     public InvalidSnapshotNameException(string name)

@@ -35,6 +35,8 @@
     }
   },
   "decorators": {
+    "validate_output": true,
+    "max_output_chars": 1500,
     "cache_embeddings": true,
     "log": true,
     "retries": 1

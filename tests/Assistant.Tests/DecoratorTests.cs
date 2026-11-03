@@ -1,4 +1,5 @@
-// Les décorateurs des ports : le cache d'embeddings, les nouvelles tentatives et le journal.
+// Les décorateurs des ports : le cache d'embeddings, les nouvelles tentatives, la validation de la sortie et le
+// journal.
 
 using Assistant.Application;
 using Assistant.Infrastructure;
@@ -135,6 +136,21 @@ public class DecoratorTests
         var refusing = new LambdaGenerator(_ => { calls++; throw new AiServiceException("HTTP 404 — modèle inconnu", transient: false); });
         Assert.Throws<AiServiceException>(() => new RetryingGenerator(refusing, attempts: 3, sleep: _ => { }).Generate(Request));
         Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public void Validation_rejects_leaked_reasoning()
+    {
+        var generator = new OutputValidatingGenerator(ScriptedGenerator.WithModel("qwen", "Okay, let's see. The user is asking… [1]"));
+        var error = Assert.Throws<ModelOutputRejectedException>(() => generator.Generate(Request));
+        Assert.Contains(error.Problems, p => p.Contains("raisonnement"));
+    }
+
+    [Fact]
+    public void A_rejection_names_the_model_that_wrote_the_output()
+    {
+        var generator = new OutputValidatingGenerator(ScriptedGenerator.WithModel("qwen", "Okay, let's see. The user is asking… [1]"));
+        Assert.Equal("qwen", Assert.Throws<ModelOutputRejectedException>(() => generator.Generate(Request)).Model);
     }
 
     [Fact]

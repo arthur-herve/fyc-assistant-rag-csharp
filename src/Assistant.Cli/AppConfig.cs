@@ -47,10 +47,12 @@ public sealed record AppConfig(
 {
     /// <summary>
     /// Les décorateurs connus, avec le type et le minimum de leur valeur : une faute de frappe ou une valeur comme
-    /// « oui » ne doit pas couper un décorateur en silence.
+    /// « oui » ne doit pas couper un garde-fou en silence.
     /// </summary>
     private static readonly Dictionary<string, (bool IsBool, int Minimum)> DecoratorKinds = new(StringComparer.Ordinal)
     {
+        ["validate_output"] = (true, 0),
+        ["max_output_chars"] = (false, 1),
         ["cache_embeddings"] = (true, 0),
         ["log"] = (true, 0),
         ["retries"] = (false, 0),

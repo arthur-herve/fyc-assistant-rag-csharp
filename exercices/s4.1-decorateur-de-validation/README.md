@@ -127,3 +127,76 @@ Gardez-les en tête pendant que vous codez : le corrigé y répond.
 Écrivez un décorateur `CachedGenerator` et expliquez pourquoi il est plus dangereux qu'un
 `CachedEmbedder`. Indice : pensez à la température, aux tentatives, et à la possibilité de dire quel
 prompt a produit une réponse.
+
+## Corrigé
+
+La correction est le tag `corrige/s4.1`. Pour voir ce qu'elle change dans le code et la configuration :
+
+```bash
+git diff origin/etape/s4.1 corrige/s4.1 -- src config
+```
+
+| Fichier | Ce qui change |
+|---|---|
+| `src/Assistant.Application/Errors.cs` | `ModelOutputRejectedException : AssistantApplicationException`, avec `Model`, `Text` et `Problems`. Son message énumère les problèmes. |
+| `src/Assistant.Application/Guards.cs` | `OutputValidatingGenerator.Generate` appelle `inner.Generate`, passe le texte à `OutputRules.Check` et lève `ModelOutputRejectedException(model, text, problems)` si la sortie est refusée. |
+| `src/Assistant.Application/AskQuestion.cs` | Dans la boucle des tentatives, `catch (ModelOutputRejectedException rejected)` garde le modèle, ajoute la sortie à la trace, précédée de `<rejetée : …>`, puis passe à la tentative suivante avec `continue`. |
+| `src/Assistant.Cli/AppConfig.cs` et `config/*.json` | Les clés `validate_output`, vraie par défaut, et `max_output_chars`, 1500 par défaut. |
+| `src/Assistant.Cli/Composition.cs` | `Decorate` enveloppe le générateur dans `OutputValidatingGenerator` quand `validate_output` est vrai. Côté génération, de l'intérieur vers l'extérieur, viennent les tentatives, la validation, puis le journal. Côté embeddings, rien ne change : les tentatives, le journal, puis le cache. `Build` ajoute les deux clés à la configuration des instantanés. |
+| `src/Assistant.Cli/Experiments.cs` | Deux sections « Lecture » tiennent compte de la validation. Celle de `changement-generateur` compte les rejets du garde-fou de forme parmi les réponses non sourcées, et celle de `prompt-v2` compte la forme validée parmi ce que le domaine garantit. |
+
+Les tests restaurés couvrent chaque pièce :
+
+- `DecoratorTests.Validation_rejects_leaked_reasoning` vérifie le décorateur seul ;
+- `AskQuestionTests.A_rejected_output_counts_as_a_failed_attempt`, qui remplace le test de
+  caractérisation, vérifie le `catch` ;
+- `CompositionRootTests.A_rejected_output_is_refused_and_logged_whatever_else_is_stacked` vérifie la
+  place du décorateur dans la pile ;
+- `ConfigTests.The_snapshot_configuration_includes_the_settings_that_change_statuses` vérifie que les
+  instantanés voient les deux clés.
+
+`ArchitectureTests.Application_depends_only_on_the_domain` reste vert : le décorateur n'a besoin que du
+domaine.
+
+Voici les réponses aux questions.
+
+La règle est dans le domaine parce qu'elle dit ce qu'est une réponse acceptable pour le métier : la
+langue, la longueur, l'absence de raisonnement. Elle survivrait à un changement complet de pile
+technique et, comme toute règle du domaine, elle est pure et se teste en quelques microsecondes. Le
+décorateur, lui, est un mécanisme : il sait qu'il existe un port `IGenerator` et une boucle de
+tentatives. On retrouve la même séparation qu'entre `Citations.Check`, dans le domaine, et
+`AskQuestion`, dans l'application.
+
+La vérification ne va pas dans le service IA, parce que celui-ci neutralise ce qui appartient au
+modèle : les balises `<think>` sont une convention de certains modèles. Le service ne sait pas ce qu'est
+une réponse acceptable pour cette application précise, et une autre application pourrait vouloir des
+réponses longues, ou en anglais. Mettre la règle dans le service ferait fuir le métier vers
+l'infrastructure, soit l'inverse de ce qu'on cherche. Ici, en plus, le service est écrit dans un autre
+langage : la règle y serait en Python, loin des tests du domaine.
+
+Pour l'ordre des décorateurs, placer la validation sous le décorateur de tentatives du dépôt ne change
+rien. Celui-ci ne relance qu'une `AiServiceException` passagère, c'est-à-dire une panne momentanée du
+service IA, et une sortie rejetée le traverse sans nouvel appel au modèle. C'est ce filtre qui protège,
+pas l'ordre. Un décorateur de tentatives qui attraperait n'importe quelle erreur, en revanche,
+traiterait une sortie rejetée comme une panne : il relancerait le modèle avec le même prompt, en
+consommant les tentatives prévues pour le réseau. Mettre la validation au-dessus rend la pile sûre quel
+que soit ce filtre, et chaque décorateur reste à sa place. Les tentatives s'occupent du réseau, au plus
+près de lui. La validation applique une règle métier, au plus près du cas d'usage. Seul le journal des
+générations reste au-dessus d'elle, pour voir aussi les rejets.
+
+Ce qui isole la technologie, c'est le service IA, qui offre le même contrat quel que soit le moteur, ce
+contrat lu strictement par les adaptateurs, puis le cache, le journal et les tentatives réseau. Ce qui
+isole l'incertitude, c'est autre chose : les droits filtrés avant le prompt, les citations vérifiées par
+le domaine, les tentatives du cas d'usage, et désormais la validation de la forme. La première liste rend
+le modèle remplaçable. La seconde empêche une sortie douteuse d'arriver jusqu'à l'utilisateur.
+
+L'heuristique a ses limites. Elle peut rejeter à tort une réponse française qui cite un long intitulé
+anglais (« the General Data Protection Regulation… »). Elle peut aussi laisser passer un raisonnement
+déversé en français, s'il ne contient aucun des marqueurs recherchés. C'est la limite annoncée en S3.1 :
+un test déterministe attrape une classe d'erreurs, et l'évaluation statistique, avec les instantanés,
+mesure le reste.
+
+Enfin, côté compilateur : un décorateur qui implémente `IGenerator` peut servir partout où le port est
+attendu, et il ne peut ni oublier une méthode ni se tromper de signature. L'erreur apparaîtrait à la
+compilation, et non à l'exécution devant un utilisateur. Le prix à payer : ajouter une méthode au port
+oblige à modifier tous les décorateurs. C'est le signe qu'un port doit rester petit.

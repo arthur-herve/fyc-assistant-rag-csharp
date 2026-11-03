@@ -86,6 +86,8 @@ public static class Composition
             ["seed"] = settings.Seed,
             ["prompt"] = settings.PromptName,
             ["max_attempts"] = settings.MaxAttempts,
+            ["validate_output"] = config.Decorator("validate_output", true),
+            ["max_output_chars"] = config.DecoratorInt("max_output_chars", 1500),
         };
         var recordSnapshot = new RecordSnapshot(askQuestion, snapshots, clock, configuration);
         return new Container(indexCorpus, askQuestion, searchPassages, recordSnapshot, snapshots,
@@ -95,8 +97,9 @@ public static class Composition
     /// <summary>
     /// Empile les décorateurs choisis dans la section "decorators" (séquence 4.1), de l'intérieur
     /// vers l'extérieur. Les nouvelles tentatives sont au plus près du réseau. Viennent ensuite le
-    /// journal des embeddings et le cache. Côté génération, le journal des générations enveloppe les
-    /// tentatives. Les cas d'usage ne voient que les ports.
+    /// journal des embeddings et le cache. Côté génération, la validation de la sortie, qui est une
+    /// règle métier, est enveloppée par le journal des générations, pour que celui-ci montre aussi
+    /// les rejets. Les cas d'usage ne voient que les ports.
     /// <paramref name="currentIndex"/> renvoie le manifeste de l'index courant : le cache
     /// d'embeddings ne sert que cet index.
     /// </summary>
@@ -116,6 +119,10 @@ public static class Composition
         if (config.Decorator("cache_embeddings", false))
         {
             embedder = new CachedEmbedder(embedder, currentIndex);
+        }
+        if (config.Decorator("validate_output", true))
+        {
+            generator = new OutputValidatingGenerator(generator, config.DecoratorInt("max_output_chars", 1500));
         }
         if (config.Decorator("log", false))
         {
