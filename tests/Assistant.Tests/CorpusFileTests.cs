@@ -59,7 +59,8 @@ public class CorpusFileTests
     [InlineData("\u001d")]
     [InlineData("\u001e")]
     public void Only_lf_and_crlf_end_a_line_the_rest_stays_in_the_text(string separator) =>
-        // Le texte lu est celui qu'on indexe. Aucun autre séparateur ne doit y devenir un saut de ligne.
+        // Le texte lu est celui qu'on indexe et dont on calcule l'empreinte. Aucun autre séparateur ne doit y devenir
+        // un saut de ligne.
         Assert.Equal($"Un.{separator}Deux.", MarkdownCorpus.Parse($"---\nid: a\ngroupes: tous\n---\nUn.{separator}Deux.").Text);
 
     [Theory]

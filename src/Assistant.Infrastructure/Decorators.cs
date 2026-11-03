@@ -9,8 +9,8 @@ using Assistant.Application;
 namespace Assistant.Infrastructure;
 
 /// <summary>
-/// Garde en mémoire, dans le processus, les vecteurs des questions déjà posées. Un cache d'embeddings
-/// dérive de l'index, comme l'index dérive du modèle.
+/// Garde en mémoire, dans le processus, les vecteurs des questions déjà posées. La séquence 4.2 en tire
+/// une leçon : un cache d'embeddings dérive de l'index, comme l'index dérive du modèle.
 /// Ce cache ne sert donc que l'index courant, que lui donne <c>currentIndex</c>. Un nouvel index le vide,
 /// même quand le nom du modèle n'a pas changé, comme avec un moteur qui ne fournit pas d'empreinte. Le cache
 /// ne mélange ainsi jamais deux index.
@@ -19,7 +19,7 @@ namespace Assistant.Infrastructure;
 /// Les documents ne passent jamais par le cache : une indexation doit refléter le modèle servi
 /// <i>maintenant</i>, pas celui d'une indexation précédente.
 /// Limite assumée : une question déjà posée ne repart pas au service. C'est donc une question nouvelle
-/// qui révèle un changement du modèle servi.
+/// qui révèle un changement du modèle servi, ou bien <c>status</c>, qui n'utilise pas ce cache.
 /// </summary>
 public sealed class CachedEmbedder : IEmbedder
 {

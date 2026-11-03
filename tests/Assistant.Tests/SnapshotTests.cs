@@ -31,7 +31,7 @@ public class SnapshotTests
         var (snapshot, store) = Record("ref", ScriptedGenerator.WithModel("llm-a", "Deux jours [1]."));
         Assert.Equal(new[] { "answered", "answered", "no_relevant_source" }, snapshot.Entries.Select(e => e.Status));
         Assert.Equal("llm-a", snapshot.Configuration["generation_model_id"]);
-        Assert.True(snapshot.Configuration.ContainsKey("embedding_model_id"));
+        Assert.True(snapshot.Configuration.ContainsKey("index_id"));
         Assert.Same(snapshot, store.Load("ref"));
     }
 

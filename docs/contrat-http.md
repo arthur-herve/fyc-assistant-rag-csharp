@@ -15,7 +15,7 @@ du côté de l'application.
 Une exploration antérieure de l'équipe faisait l'inverse : l'index vivait dans le service, avec les
 routes `/index/reset`, `/index/upsert` et `/index/search`, cette dernière filtrant par droits
 d'accès. Ce contrat ne reprend pas ces routes, et c'est voulu. La règle d'accès reste dans le
-domaine, et l'index reste une donnée de l'application.
+domaine, et l'index reste une donnée que l'application sait décrire avec `status`.
 
 ## `GET /health` (ou `HEAD`)
 

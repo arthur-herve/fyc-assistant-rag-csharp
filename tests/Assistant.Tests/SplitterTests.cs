@@ -34,6 +34,14 @@ public class SplitterTests
     }
 
     [Fact]
+    public void Describe_gives_the_type_and_the_max_chars_of_the_splitter()
+    {
+        var describe = new ParagraphSplitter(300, 50).Describe();
+        Assert.Equal(300, describe["max_chars"]);
+        Assert.Equal("paragraph", describe["type"]);
+    }
+
+    [Fact]
     public void The_splitter_turns_crlf_into_lf_and_keeps_a_lone_cr()
     {
         // Les lecteurs de corpus ramènent déjà les fins de ligne à « \n », mais un Document construit dans le code peut

@@ -19,6 +19,13 @@ public class AskQuestionTests
     }
 
     [Fact]
+    public void The_trace_names_the_prompt_version()
+    {
+        var answer = Build.Ask(new ScriptedGenerator("Deux jours par semaine [1].")).Execute(Fakes.Alice, "Combien de jours de télétravail ?");
+        Assert.Equal("test-v1", answer.Trace.PromptVersion);
+    }
+
+    [Fact]
     public void Does_not_call_the_model_without_relevant_passage()
     {
         var generator = new ScriptedGenerator("ne devrait pas être appelé [1]");
@@ -66,7 +73,7 @@ public class AskQuestionTests
     [Fact]
     public void A_passage_containing_the_placeholder_is_not_substituted_twice()
     {
-        var template = new PromptTemplate("t", "s", "P: {passages} Q: {question}");
+        var template = new PromptTemplate("t", "v", "s", "P: {passages} Q: {question}");
         Assert.Equal("P: texte {question} Q: réelle ?", template.Render("réelle ?", "texte {question}"));
     }
 

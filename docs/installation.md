@@ -82,10 +82,11 @@ Dans le second, utilisez l'application :
 ```bash
 dotnet run --project src/Assistant.Cli -- index
 dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail par semaine ?"
+dotnet run --project src/Assistant.Cli -- status
 ```
 
 Vous devez obtenir une réponse qui cite sa source avec `[1]`, ici le document `teletravail` du corpus
-Solvéo.
+Solvéo. La commande `status` doit ensuite dire que l'index est « à jour ».
 
 Ce mode repose sur deux modèles très simples. `hashing` calcule des embeddings par hachage des mots,
 sans rien avoir appris, et `extractive` recopie la phrase la plus proche de la question. Tous deux sont
@@ -185,7 +186,7 @@ production, placez-le derrière un proxy authentifié.
 | `HTTP 502 — … Ollama est-il lancé sur http://127.0.0.1:11434 ?` | Ollama est arrêté | `ollama serve` |
 | `HTTP 502 — empreinte de … introuvable … (modèles installés : …)` | le modèle n'est pas téléchargé, ou son nom n'est pas écrit comme dans `ollama list` | `ollama pull <modèle>`, ou corrigez `model` dans `config/ai_service.toml` |
 | `HTTP 502 — … a changé pendant l'appel` | un `ollama pull` a eu lieu pendant la requête | relancez la commande |
-| `L'index a été construit avec « … » mais le modèle d'embeddings actuel est « … »` | vous avez changé de modèle d'embeddings | c'est voulu (séquence 3.2) : relancez `index` avec ce modèle |
+| `L'index a été construit avec « … » mais le modèle d'embeddings actuel est « … »` | vous avez changé de modèle d'embeddings | c'est voulu (séquence 3.2) : relancez `index` avec ce modèle, ou `index --if-stale` |
 | `Erreur : prompt introuvable : … dans … (connus : answer, answer-v2)` | nom mal tapé dans `--prompt` ou dans `generation.prompt` de la configuration | choisissez un des prompts connus |
 | `dotnet : commande introuvable` | SDK non installé, ou PATH pas encore mis à jour | rouvrez le terminal après l'installation, puis vérifiez avec `dotnet --info` |
 | `NETSDK1045`, ou un message sur la « version du SDK » | SDK plus ancien que 8.0 | installez le SDK 8.0 (étape 1) |

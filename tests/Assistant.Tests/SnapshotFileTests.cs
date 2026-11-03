@@ -144,7 +144,7 @@ public class SnapshotFileTests
     private static readonly Dictionary<string, object?> Configuration = new()
     {
         ["corpus"] = "solveo", ["embedding_model"] = "hashing", ["splitter"] = Splitter, ["top_k"] = 4, ["min_score"] = 0.4,
-        ["temperature"] = 1.0, ["seed"] = null,
+        ["temperature"] = 1.0, ["seed"] = null, ["index_id"] = "id",
     };
 
     private static readonly Snapshot Reference = new("ref", "2026-09-11T12:00:00+00:00", Configuration, new[]

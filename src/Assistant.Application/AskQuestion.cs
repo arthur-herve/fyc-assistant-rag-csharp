@@ -79,7 +79,7 @@ public sealed class AskQuestion
         if (relevant.Count == 0)
         {
             return new Answer(question, AnswerStatus.NoRelevantSource, Messages.NoRelevantSource, Array.Empty<Source>(),
-                new AnswerTrace(manifest.EmbeddingModel, null, retrieved,
+                new AnswerTrace(manifest.IndexId, manifest.EmbeddingModel, null, null, retrieved,
                                 _settings.MinScore, 0, Array.Empty<string>()));
         }
 
@@ -114,18 +114,18 @@ public sealed class AskQuestion
                     .Select(n => new Source(n, relevant[n - 1].Chunk.DocumentId, relevant[n - 1].Chunk.DocumentTitle, relevant[n - 1].Chunk.Id))
                     .ToList();
                 return new Answer(question, AnswerStatus.Answered, generation.Text.Trim(), sources,
-                    Trace(manifest, generationModel, retrieved, attempt, rawOutputs));
+                    Trace(manifest, generationModel, template.Version, retrieved, attempt, rawOutputs));
             }
         }
 
         // Règle métier : pas de réponse non sourcée. On renvoie plutôt les passages, que l'utilisateur lira lui-même.
         var all = relevant.Select((p, i) => new Source(i + 1, p.Chunk.DocumentId, p.Chunk.DocumentTitle, p.Chunk.Id)).ToList();
         return new Answer(question, AnswerStatus.Unsourced, Messages.Unsourced, all,
-            Trace(manifest, generationModel, retrieved, _settings.MaxAttempts, rawOutputs));
+            Trace(manifest, generationModel, template.Version, retrieved, _settings.MaxAttempts, rawOutputs));
     }
 
-    private AnswerTrace Trace(IndexManifest manifest, string? generationModel,
+    private AnswerTrace Trace(IndexManifest manifest, string? generationModel, string promptVersion,
                               IReadOnlyList<Retrieved> retrieved, int attempts, List<string> rawOutputs) =>
-        new(manifest.EmbeddingModel, generationModel, retrieved,
+        new(manifest.IndexId, manifest.EmbeddingModel, generationModel, promptVersion, retrieved,
             _settings.MinScore, attempts, rawOutputs.ToList());
 }

@@ -181,9 +181,11 @@ public sealed class BenchmarkRunTests : EvalRunTestBase
     [Fact]
     public void The_benchmark_uses_the_prompt_it_is_given()
     {
-        // Avec --prompt, le rapport nomme le prompt utilisé.
+        // Avec --prompt, le rapport nomme la version du prompt utilisé.
         var options = Options("banc-prompt") with { PromptName = "answer-v2" };
         Benchmark.Run(_config, options, _ => { });
-        Assert.Contains("prompt `answer-v2`", File.ReadAllText(Path.Combine(options.OutDir, "rapport.md")));
+        var prompts = Composition.Build(_config, new Overrides()).Prompts;
+        Assert.NotEqual(prompts.Get("answer").Version, prompts.Get("answer-v2").Version);
+        Assert.Contains($"prompt `{prompts.Get("answer-v2").Version}`", File.ReadAllText(Path.Combine(options.OutDir, "rapport.md")));
     }
 }

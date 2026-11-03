@@ -1,4 +1,4 @@
-// Adaptateurs de fichiers : les prompts, les instantanés en JSON, et l'horloge système.
+// Adaptateurs de fichiers : les prompts versionnés, les instantanés en JSON, et l'horloge système.
 // La lecture stricte de l'UTF-8 (TextFiles) et du JSON (JsonText) vient de src/Shared. Le corpus,
 // l'index, le client du service IA et la ligne de commande s'en servent aussi.
 
@@ -10,7 +10,10 @@ namespace Assistant.Infrastructure;
 
 /// <summary>
 /// Prompts rangés dans des fichiers JSON versionnés avec le code, <c>prompts/&lt;nom&gt;.json</c>, qui
-/// contiennent deux textes : system et user.
+/// contiennent trois textes : version, system et user. La version inscrite dans les traces combine la
+/// version déclarée et une empreinte du contenu. Un prompt modifié sans changer de version se voit
+/// donc quand même dans les traces. L'empreinte porte sur ces trois textes et non sur le fichier :
+/// un commentaire (une clé « _… ») ou une autre mise en forme ne la change pas.
 /// </summary>
 public sealed class FilePromptRepository : IPromptRepository
 {
@@ -27,12 +30,15 @@ public sealed class FilePromptRepository : IPromptRepository
         try
         {
             var data = JsonText.Parse(TextFiles.ReadUtf8(path)) as JsonObject;
-            if (JsonFiles.Text(data, "system") is not { } system || JsonFiles.Text(data, "user") is not { } user)
+            if (JsonFiles.Text(data, "version") is not { } version || JsonFiles.Text(data, "system") is not { } system
+                || JsonFiles.Text(data, "user") is not { } user)
             {
-                // Les prompts s'éditent à la main : le message doit dire quoi corriger, et dans quel fichier.
-                throw new FormatException("il faut deux textes, system et user");
+                // Les prompts s'éditent à la main (docs/artefacts.md) : le message doit dire quoi corriger,
+                // et dans quel fichier.
+                throw new FormatException("il faut trois textes, version, system et user");
             }
-            return new PromptTemplate(name, system.Trim(), user.Trim());
+            (system, user) = (system.Trim(), user.Trim());
+            return new PromptTemplate(name, $"{version}+{Fingerprint(version, system, user)}", system, user);
         }
         catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
         {
@@ -55,6 +61,13 @@ public sealed class FilePromptRepository : IPromptRepository
             ? Array.Empty<string>()
             : Directory.GetFiles(_directory, "*.json").Select(p => Path.GetFileNameWithoutExtension(p))
                        .OrderBy(n => n, StringComparer.Ordinal).ToList();
+
+    /// <summary>
+    /// Empreinte canonique d'un prompt : les 8 premiers caractères hexadécimaux du SHA-256 de version,
+    /// system et user, séparés par des sauts de ligne. Les fins de ligne sont normalisées avant le calcul.
+    /// </summary>
+    public static string Fingerprint(string version, string system, string user) =>
+        Fingerprints.Sha256Hex($"{version}\n{system}\n{user}".Replace("\r\n", "\n"))[..8];
 }
 
 /// <summary>Instantanés conservés en fichiers JSON lisibles, un par nom.</summary>

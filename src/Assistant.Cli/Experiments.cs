@@ -324,17 +324,17 @@ public static class Experiments
         {
             ($"avant ({before.SplitterMaxChars} / {before.SplitterOverlapChars})", Experiment.Merge(new Dictionary<string, object?>
             {
-                ["morceaux"] = manifestA.ChunkCount, ["indexation (s)"] = Math.Round(secondsA, 1),
+                ["morceaux"] = manifestA.ChunkCount, ["indexation (s)"] = Math.Round(secondsA, 1), ["identifiant de l'index"] = manifestA.IndexId,
             }, exp.Stats(snapshotA))),
             ($"après ({maxChars} / {overlap})", Experiment.Merge(new Dictionary<string, object?>
             {
-                ["morceaux"] = manifestB.ChunkCount, ["indexation (s)"] = Math.Round(secondsB, 1),
+                ["morceaux"] = manifestB.ChunkCount, ["indexation (s)"] = Math.Round(secondsB, 1), ["identifiant de l'index"] = manifestB.IndexId,
             }, exp.Stats(snapshotB))),
         });
         Drift(exp, comparison);
         exp.Log("## Lecture");
         exp.Log("");
-        exp.Log("- Le nombre de morceaux change : le découpage fait partie de ce qui définit un index, au même titre que le corpus et le modèle.");
+        exp.Log("- L'identifiant de l'index change : le découpage fait partie de ce qui définit un index (manifeste), au même titre que le corpus et le modèle.");
         exp.Log("- Le seuil de pertinence n'a pas été recalibré : des morceaux plus courts donnent des scores différents, donc des refus et des réponses qui bougent sans qu'aucune règle métier n'ait changé. C'est le principe CACE : *changing anything changes everything*.");
         exp.Log("- Ce que le taux de dérive ne dit pas : laquelle des deux versions répond le mieux. Pour cela, regarder « bonne source » et « refus justes » ci-dessus, question par question.");
     }
@@ -414,12 +414,13 @@ public static class Experiments
         Console.WriteLine($"Après : {other}");
         var containerB = exp.Build("partage", new Overrides(GenerationModel: other));
         var (snapshotB, secondsB) = exp.Record("apres", containerB);
+        var sameIndex = Equals(snapshotA.Configuration.GetValueOrDefault("index_id"), snapshotB.Configuration.GetValueOrDefault("index_id"));
 
         static int Rejected(Snapshot snapshot) => snapshot.Entries.Count(e => e.Status == Experiment.Unsourced);
 
         var comparison = SnapshotComparer.Compare(snapshotA, snapshotB);
-        exp.Log($"Une seule chose change : le modèle de génération, `{first}` → `{other}`. L'index ({manifest.ChunkCount} morceaux, `{manifest.EmbeddingModel}`, "
-                + $"{manifest.Dimension} dim.) est construit une fois et partagé : **il n'est reconstruit à aucun moment**.");
+        exp.Log($"Une seule chose change : le modèle de génération, `{first}` → `{other}`. L'index `{manifest.IndexId}` est construit une fois et partagé : "
+                + (sameIndex ? "**il n'est reconstruit à aucun moment**." : "ATTENTION, index différent."));
         exp.Log("");
         exp.Log("## Les deux générateurs");
         exp.Log("");
@@ -456,8 +457,8 @@ public static class Experiments
         var (snapshotB, _) = exp.Record("apres", containerB);
 
         var comparison = SnapshotComparer.Compare(snapshotA, snapshotB);
-        exp.Log($"Une seule chose change : le prompt, `{first}` → `{other}`. Même index ({manifest.ChunkCount} morceaux, `{manifest.EmbeddingModel}`, "
-                + $"{manifest.Dimension} dim.), même générateur, même seuil.");
+        exp.Log($"Une seule chose change : le prompt, `{first}` → `{other}` (versions `{snapshotA.Configuration.GetValueOrDefault("prompt_version")}` → "
+                + $"`{snapshotB.Configuration.GetValueOrDefault("prompt_version")}`). Même index `{manifest.IndexId}`, même générateur, même seuil.");
         exp.Log("");
         exp.Log("## Les deux prompts");
         exp.Log("");
@@ -465,20 +466,20 @@ public static class Experiments
         {
             ($"avant (`{first}`)", Experiment.Merge(new Dictionary<string, object?>
             {
-                ["longueur moyenne des réponses"] = MeanLength(snapshotA),
+                ["version tracée"] = snapshotA.Configuration.GetValueOrDefault("prompt_version"), ["longueur moyenne des réponses"] = MeanLength(snapshotA),
             }, exp.Stats(snapshotA))),
             ($"après (`{other}`)", Experiment.Merge(new Dictionary<string, object?>
             {
-                ["longueur moyenne des réponses"] = MeanLength(snapshotB),
+                ["version tracée"] = snapshotB.Configuration.GetValueOrDefault("prompt_version"), ["longueur moyenne des réponses"] = MeanLength(snapshotB),
             }, exp.Stats(snapshotB))),
         });
         Drift(exp, comparison);
         exp.Log("## Lecture");
         exp.Log("");
-        exp.Log("- Seul le prompt change entre les deux instantanés : la dérive est attribuable à cette seule modification.");
+        exp.Log("- La version du prompt (déclarée + empreinte du contenu) est dans chaque trace : la dérive est attribuable à cette seule modification.");
         exp.Log("- Ce que le prompt change (forme, longueur, ton) n'est pas ce que le domaine garantit (citations vérifiées, forme validée, droits filtrés). "
-                + "Deux lectures se défendent. Pour l'une, le prompt est une configuration, qu'on choisit avec le modèle comme on choisit le modèle lui-même. "
-                + "Pour l'autre, ses consignes portent des règles du métier, et il se teste comme du code.");
+                + "Ce dépôt retient une position : le prompt est construit et versionné dans l'application. "
+                + "La séquence 3.3 pose la question que ce choix laisse ouverte : le prompt est-il une configuration ou de la logique métier ?");
         exp.Log("- Avec `extractive` (hors-ligne), 0 % de dérive : ce générateur ignore les consignes. Un modèle qui ignore le prompt produit exactement cette signature.");
     }
 
@@ -502,8 +503,7 @@ public static class Experiments
         var effectiveSeed = container.Settings.Seed;   // --seed, sinon la graine de la configuration
         var snapshots = Enumerable.Range(1, runs).Select(i => exp.Record($"passage-{i}", container).Snapshot).ToList();
 
-        exp.Log($"Rien ne change entre les passages : même index ({manifest.ChunkCount} morceaux, `{manifest.EmbeddingModel}`, {manifest.Dimension} dim.), "
-                + $"même générateur `{snapshots[0].Configuration.GetValueOrDefault("generation_model_id")}`, "
+        exp.Log($"Rien ne change entre les passages : même index `{manifest.IndexId}`, même générateur `{snapshots[0].Configuration.GetValueOrDefault("generation_model_id")}`, "
                 + $"même prompt, même seuil, température {exp.Config.Temperature}, graine {(effectiveSeed?.ToString(CultureInfo.InvariantCulture) ?? "aucune")}.");
         exp.Log("");
         exp.Log("## Chaque passage comparé au premier");

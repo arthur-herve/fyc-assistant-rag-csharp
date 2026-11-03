@@ -46,10 +46,15 @@ public sealed class RecordSnapshot
             // autant d'entrées en erreur.
             var answer = _ask.Execute(q.User, q.Question);
             var trace = answer.Trace;
+            configuration.TryAdd("index_id", trace.IndexId);
             configuration.TryAdd("embedding_model_id", trace.EmbeddingModel);
             if (trace.GenerationModel is not null)
             {
                 configuration.TryAdd("generation_model_id", trace.GenerationModel);
+            }
+            if (trace.PromptVersion is not null)
+            {
+                configuration.TryAdd("prompt_version", trace.PromptVersion);
             }
             entries.Add(new SnapshotEntry(
                 q.Id, q.User.Id, q.Question, StatusNames.Of(answer.Status),

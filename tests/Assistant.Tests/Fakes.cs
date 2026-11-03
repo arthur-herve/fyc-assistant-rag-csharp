@@ -119,10 +119,10 @@ public sealed class WholeDocumentSplitter : ITextSplitter
 public sealed class StaticPrompts : IPromptRepository
 {
     public PromptTemplate Get(string name) =>
-        new(name, "Cite tes sources.", "Passages :\n{passages}\n\nQuestion : {question}");
+        new(name, "test-v1", "Cite tes sources.", "Passages :\n{passages}\n\nQuestion : {question}");
 }
 
-/// <summary>Toujours la même heure : deux instantanés se comparent octet pour octet.</summary>
+/// <summary>Toujours la même heure : deux manifestes ou instantanés se comparent octet pour octet.</summary>
 public sealed class FixedClock : IClock
 {
     public DateTimeOffset Moment { get; } = new(2026, 9, 11, 12, 0, 0, TimeSpan.Zero);
@@ -148,7 +148,7 @@ public static class Build
             Fakes.Doc("frais", "Le repas est plafonné à 25 euros, frais remboursés."),
             Fakes.Doc("grille", "Salaire senior : 56 000 à 68 000 euros.", "rh"),
         };
-        new IndexCorpus(new ListSource(docs), new WholeDocumentSplitter(), embedder ?? new KeywordEmbedder(), index).Execute();
+        new IndexCorpus(new ListSource(docs), new WholeDocumentSplitter(), embedder ?? new KeywordEmbedder(), index, new FixedClock()).Execute();
         return index;
     }
 

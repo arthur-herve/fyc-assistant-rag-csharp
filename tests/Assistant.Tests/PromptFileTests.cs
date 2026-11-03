@@ -9,7 +9,7 @@ namespace Assistant.Tests;
 
 public class PromptFileTests
 {
-    private const string Prompt = """{"system": "Réponds en français.", "user": "{question}"}""";
+    private const string Prompt = """{"version": "v1", "system": "Réponds en français.", "user": "{question}"}""";
 
     [Fact]
     public void A_byte_order_mark_changes_nothing()
@@ -24,7 +24,7 @@ public class PromptFileTests
     [Fact]
     public void A_prompt_saved_in_latin_1_names_the_file()
     {
-        // Sans ce refus, « Réponds » deviendrait « R�ponds » dans le prompt, sans rien dire.
+        // Sans ce refus, « Réponds » deviendrait « R�ponds » et la version du prompt changerait sans rien dire.
         using var dir = new TempDir();
         File.WriteAllBytes(dir.File("answer.json"), Encoding.Latin1.GetBytes(Prompt));
         var error = Assert.Throws<FormatException>(() => new FilePromptRepository(dir.Path).Get("answer"));
@@ -33,15 +33,15 @@ public class PromptFileTests
     }
 
     [Theory]
-    [InlineData("""{"system": "a"}""")]
-    [InlineData("""{"system": null, "user": "{question}"}""")]
+    [InlineData("""{"version": "v1", "system": "a"}""")]
+    [InlineData("""{"version": null, "system": "a", "user": "{question}"}""")]
     [InlineData("""null""")]
     public void A_missing_field_says_what_to_fix(string content)
     {
         using var dir = new TempDir();
         File.WriteAllText(dir.File("casse.json"), content);
         var error = Assert.Throws<FormatException>(() => new FilePromptRepository(dir.Path).Get("casse"));
-        Assert.Equal($"prompt illisible ({dir.File("casse.json")}) : il faut deux textes, system et user", error.Message);
+        Assert.Equal($"prompt illisible ({dir.File("casse.json")}) : il faut trois textes, version, system et user", error.Message);
     }
 
     [Fact]
@@ -58,9 +58,9 @@ public class PromptFileTests
     {
         // System.Text.Json garderait l'une des deux valeurs sans rien dire.
         using var dir = new TempDir();
-        File.WriteAllText(dir.File("answer.json"), Prompt.Replace("\"system\": ", "\"system\": \"Réponds.\", \"system\": "));
+        File.WriteAllText(dir.File("answer.json"), Prompt.Replace("\"version\": \"v1\"", "\"version\": \"v1\", \"version\": \"v2\""));
         var error = Assert.Throws<FormatException>(() => new FilePromptRepository(dir.Path).Get("answer"));
-        Assert.Equal($"prompt illisible ({dir.File("answer.json")}) : clé « system » en double", error.Message);
+        Assert.Equal($"prompt illisible ({dir.File("answer.json")}) : clé « version » en double", error.Message);
     }
 
     [Theory]
@@ -69,8 +69,20 @@ public class PromptFileTests
     public void A_prompt_is_trimmed_of_blanks_and_keeps_the_separator_x1c(string system, string kept)
     {
         using var dir = new TempDir();
-        File.WriteAllText(dir.File("answer.json"), $$"""{"system": "{{system}}", "user": "{question}"}""");
+        File.WriteAllText(dir.File("answer.json"), $$"""{"version": "v1", "system": "{{system}}", "user": "{question}"}""");
         var prompt = new FilePromptRepository(dir.Path).Get("answer");
         Assert.Equal(kept, prompt.System);
+    }
+
+    [Fact]
+    public void A_trimmed_blank_does_not_change_the_version()
+    {
+        using var dir = new TempDir();
+        string Version(string system)
+        {
+            File.WriteAllText(dir.File("answer.json"), $$"""{"version": "v1", "system": "{{system}}", "user": "{question}"}""");
+            return new FilePromptRepository(dir.Path).Get("answer").Version;
+        }
+        Assert.Equal(Version("Réponds."), Version(@"Réponds.\u2028"));
     }
 }

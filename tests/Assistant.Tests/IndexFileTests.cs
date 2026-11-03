@@ -14,9 +14,9 @@ namespace Assistant.Tests;
 /// </summary>
 public class IndexFileTests
 {
-    // La clé « x », que la lecture ignore, reçoit les valeurs de plusieurs cas ci-dessous.
-    private const string Index = """{"manifest": {"embedding_model": "m", "dimension": 2, "document_count": 1, "chunk_count": 1}, "chunks": [{"id": "a#0","""
-        + """ "document_id": "a", "document_title": "Congés", "text": "x", "position": 0, "allowed_groups": ["tous"]}], "vectors": [[0.6, 0.8]], "x": 0}""";
+    private const string Index = """{"manifest": {"index_id": "id", "embedding_model": "m", "dimension": 2, "corpus_fingerprint": "fp","""
+        + """ "splitter": {"x": 0}, "document_count": 1, "chunk_count": 1, "created_at": "t"}, "chunks": [{"id": "a#0","""
+        + """ "document_id": "a", "document_title": "Congés", "text": "x", "position": 0, "allowed_groups": ["tous"]}], "vectors": [[0.6, 0.8]]}""";
 
     private static IndexManifest? Read(TempDir dir, byte[] content)
     {
@@ -33,7 +33,7 @@ public class IndexFileTests
         // Un StreamReader remplacerait l'octet par « � » sans rien dire. La position se compte après la marque
         // d'ordre des octets.
         using var dir = new TempDir();
-        Assert.Equal("m", Read(dir, Bytes.WithBom(Encoding.UTF8.GetBytes(Index)))!.EmbeddingModel);
+        Assert.Equal("id", Read(dir, Bytes.WithBom(Encoding.UTF8.GetBytes(Index)))!.IndexId);
         foreach (var bytes in new[] { Encoding.Latin1.GetBytes(Index), Bytes.WithBom(Encoding.Latin1.GetBytes(Index)) })
         {
             var error = Assert.Throws<IndexUnreadableException>(() => Read(dir, bytes));
@@ -44,10 +44,10 @@ public class IndexFileTests
     /// <summary>Les mêmes cas de JSON non strict que pour les instantanés.</summary>
     public static TheoryData<string, string> NotStrict => new()
     {
-        { Index.Replace("\"embedding_model\": \"m\"", "\"embedding_model\": \"m\", \"embedding_model\": \"autre\""), "clé « embedding_model » en double" },
-        { Index.Replace("\"x\": 0", "\"x\": " + Bytes.Nested(64)), "JSON trop imbriqué : plus de 64 niveaux" },
+        { Index.Replace("\"index_id\": \"id\"", "\"index_id\": \"id\", \"index_id\": \"autre\""), "clé « index_id » en double" },
+        { Index.Replace("{\"x\": 0}", "{\"x\": " + Bytes.Nested(62) + "}"), "JSON trop imbriqué : plus de 64 niveaux" },
         { Index.Replace("\"text\": \"x\"", "\"text\": \"x\\ud800\""), Bytes.NotText },
-        { Index.Replace("\"x\": 0", "\"\\ud800\": 0"), Bytes.NotText },
+        { Index.Replace("{\"x\": 0}", "{\"\\ud800\": 0}"), Bytes.NotText },
     };
 
     [Theory]
@@ -63,20 +63,26 @@ public class IndexFileTests
     public void Sixty_four_levels_are_read()
     {
         using var dir = new TempDir();
-        Assert.Equal("m", Read(dir, Encoding.UTF8.GetBytes(Index.Replace("\"x\": 0", "\"x\": " + Bytes.Nested(63))))!.EmbeddingModel);
+        Assert.Equal("id", Read(dir, Encoding.UTF8.GetBytes(Index.Replace("{\"x\": 0}", "{\"x\": " + Bytes.Nested(61) + "}")))!.IndexId);
     }
 
     [Fact]
     public void An_integer_of_thousands_of_digits_is_read()
     {
         // L'index n'a pas de limite de chiffres, seules la configuration et GET /v1/models en ont une. Un entier de
-        // 5 000 chiffres placé dans le fichier se lit donc sans erreur.
+        // 5 000 chiffres placé dans le découpage se lit donc sans erreur.
         using var dir = new TempDir();
-        var index = Index.Replace("\"x\": 0", "\"x\": " + new string('1', 5000));
-        Assert.Equal("m", Read(dir, Encoding.UTF8.GetBytes(index))!.EmbeddingModel);
+        var index = Index.Replace("{\"x\": 0}", "{\"x\": " + new string('1', 5000) + "}");
+        Assert.Equal("id", Read(dir, Encoding.UTF8.GetBytes(index))!.IndexId);
     }
 
-    private static readonly IndexManifest Manifest = new("m", 2, 1, 2);
+    /// <summary>Un découpage dont les clés ne sont pas dans l'ordre.</summary>
+    private static readonly Dictionary<string, object> Splitter = new()
+    {
+        ["type"] = "paragraph", ["max_chars"] = 800, ["overlap_chars"] = 120, ["include_title"] = true,
+    };
+
+    private static readonly IndexManifest Manifest = new("id", "m", 2, "fp", Splitter, 1, 2, "2026-09-11T00:00:00+00:00");
 
     private static readonly Chunk[] Chunks =
     {
@@ -109,6 +115,16 @@ public class IndexFileTests
     }
 
     [Fact]
+    public void The_index_sorts_the_splitter_keys_it_writes()
+    {
+        // Le découpage est écrit dans le désordre. Relu par une seconde instance, il revient en clés triées.
+        using var dir = new TempDir();
+        new JsonVectorIndex(dir.File("index.json")).Replace(Manifest, Chunks, Vectors);
+        var read = new JsonVectorIndex(dir.File("index.json"));
+        Assert.Equal(Splitter.Keys.Order(StringComparer.Ordinal), read.Manifest()!.Splitter.Keys);
+    }
+
+    [Fact]
     public void An_index_file_missing_a_field_says_so()
     {
         // Le message d'une NullReferenceException ne dit rien d'utile : il est remplacé.
@@ -119,14 +135,14 @@ public class IndexFileTests
     }
 
     /// <summary>
-    /// Un objet vide, un index sans manifeste et un index au manifeste plus riche : aucun n'a le format attendu, et
-    /// le message donne la commande qui reconstruit l'index.
+    /// Un objet vide, un index sans manifeste et un index au manifeste réduit à quatre champs : aucun n'a le format
+    /// attendu, et le message donne la commande qui reconstruit l'index.
     /// </summary>
     public static TheoryData<string> OtherFormats => new()
     {
         "{}",
         """{"chunks": [], "vectors": []}""",
-        Index.Replace("\"chunk_count\": 1}", "\"chunk_count\": 1, \"splitter\": {\"type\": \"paragraph\"}, \"created_at\": \"t\"}"),
+        """{"manifest": {"embedding_model": "m", "dimension": 2, "document_count": 1, "chunk_count": 1}, "chunks": [], "vectors": []}""",
     };
 
     [Theory]

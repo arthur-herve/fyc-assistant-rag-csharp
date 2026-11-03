@@ -8,15 +8,17 @@ public sealed class IndexCorpus
     private readonly ITextSplitter _splitter;
     private readonly IEmbedder _embedder;
     private readonly IVectorIndex _index;
+    private readonly IClock _clock;
     private readonly int _batchSize;
 
     public IndexCorpus(IDocumentSource source, ITextSplitter splitter, IEmbedder embedder,
-                       IVectorIndex index, int batchSize = 32)
+                       IVectorIndex index, IClock clock, int batchSize = 32)
     {
         _source = source;
         _splitter = splitter;
         _embedder = embedder;
         _index = index;
+        _clock = clock;
         _batchSize = batchSize;
     }
 
@@ -53,11 +55,17 @@ public sealed class IndexCorpus
             vectors.AddRange(result.Vectors);
         }
 
+        var fingerprint = Fingerprints.Corpus(documents);
+        var splitter = _splitter.Describe();
         var manifest = new IndexManifest(
+            IndexId: Fingerprints.IndexId(fingerprint, model!, dimension, splitter),
             EmbeddingModel: model!,
             Dimension: dimension,
+            CorpusFingerprint: fingerprint,
+            Splitter: splitter,
             DocumentCount: documents.Count,
-            ChunkCount: chunks.Count);
+            ChunkCount: chunks.Count,
+            CreatedAt: _clock.Now().ToString("yyyy-MM-dd'T'HH:mm:ssK"));
         _index.Replace(manifest, chunks, vectors);
         return manifest;
     }

@@ -95,7 +95,8 @@ public sealed class JsonVectorIndex : InMemoryVectorIndex
 
     // Les champs du manifeste, dans l'ordre alphabétique. Un index écrit dans un autre format, sans manifeste ou
     // avec d'autres champs, n'est pas lu à moitié : le message dit de le reconstruire, et comment.
-    private static readonly string[] ManifestFields = { "chunk_count", "dimension", "document_count", "embedding_model" };
+    private static readonly string[] ManifestFields =
+        { "chunk_count", "corpus_fingerprint", "created_at", "dimension", "document_count", "embedding_model", "index_id", "splitter" };
 
     private readonly string _path;
     private bool _loaded;
@@ -123,9 +124,12 @@ public sealed class JsonVectorIndex : InMemoryVectorIndex
                 {
                     throw new FormatException("écrit dans un autre format");
                 }
+                var splitter = m["splitter"]!.AsObject()
+                    .ToDictionary(kv => kv.Key, kv => JsonValues.ToObject(kv.Value!), StringComparer.Ordinal);
                 var manifest = new IndexManifest(
-                    m["embedding_model"]!.GetValue<string>(), m["dimension"]!.GetValue<int>(),
-                    m["document_count"]!.GetValue<int>(), m["chunk_count"]!.GetValue<int>());
+                    m["index_id"]!.GetValue<string>(), m["embedding_model"]!.GetValue<string>(), m["dimension"]!.GetValue<int>(),
+                    m["corpus_fingerprint"]!.GetValue<string>(), splitter, m["document_count"]!.GetValue<int>(),
+                    m["chunk_count"]!.GetValue<int>(), m["created_at"]!.GetValue<string>());
                 var chunks = root["chunks"]!.AsArray().Select(c => new Chunk(
                     c!["id"]!.GetValue<string>(), c["document_id"]!.GetValue<string>(), c["document_title"]!.GetValue<string>(),
                     c["text"]!.GetValue<string>(), c["position"]!.GetValue<int>(),
@@ -174,10 +178,14 @@ public sealed class JsonVectorIndex : InMemoryVectorIndex
         {
             ["manifest"] = new JsonObject
             {
+                ["index_id"] = manifest.IndexId,
                 ["embedding_model"] = manifest.EmbeddingModel,
                 ["dimension"] = manifest.Dimension,
+                ["corpus_fingerprint"] = manifest.CorpusFingerprint,
+                ["splitter"] = JsonValues.FromDictionary(manifest.Splitter),
                 ["document_count"] = manifest.DocumentCount,
                 ["chunk_count"] = manifest.ChunkCount,
+                ["created_at"] = manifest.CreatedAt,
             },
             ["chunks"] = new JsonArray(chunks.Select(c => (JsonNode)new JsonObject
             {

@@ -12,6 +12,7 @@ public sealed record Container(
     IndexCorpus IndexCorpus,
     AskQuestion AskQuestion,
     SearchPassages SearchPassages,
+    CheckStatus CheckStatus,
     RecordSnapshot RecordSnapshot,
     ISnapshotStore Snapshots,
     IPromptRepository Prompts,
@@ -48,8 +49,9 @@ public static class Composition
         log ??= _ => { };
 
         var index = new JsonVectorIndex(overrides.IndexPath ?? config.IndexPath);
-        var (embedder, generator) = Decorate(new HttpEmbedder(config.AiBaseUrl, embeddingModel, config.Timeout),
-                                             new HttpGenerator(config.AiBaseUrl, generationModel, config.Timeout), config, log,
+        // L'adaptateur nu sert à `status` : un cache d'embeddings masquerait un changement de modèle servi.
+        var rawEmbedder = new HttpEmbedder(config.AiBaseUrl, embeddingModel, config.Timeout);
+        var (embedder, generator) = Decorate(rawEmbedder, new HttpGenerator(config.AiBaseUrl, generationModel, config.Timeout), config, log,
                                              currentIndex: index.Manifest);
         var source = new MarkdownCorpus(config.CorpusDir);
         var splitter = new ParagraphSplitter(overrides.SplitterMaxChars ?? config.SplitterMaxChars,
@@ -58,7 +60,7 @@ public static class Composition
         var prompts = new FilePromptRepository(PromptsDir);
         var clock = new SystemClock();
 
-        var indexCorpus = new IndexCorpus(source, splitter, embedder, index);
+        var indexCorpus = new IndexCorpus(source, splitter, embedder, index, clock);
         var settings = new AskSettings(
             TopK: config.TopK,
             MinScore: overrides.MinScore ?? config.MinScoreFor(embeddingModel),
@@ -69,10 +71,11 @@ public static class Composition
             PromptName: overrides.PromptName ?? config.PromptName);
         var askQuestion = new AskQuestion(embedder, index, generator, prompts, settings);
         var searchPassages = new SearchPassages(embedder, index);
+        var checkStatus = new CheckStatus(source, splitter, rawEmbedder, index, prompts, settings.PromptName);
         var snapshots = new JsonSnapshotStore(overrides.SnapshotsDir ?? config.SnapshotsDir);
         // L'empreinte de configuration d'un instantané : tout ce qui change les réponses côté application.
         // Les réglages propres au service IA, comme le budget de réflexion, n'y figurent pas, parce qu'ils
-        // vivent dans l'autre déployable. C'est une limite à nommer, pas un oubli.
+        // vivent dans l'autre déployable. C'est une limite à nommer (séquence 4.2), pas un oubli.
         var configuration = new Dictionary<string, object?>
         {
             ["corpus"] = Path.GetFileName(config.CorpusDir.TrimEnd(Path.DirectorySeparatorChar, '/')),
@@ -90,7 +93,7 @@ public static class Composition
             ["max_output_chars"] = config.DecoratorInt("max_output_chars", 1500),
         };
         var recordSnapshot = new RecordSnapshot(askQuestion, snapshots, clock, configuration);
-        return new Container(indexCorpus, askQuestion, searchPassages, recordSnapshot, snapshots,
+        return new Container(indexCorpus, askQuestion, searchPassages, checkStatus, recordSnapshot, snapshots,
                              prompts, settings, embeddingModel);
     }
 

@@ -36,10 +36,14 @@ public interface IGenerator
 
 /// <summary>Carte d'identité d'un index : sans elle, un index est inexplicable.</summary>
 public sealed record IndexManifest(
+    string IndexId,
     string EmbeddingModel,
     int Dimension,
+    string CorpusFingerprint,
+    IReadOnlyDictionary<string, object> Splitter,
     int DocumentCount,
-    int ChunkCount);
+    int ChunkCount,
+    string CreatedAt);
 
 public interface IVectorIndex
 {
@@ -63,8 +67,8 @@ public interface ITextSplitter
 
 // --- Prompts ---------------------------------------------------------------
 
-/// <summary>Prompt nommé : le texte système, et le message où l'on place les passages et la question.</summary>
-public sealed record PromptTemplate(string Name, string System, string User)
+/// <summary>Prompt versionné. Sa version fait partie de la trace de chaque réponse.</summary>
+public sealed record PromptTemplate(string Name, string Version, string System, string User)
 {
     /// <summary>Remplacement en une seule passe : un « {question} » écrit dans un passage reste tel quel.</summary>
     public string Render(string question, string passages) =>

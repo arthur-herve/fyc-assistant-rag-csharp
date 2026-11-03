@@ -23,12 +23,20 @@ public static class Presenter
     public static JsonObject Splitter(IReadOnlyDictionary<string, object> splitter) =>
         JsonSerializer.SerializeToNode(splitter)!.AsObject();
 
+    // Les clés du découpage sont triées pour que la sortie ne dépende pas de leur ordre dans le fichier d'index.
+    private static JsonObject SortedSplitter(IReadOnlyDictionary<string, object> splitter) =>
+        Splitter(new SortedDictionary<string, object>(splitter.ToDictionary(kv => kv.Key, kv => kv.Value), StringComparer.Ordinal));
+
     public static JsonObject ManifestToJson(IndexManifest m) => new()
     {
+        ["index_id"] = m.IndexId,
         ["embedding_model"] = m.EmbeddingModel,
         ["dimension"] = m.Dimension,
+        ["corpus_fingerprint"] = m.CorpusFingerprint,
+        ["splitter"] = SortedSplitter(m.Splitter),
         ["document_count"] = m.DocumentCount,
         ["chunk_count"] = m.ChunkCount,
+        ["created_at"] = m.CreatedAt,
     };
 
     public static JsonObject AnswerToJson(Answer answer, bool includeRaw = false)
@@ -36,8 +44,10 @@ public static class Presenter
         var t = answer.Trace;
         var trace = new JsonObject
         {
+            ["index_id"] = t.IndexId,
             ["embedding_model"] = t.EmbeddingModel,
             ["generation_model"] = t.GenerationModel,
+            ["prompt_version"] = t.PromptVersion,
             ["retrieved"] = new JsonArray(t.Retrieved.Select(r => (JsonNode)new JsonObject { ["chunk_id"] = r.ChunkId, ["score"] = r.Score }).ToArray()),
             ["min_score"] = t.MinScore,
             ["attempts"] = t.Attempts,
@@ -60,7 +70,7 @@ public static class Presenter
     }
 
     /// <summary>
-    /// Le JSON affiché par index et ask --json.
+    /// Le JSON affiché par index, ask --json et status --json.
     /// Il est indenté et garde les accents tels quels.
     /// </summary>
     public static string ToJson(JsonNode node) => node.ToJsonString(Json);
@@ -80,7 +90,7 @@ public static class Presenter
         var t = answer.Trace;
         lines.AppendLine();
         lines.AppendLine($"statut={StatusNames.Of(answer.Status)} · embeddings={t.EmbeddingModel} · génération={t.GenerationModel ?? "—"} · "
-                         + $"tentatives={t.Attempts}");
+                         + $"prompt={t.PromptVersion ?? "—"} · index={t.IndexId} · tentatives={t.Attempts}");
         if (verbose)
         {
             lines.AppendLine($"seuil={F(t.MinScore)}");
@@ -92,6 +102,54 @@ public static class Presenter
             {
                 // Chaque sortie brute s'écrit en chaîne JSON, sauts de ligne échappés : elle tient sur une ligne.
                 lines.AppendLine($"  sortie brute {i + 1} : {JsonSerializer.Serialize(t.RawOutputs[i], Json)}");
+            }
+        }
+        return lines.ToString().TrimEnd();
+    }
+
+    public static JsonObject StatusToJson(StatusReport r) => new()
+    {
+        ["up_to_date"] = r.UpToDate,
+        ["unverified"] = r.Unverified,
+        ["issues"] = new JsonArray(r.Issues.Select(i => (JsonNode)i).ToArray()),
+        ["index"] = r.Index is null ? null : ManifestToJson(r.Index),
+        ["corpus"] = new JsonObject { ["documents"] = r.CorpusDocuments, ["fingerprint"] = r.CorpusFingerprint },
+        ["splitter"] = SortedSplitter(r.Splitter),
+        ["ai_service"] = new JsonObject { ["embedding_model"] = r.EmbeddingModel, ["dimension"] = r.EmbeddingDimension, ["error"] = r.AiServiceError },
+        ["prompt_version"] = r.PromptVersion,
+    };
+
+    public static string StatusToText(StatusReport r)
+    {
+        var lines = new StringBuilder();
+        lines.AppendLine("État de l'assistant").AppendLine("===================");
+        if (r.Index is null)
+        {
+            lines.AppendLine("Index      : aucun");
+        }
+        else
+        {
+            var m = r.Index;
+            lines.AppendLine($"Index      : {m.IndexId} · {m.ChunkCount} morceaux de {m.DocumentCount} documents · construit le {m.CreatedAt}");
+            lines.AppendLine($"             modèle d'embeddings {m.EmbeddingModel} ({m.Dimension} dim.) · découpage {CheckStatus.Describe(m.Splitter)}");
+            lines.AppendLine($"             empreinte du corpus {m.CorpusFingerprint[..12]}…");
+        }
+        lines.AppendLine($"Corpus     : {r.CorpusDocuments} documents · empreinte {r.CorpusFingerprint[..12]}…");
+        lines.AppendLine($"Découpage  : {CheckStatus.Describe(r.Splitter)}");
+        lines.AppendLine(r.AiServiceError is not null
+            ? $"Service IA : en erreur ({r.AiServiceError})"
+            : $"Service IA : sert {r.EmbeddingModel} ({r.EmbeddingDimension} dim.)");
+        lines.AppendLine($"Prompt     : {r.PromptVersion}").AppendLine();
+        if (r.UpToDate)
+        {
+            lines.AppendLine("Verdict    : à jour, l'index est cohérent avec le corpus, le découpage et le modèle servi.");
+        }
+        else
+        {
+            lines.AppendLine(r.Unverified ? "Verdict    : NON VÉRIFIÉ (corpus et découpage cohérents, modèle servi inconnu)" : "Verdict    : À REFAIRE");
+            foreach (var issue in r.Issues)
+            {
+                lines.AppendLine($"  - {issue}");
             }
         }
         return lines.ToString().TrimEnd();

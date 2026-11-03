@@ -114,7 +114,7 @@ public sealed class CliTests : CliTestBase
     {
         using var ai = new FakeAiService();
         var config = WriteConfig(ai.Url);
-        foreach (var argv in new[] { new[] { "index" }, new[] { "snapshot", "list" } })
+        foreach (var argv in new[] { new[] { "index" }, new[] { "status" }, new[] { "snapshot", "list" } })
         {
             var run = Run(argv.Append("--config").Append(config).ToArray());
             Assert.Equal((0, ""), (run.Code, run.Err));

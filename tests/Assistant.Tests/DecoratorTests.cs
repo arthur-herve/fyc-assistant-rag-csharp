@@ -28,10 +28,13 @@ public class DecoratorTests
         }
     }
 
-    // Deux manifestes construits ici avec les mêmes valeurs sont égaux (==), comme deux index reconstruits à
-    // l'identique. Le cache doit pourtant y voir deux index différents.
+    // Un seul dictionnaire de découpage, partagé : comme un record compare un dictionnaire par référence, deux
+    // manifestes construits ici sont égaux (==), comme deux index reconstruits à l'identique. Le cache doit
+    // pourtant y voir deux index différents.
+    private static readonly Dictionary<string, object> Whole = new() { ["type"] = "whole" };
+
     private static IndexManifest Manifest(string model = "fake-keywords", int dimension = 8) =>
-        new(model, dimension, 1, 1);
+        new("idx", model, dimension, "empreinte", Whole, 1, 1, "2026-09-21T12:00:00");
 
     [Fact]
     public void Cache_embeds_the_same_question_once()
@@ -47,7 +50,7 @@ public class DecoratorTests
     [Fact]
     public void Cache_never_stores_documents()
     {
-        // Une réindexation doit refléter le modèle servi maintenant.
+        // Une réindexation doit refléter le modèle servi maintenant (S4.2).
         var inner = new KeywordEmbedder();
         var index = Manifest();
         var cached = new CachedEmbedder(inner, () => index);

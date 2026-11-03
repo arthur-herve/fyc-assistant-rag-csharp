@@ -233,7 +233,7 @@ public static class Benchmark
 
     public static BenchmarkSummary Run(AppConfig config, BenchmarkOptions options, Action<string> log)
     {
-        var (imposedMinScore, promptName) = CheckOptions(config, options);
+        var (imposedMinScore, promptVersion) = CheckOptions(config, options);
         // Toutes les options sont vérifiées avant d'interroger le service IA : une faute de frappe se signale sans lui.
         AiService.Require(config.AiBaseUrl);
         // Le dossier par défaut, daté à la seconde, est toujours neuf. Un dossier donné par --out peut déjà exister.
@@ -291,17 +291,17 @@ public static class Benchmark
             ["include_title"] = config.SplitterIncludeTitle,
         };
         File.WriteAllText(Path.Combine(outDir, "rapport.md"),
-            Report(summary, options.Runs, options.Questions.Count, promptName, splitter, config), new UTF8Encoding(false));
+            Report(summary, options.Runs, options.Questions.Count, promptVersion, splitter, config), new UTF8Encoding(false));
         log($"\nRapport : {Path.Combine(outDir, "rapport.md").Replace('\\', '/')}");   // avec des « / », la sortie est la même sous Windows et Linux
         return summary;
     }
 
     /// <summary>
     /// Vérifie toutes les options avant la première indexation et avant de créer le dossier de sortie, pour qu'une
-    /// erreur se voie avant tout calcul. Renvoie le nom du prompt et le seuil imposé par --min-score, qui vaut
+    /// erreur se voie avant tout calcul. Renvoie la version du prompt et le seuil imposé par --min-score, qui vaut
     /// null avec config ou auto.
     /// </summary>
-    private static (double? ImposedMinScore, string PromptName) CheckOptions(AppConfig config, BenchmarkOptions options)
+    private static (double? ImposedMinScore, string PromptVersion) CheckOptions(AppConfig config, BenchmarkOptions options)
     {
         foreach (var q in options.Questions.Concat(options.Validation ?? Array.Empty<EvalQuestion>()))
         {
@@ -316,7 +316,7 @@ public static class Benchmark
         // un prompt introuvable à sa lecture juste en dessous : les deux erreurs arrivent avant toute indexation.
         var container = Composition.Build(config, new Overrides(PromptName: options.PromptName, SplitterMaxChars: options.SplitterMaxChars,
                                                                 SplitterOverlapChars: options.SplitterOverlapChars));
-        return (imposed, container.Prompts.Get(container.Settings.PromptName).Name);
+        return (imposed, container.Prompts.Get(container.Settings.PromptName).Version);
     }
 
     /// <summary>
@@ -505,14 +505,14 @@ public static class Benchmark
         return generation;
     }
 
-    private static string Report(BenchmarkSummary summary, int runs, int questionCount, string promptName,
+    private static string Report(BenchmarkSummary summary, int runs, int questionCount, string promptVersion,
                                  IReadOnlyDictionary<string, object> splitter, AppConfig config)
     {
         var lines = new List<string>
         {
             $"# Banc d'essai — {DateTime.Now:yyyy-MM-dd HH:mm}",
             "",
-            $"{questionCount} questions · {runs} passage(s) par question · prompt `{promptName}` · "
+            $"{questionCount} questions · {runs} passage(s) par question · prompt `{promptVersion}` · "
             + $"découpage `{Presenter.Splitter(splitter).ToJsonString()}` · top_k={config.TopK} · température={config.Temperature}",
             "",
             "## Recherche (sans génération)",

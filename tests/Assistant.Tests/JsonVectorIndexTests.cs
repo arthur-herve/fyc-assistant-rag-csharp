@@ -17,12 +17,12 @@ public class JsonVectorIndexTests
         {
             var path = Path.Combine(dir.FullName, "index.json");
             var index = new JsonVectorIndex(path);
-            var manifest = new IndexManifest("m", 2, 1, 2);
+            var manifest = new IndexManifest("id", "m", 2, "fp", new Dictionary<string, object> { ["type"] = "whole" }, 1, 2, "t");
             var chunks = new[] { new Chunk("a#0", "a", "A", "x", 0, new HashSet<string> { "tous" }), new Chunk("a#1", "a", "A", "y", 1, new HashSet<string> { "rh" }) };
             index.Replace(manifest, chunks, new[] { new[] { 1.0, 0.0 }, new[] { 0.0, 1.0 } });
 
             var reloaded = new JsonVectorIndex(path);
-            Assert.Equal("m", reloaded.Manifest()!.EmbeddingModel);
+            Assert.Equal("id", reloaded.Manifest()!.IndexId);
             var hits = reloaded.Search(new[] { 0.9, 0.1 }, 2, c => c.AllowedGroups.Contains("tous"));
             Assert.Single(hits);
             Assert.Equal("a#0", hits[0].Chunk.Id);
@@ -33,7 +33,8 @@ public class JsonVectorIndexTests
         }
     }
 
-    private static readonly IndexManifest Manifest2 = new("m", 2, 1, 2);
+    private static readonly IndexManifest Manifest2 =
+        new("id", "m", 2, "fp", new Dictionary<string, object> { ["type"] = "whole" }, 1, 2, "t");
 
     private static readonly Chunk[] TwoChunks =
     {

@@ -231,7 +231,7 @@ public class AiServiceResponseTests
     public void Separators_at_the_edges_reach_the_ai_service_and_stay_in_the_answer()
     {
         var index = new FakeIndex();
-        index.Replace(new IndexManifest("m", 1, 1, 1),
+        index.Replace(new IndexManifest("id", "m", 1, "fp", new Dictionary<string, object>(), 1, 1, "t"),
             new[] { new Chunk("a#0", "a", "A", "\u2028\u001cDeux jours par semaine.\u001c ", 0, new HashSet<string> { "tous" }) },
             new[] { new[] { 1.0 } });
         using var embedder = new FixedAnswerService(Encoding.UTF8.GetBytes("""{"model": "m", "dimension": 1, "vectors": [[1.0]]}"""));

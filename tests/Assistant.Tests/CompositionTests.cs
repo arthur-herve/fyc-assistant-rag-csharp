@@ -1,5 +1,5 @@
 // La racine de composition, montée avec la configuration livrée, cache d'embeddings compris, contre un faux service IA
-// dont on change ce qu'il sert en cours de route.
+// dont on change ce qu'il sert en cours de route (séquence 4.2).
 
 using Assistant.Application;
 using Assistant.Cli;
@@ -41,6 +41,7 @@ public sealed class CompositionTests : IDisposable
 
         Assert.Equal("faux:modele-a", container.IndexCorpus.Execute().EmbeddingModel);
         container.SearchPassages.Execute(alice, Question, 4);                  // mémorisée par le cache
+        Assert.True(container.CheckStatus.Execute().UpToDate);
 
         // Nouveau modèle derrière le même alias, avec la même dimension : sans contrôle, la panne serait silencieuse.
         _ai.Model = "faux:modele-b";
@@ -48,10 +49,12 @@ public sealed class CompositionTests : IDisposable
         Assert.Equal("faux:modele-a", container.SearchPassages.Execute(alice, Question, 4).Manifest.EmbeddingModel);
         Assert.Throws<IndexModelMismatchException>(                           // question nouvelle : changement détecté
             () => container.SearchPassages.Execute(alice, "Quel est le plafond d'un repas d'affaires ?", 4));
+        Assert.False(container.CheckStatus.Execute().UpToDate);                // status n'utilise pas le cache
 
         // La réindexation suit le modèle servi, et la question déjà posée repart au service.
         Assert.Equal("faux:modele-b", container.IndexCorpus.Execute().EmbeddingModel);
         Assert.Equal("faux:modele-b", container.SearchPassages.Execute(alice, Question, 4).Manifest.EmbeddingModel);
+        Assert.True(container.CheckStatus.Execute().UpToDate);
     }
 
     [Fact]
@@ -65,7 +68,7 @@ public sealed class CompositionTests : IDisposable
 
         _ai.Offset = 3.0;
         var after = container.IndexCorpus.Execute();
-        Assert.Equal(before, after);   // rien, dans le manifeste, ne trahit le changement
+        Assert.Equal(before.IndexId, after.IndexId);   // rien, dans l'identifiant, ne trahit le changement
         var again = container.SearchPassages.Execute(alice, Question, 4).Passages.Select(p => (p.Chunk.Id, p.Score));
         var fresh = Build().SearchPassages.Execute(alice, Question, 4).Passages.Select(p => (p.Chunk.Id, p.Score));
         Assert.Equal(fresh, again);

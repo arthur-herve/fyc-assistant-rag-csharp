@@ -1,7 +1,8 @@
 // La ligne de commande de l'application. C'est un adaptateur entrant.
 //
-//     dotnet run --project src/Assistant.Cli -- index
+//     dotnet run --project src/Assistant.Cli -- index [--if-stale]
 //     dotnet run --project src/Assistant.Cli -- ask "Combien de jours de télétravail ?" --user alice -v
+//     dotnet run --project src/Assistant.Cli -- status
 //     dotnet run --project src/Assistant.Cli -- snapshot record reference --questions eval/questions.json
 //     dotnet run --project src/Assistant.Cli -- snapshot compare reference candidat
 //
@@ -20,8 +21,9 @@ public static class Program
         Usage : assistant <commande> [options]
 
         Commandes :
-          index                          indexer le corpus
+          index                          indexer le corpus   (--if-stale : seulement si status dit « à refaire »)
           ask "<question>"               poser une question   (--user <nom>, défaut : alice ; --json ; -v : trace complète)
+          status                         l'index est-il cohérent avec le corpus, le découpage et le modèle servi ?   (--json)
           snapshot record <nom>          enregistrer un instantané   (--questions eval/questions.json, --limit N, au moins 1)
           snapshot compare <a> <b>       comparer deux instantanés
           snapshot list                  lister les instantanés
@@ -34,7 +36,7 @@ public static class Program
                            -v, --verbose : journal des décorateurs (toutes les commandes, sauf benchmark)
         La commande vient d'abord, puis ses options. Une option inconnue, abrégée ou d'une autre commande, ou un argument en trop, est une erreur.
         « -- » termine les options : ce qui suit est un argument, même un mot qui commence par un tiret (ask -- -télétravail) ; sans « -- », un tel mot n'est un argument que s'il est « - », un nombre négatif, ou si son nom (ce qui précède un éventuel « = ») contient une espace (ask "-vingt degrés ?").
-        Codes de retour : 0 ok · 1 erreur, saisie comprise
+        Codes de retour : 0 ok · 1 erreur, saisie comprise · status : 2 à refaire, 3 non vérifié · index --if-stale : 3 non vérifié
         """;
 
     public static int Main(string[] args)
@@ -109,6 +111,28 @@ public static class Program
         {
             case "index":
             {
+                if (args.Has("--if-stale"))
+                {
+                    // Le cycle « réentraînement » d'un RAG : détecter que l'index ne
+                    // correspond plus au corpus, au découpage ou au modèle servi (status),
+                    // puis le reconstruire. Rien n'est réappris : on recalcule un dérivé.
+                    var report = container.CheckStatus.Execute();
+                    if (report.UpToDate)
+                    {
+                        Console.WriteLine("Index à jour : rien à refaire.");
+                        return 0;
+                    }
+                    if (report.Unverified)
+                    {
+                        Console.Error.WriteLine("Index non vérifié : le service IA n'a pas pu être interrogé, impossible de réindexer.");
+                        return 3;
+                    }
+                    Console.WriteLine("Index à refaire :");
+                    foreach (var issue in report.Issues)
+                    {
+                        Console.WriteLine($"  - {issue}");
+                    }
+                }
                 var manifest = container.IndexCorpus.Execute();
                 Console.WriteLine(Presenter.ToJson(Presenter.ManifestToJson(manifest)));
                 return 0;
@@ -121,6 +145,12 @@ public static class Program
                     ? Presenter.ToJson(Presenter.AnswerToJson(answer, includeRaw: verbose))
                     : Presenter.AnswerToText(answer, verbose));
                 return 0;
+            }
+            case "status":
+            {
+                var report = container.CheckStatus.Execute();
+                Console.WriteLine(args.Has("--json") ? Presenter.ToJson(Presenter.StatusToJson(report)) : Presenter.StatusToText(report));
+                return report.UpToDate ? 0 : report.Unverified ? 3 : 2;
             }
             case "snapshot":
                 return Snapshot(args, config, container);
@@ -172,8 +202,9 @@ public static class Program
     /// <summary>Chaque commande et ses options.</summary>
     private static readonly Dictionary<string, Command> Commands = new Command[]
     {
-        new("index", Common),
+        new("index", Common.Append("--if-stale").ToArray()),
         new("ask", Common.Concat(new[] { "--user", "--json" }).ToArray(), new(1, OneQuestion), Searches: true, Extra: OneQuestion),
+        new("status", Common.Append("--json").ToArray()),
         new("snapshot record", Common.Concat(new[] { "--questions", "--limit" }).ToArray(), new(1, "snapshot record attend un nom"),
             Searches: true),
         new("snapshot compare", Common, new(2, "snapshot compare attend deux noms")),
@@ -280,7 +311,7 @@ public static class Program
 /// <summary>Analyse minimale des arguments : positionnels, drapeaux, options à une ou plusieurs valeurs.</summary>
 public sealed class Args
 {
-    private static readonly HashSet<string> Flags = new() { "-v", "--verbose", "--json", "--help", "-h" };
+    private static readonly HashSet<string> Flags = new() { "-v", "--verbose", "--json", "--help", "-h", "--if-stale" };
     private static readonly HashSet<string> MultiValued = new() { "--embedding", "--generation" };
     // Les options entières de toutes les commandes : voir EnsureIntegers.
     private static readonly HashSet<string> Integers = new() { "--limit", "--runs", "--max-chars", "--overlap-chars", "--seed" };

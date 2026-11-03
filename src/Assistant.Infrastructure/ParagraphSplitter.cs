@@ -1,6 +1,6 @@
 // Adaptateur : découpage des documents en morceaux. Les paramètres de découpage changent les
-// réponses (principe CACE, séquence 3.2), c'est pourquoi ils sont enregistrés dans la configuration
-// des instantanés.
+// réponses (principe CACE, séquence 3.2), c'est pourquoi ils sont enregistrés dans le manifeste
+// de l'index.
 //
 // MaxChars borne le texte du morceau en unités UTF-16, celles de string.Length, où un emoji compte pour deux.
 // Avec IncludeTitle, le titre du document s'y ajoute parce qu'il aide la recherche. Un morceau peut donc

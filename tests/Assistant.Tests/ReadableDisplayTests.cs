@@ -86,6 +86,19 @@ public sealed class ReadableDisplayTests
     }
 
     [Fact]
+    public void The_status_and_the_manifest_sort_the_splitter_keys()
+    {
+        var manifest = new IndexManifest("d5276d0355c9", "hashing-256-stem6", 256, new string('0', 64), Splitter, 9, 15, "2026-09-11");
+        var report = new StatusReport(manifest, 9, new string('0', 64), Splitter, "hashing-256-stem6", 256, null, "v1", Array.Empty<string>());
+        const string described = "{include_title: true, max_chars: 800, overlap_chars: 120, type: paragraph}";
+        Assert.Contains($"· découpage {described}", Presenter.StatusToText(report));
+        Assert.Contains($"Découpage  : {described}", Presenter.StatusToText(report));
+        var sorted = new[] { "include_title", "max_chars", "overlap_chars", "type" };
+        Assert.Equal(sorted, Presenter.ManifestToJson(manifest)["splitter"]!.AsObject().Select(kv => kv.Key));
+        Assert.Equal(sorted, Presenter.StatusToJson(report)["splitter"]!.AsObject().Select(kv => kv.Key));
+    }
+
+    [Fact]
     public void The_configuration_values()
     {
         // Les valeurs s'écrivent null, true et false, plutôt que rien, True et False. Un réel s'écrit avec un point, et
@@ -103,7 +116,7 @@ public sealed class ReadableDisplayTests
         // échappés. Relue, elle redonne la sortie telle quelle, y compris espaces insécables, emoji et caractères de
         // contrôle.
         const string raw = "Deux\u00a0jours\u202f! \U0001F600\u2028\u001b\u007f \"q\" \\ \n\t";
-        var trace = new AnswerTrace("hashing-256-stem6", "extractive",
+        var trace = new AnswerTrace("d5276d0355c9", "hashing-256-stem6", "extractive", "v1",
                                     new[] { new Retrieved("teletravail#0", 0.5276), new Retrieved("conges#0", 0.0) }, 2.0, 1,
                                     new[] { "Deux jours.\n[1]", raw });
         var text = Presenter.AnswerToText(new Answer("?", AnswerStatus.Answered, "Deux jours. [1]", Array.Empty<Source>(), trace), verbose: true)
@@ -120,7 +133,7 @@ public sealed class ReadableDisplayTests
 
     /// <summary>Une réponse aux textes délicats de Bytes.Special, qui cite un document au titre accentué.</summary>
     private static readonly Answer Sample = new("Combien ?", AnswerStatus.Answered, Bytes.Special, new[] { new Source(1, "a", "Congés", "a#0") },
-        new AnswerTrace("hashing", "extractive", new[] { new Retrieved("a#0", 1.0), new Retrieved("a#1", 0.25) },
+        new AnswerTrace("id", "hashing", "extractive", "v1+abc", new[] { new Retrieved("a#0", 1.0), new Retrieved("a#1", 0.25) },
                         0.4, 1, Array.Empty<string>()));
 
     [Fact]
